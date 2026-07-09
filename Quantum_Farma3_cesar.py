@@ -5190,6 +5190,155 @@ def _rf_vendas_resumo(dados=None):
     return linhas, total
 
 
+def _rf_produto_categoria_lookup(dados=None):
+    """Monta índices de categoria dos produtos por id/código e por nome.
+
+    Como o item da venda normalmente não guarda a categoria, buscamos a
+    categoria no cadastro de produtos usando o id ou o nome do produto."""
+    dados = dados or _rf_load_all()
+    by_id = {}
+    by_nome = {}
+    produtos = dados.get('produtos')
+
+    def _reg(p, chave_dict=None):
+        if not isinstance(p, dict):
+            return
+        cat = _rf_get(p, 'categoria', 'grupo', 'category', 'categoria_nome')
+        if chave_dict not in (None, ''):
+            by_id[str(chave_dict)] = cat
+        pid = _rf_get(p, 'id', 'codigo', 'codigo_barras', 'produto_id')
+        if pid not in (None, ''):
+            by_id[str(pid)] = cat
+        nome = _rf_get(p, 'nome', 'descricao', 'produto', 'name')
+        if nome:
+            by_nome[str(nome).strip().lower()] = cat
+
+    if isinstance(produtos, dict):
+        for pid, p in produtos.items():
+            _reg(p, pid)
+    elif isinstance(produtos, list):
+        for p in produtos:
+            _reg(p)
+    return by_id, by_nome
+
+
+def _rf_produtos_vendidos(dados=None, data_ini=None, data_fim=None,
+                          filtro_produto='', filtro_categoria='', filtro_num_venda=''):
+    """Gera as linhas do relatório de PRODUTOS VENDIDOS (uma linha por item vendido).
+
+    Filtros suportados:
+      - data_ini / data_fim: intervalo de datas (inclusivo);
+      - filtro_produto: parte do nome do produto (contém);
+      - filtro_categoria: parte da categoria/grupo (contém);
+      - filtro_num_venda: parte do número da venda/cupom (contém).
+    Retorna (linhas, total_qtd, total_valor)."""
+    dados = dados or _rf_load_all()
+    vendas = _rf_iter_values(dados.get('vendas'))
+    by_id, by_nome = _rf_produto_categoria_lookup(dados)
+
+    di = _rf_parse_date(data_ini) if data_ini else None
+    df = _rf_parse_date(data_fim) if data_fim else None
+    fp = (filtro_produto or '').strip().lower()
+    fc = (filtro_categoria or '').strip().lower()
+    fnv = (filtro_num_venda or '').strip().lower()
+
+    linhas = []
+    total_qtd = 0.0
+    total_valor = 0.0
+
+    for v in vendas:
+        if not isinstance(v, dict):
+            continue
+        data_raw = _rf_get(v, 'data', 'data_venda', 'timestamp', 'created_at')
+        data_venda = _rf_parse_date(data_raw)
+        num_venda = str(_rf_get(v, 'coupon_number', 'numero_venda', 'numero',
+                                'cupom', 'numero_cupom', 'id') or '')
+        usuario = _rf_get(v, 'usuario', 'operador', 'vendedor_nome', 'vendedor') or ''
+        cliente = _rf_get(v, 'cliente_nome', 'cliente', 'customer') or ''
+        forma = _rf_get(v, 'forma_pagamento', 'pagamento') or ''
+        status = _rf_get(v, 'status') or 'finalizada'
+
+        # Filtro por intervalo de datas.
+        if di and (not data_venda or data_venda < di):
+            continue
+        if df and (not data_venda or data_venda > df):
+            continue
+        # Filtro por número da venda/cupom.
+        if fnv and fnv not in num_venda.lower():
+            continue
+
+        itens = v.get('itens')
+        if isinstance(itens, dict):
+            item_pairs = list(itens.items())
+        elif isinstance(itens, list):
+            item_pairs = [(None, it) for it in itens]
+        else:
+            item_pairs = []
+
+        for chave, item in item_pairs:
+            if not isinstance(item, dict):
+                continue
+            nome = _rf_get(item, 'nome', 'descricao', 'produto', 'name') or ''
+            qtd = _rf_safe_money(_rf_get(item, 'quantidade', 'qtd',
+                                         'quantidade_peso', 'quantity'))
+            if qtd == 0:
+                qtd = 1
+            preco = _rf_safe_money(_rf_get(item, 'preco_unit', 'preco',
+                                           'preco_unitario', 'valor_unitario', 'price'))
+            subtotal = _rf_safe_money(_rf_get(item, 'subtotal', 'total'))
+            if subtotal == 0 and preco:
+                subtotal = preco * qtd
+
+            # Categoria: tenta no próprio item; senão busca no cadastro por id/nome.
+            cat = _rf_get(item, 'categoria', 'grupo', 'category')
+            if not cat:
+                pid = _rf_get(item, 'id', 'produto_id', 'codigo', 'codigo_barras')
+                if pid in (None, '') and chave is not None:
+                    pid = chave
+                if pid not in (None, '') and str(pid) in by_id:
+                    cat = by_id.get(str(pid), '')
+                if not cat and nome:
+                    cat = by_nome.get(str(nome).strip().lower(), '')
+
+            # Filtros por produto e categoria.
+            if fp and fp not in str(nome).lower():
+                continue
+            if fc and fc not in str(cat or '').lower():
+                continue
+
+            total_qtd += qtd
+            total_valor += subtotal
+            try:
+                qtd_disp = int(qtd) if float(qtd).is_integer() else round(qtd, 3)
+            except Exception:
+                qtd_disp = qtd
+
+            linhas.append({
+                'Produto': nome or '(sem nome)',
+                'Qtd': qtd_disp,
+                'Data': _rf_fmt_date(data_raw) or str(data_raw or ''),
+                'Nº Venda': num_venda or '-',
+                'Usuário': usuario or '-',
+                'Status': status,
+                'Categoria': cat or '-',
+                'Preço Unit.': _rf_money(preco),
+                'Subtotal': _rf_money(subtotal),
+                'Cliente': cliente or '-',
+                'Pagamento': forma or '-',
+            })
+
+    # Ordena por data (mais recentes primeiro) mantendo estabilidade.
+    def _chave_ordem(l):
+        d = _rf_parse_date(l.get('Data'))
+        return d or datetime.date.min
+    try:
+        linhas.sort(key=_chave_ordem, reverse=True)
+    except Exception:
+        pass
+
+    return linhas, total_qtd, total_valor
+
+
 def _rf_html_escape(s):
     return str(s).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('"','&quot;')
 
@@ -5329,6 +5478,12 @@ class FarmaciaRelatoriosImpressoesWindow:
         self.formato_var = tk.StringVar(value='A4')
         self.acao_var = tk.StringVar(value='abrir')
         self.dias_var = tk.StringVar(value='30')
+        # Filtros do relatório "Produtos vendidos".
+        self.f_data_ini = tk.StringVar(value='')
+        self.f_data_fim = tk.StringVar(value='')
+        self.f_produto = tk.StringVar(value='')
+        self.f_categoria = tk.StringVar(value='')
+        self.f_num_venda = tk.StringVar(value='')
         self._last_path = ''
         self._build()
         self._preview()
@@ -5353,6 +5508,7 @@ class FarmaciaRelatoriosImpressoesWindow:
             ('Serviços farmacêuticos agendados', 'servicos'),
             ('Pós-venda / CRM / WhatsApp', 'crm'),
             ('Vendas recentes / fechamento comercial', 'vendas'),
+            ('Produtos vendidos (com filtros)', 'produtos_vendidos'),
             ('Dashboard executivo da farmácia', 'dashboard'),
         ]
         combo = ttk.Combobox(left, textvariable=self.report_var, values=[v for t,v in opts], state='readonly', width=34)
@@ -5371,6 +5527,24 @@ class FarmaciaRelatoriosImpressoesWindow:
         ttk.Button(right, text='🧾 Gerar/Imprimir', command=self._gerar).pack(side='left', padx=3)
         ttk.Button(right, text='📂 Abrir último', command=self._abrir_ultimo).pack(side='left', padx=3)
         ttk.Button(right, text='❌ Fechar', command=self.win.destroy).pack(side='left', padx=3)
+        # ── Filtros do relatório "Produtos vendidos" ──────────────────────────
+        filtros = ttk.LabelFrame(main, text='🔎 Filtros (Produtos vendidos)')
+        filtros.pack(fill='x', pady=(0, 6))
+        ttk.Label(filtros, text='Data inicial (dd/mm/aaaa):').grid(row=0, column=0, sticky='w', padx=4, pady=2)
+        ttk.Entry(filtros, textvariable=self.f_data_ini, width=14).grid(row=1, column=0, sticky='w', padx=4, pady=(0, 4))
+        ttk.Label(filtros, text='Data final (dd/mm/aaaa):').grid(row=0, column=1, sticky='w', padx=4, pady=2)
+        ttk.Entry(filtros, textvariable=self.f_data_fim, width=14).grid(row=1, column=1, sticky='w', padx=4, pady=(0, 4))
+        ttk.Label(filtros, text='Nome do produto:').grid(row=0, column=2, sticky='w', padx=4, pady=2)
+        ttk.Entry(filtros, textvariable=self.f_produto, width=22).grid(row=1, column=2, sticky='we', padx=4, pady=(0, 4))
+        ttk.Label(filtros, text='Categoria:').grid(row=0, column=3, sticky='w', padx=4, pady=2)
+        ttk.Entry(filtros, textvariable=self.f_categoria, width=18).grid(row=1, column=3, sticky='we', padx=4, pady=(0, 4))
+        ttk.Label(filtros, text='Nº da venda:').grid(row=0, column=4, sticky='w', padx=4, pady=2)
+        ttk.Entry(filtros, textvariable=self.f_num_venda, width=12).grid(row=1, column=4, sticky='w', padx=4, pady=(0, 4))
+        ttk.Button(filtros, text='🔎 Aplicar filtros', command=self._preview).grid(row=1, column=5, sticky='w', padx=6, pady=(0, 4))
+        ttk.Button(filtros, text='🧹 Limpar filtros', command=self._limpar_filtros).grid(row=1, column=6, sticky='w', padx=2, pady=(0, 4))
+        for _c in (2, 3):
+            try: filtros.grid_columnconfigure(_c, weight=1)
+            except Exception: pass
         info = ttk.Frame(main); info.pack(fill='x', pady=(0,6))
         self.status_var = tk.StringVar(value='')
         ttk.Label(info, textvariable=self.status_var, foreground='#065f46').pack(anchor='w')
@@ -5392,7 +5566,7 @@ class FarmaciaRelatoriosImpressoesWindow:
         ttk.Label(frame_help, text='Modelos disponíveis', font=('Segoe UI', 10, 'bold')).pack(anchor='w')
         help_txt = tk.Text(frame_help, height=12, wrap='word')
         help_txt.pack(fill='both', expand=True)
-        help_txt.insert('1.0', 'A4: gera HTML em página A4 com botão de impressão.\n\nBobina 80mm: texto térmico com largura aproximada de 48 colunas.\n\nBobina 58mm: texto térmico com largura aproximada de 32 colunas.\n\nOs arquivos são salvos na pasta relatorios_farmacia dentro da pasta de dados do sistema.\n\nRelatórios incluídos: validade/lote, estoque baixo, tratamentos contínuos, prontuário, controlados/SNGPC, PBM/convênios, campanhas, serviços, CRM e vendas.')
+        help_txt.insert('1.0', 'A4: gera HTML em página A4 com botão de impressão.\n\nBobina 80mm: texto térmico com largura aproximada de 48 colunas.\n\nBobina 58mm: texto térmico com largura aproximada de 32 colunas.\n\nOs arquivos são salvos na pasta relatorios_farmacia dentro da pasta de dados do sistema.\n\nRelatórios incluídos: validade/lote, estoque baixo, tratamentos contínuos, prontuário, controlados/SNGPC, PBM/convênios, campanhas, serviços, CRM, vendas e PRODUTOS VENDIDOS.\n\nPRODUTOS VENDIDOS: lista uma linha por item vendido com produto, quantidade, data, nº da venda, usuário que vendeu, status, categoria, preço unitário, subtotal, cliente e forma de pagamento. Use os campos de Filtros para restringir por período (data inicial/final), nome do produto, categoria e número da venda. Deixe os filtros em branco para trazer tudo.')
         help_txt.config(state='disabled')
 
     def _montar(self):
@@ -5422,6 +5596,32 @@ class FarmaciaRelatoriosImpressoesWindow:
         elif tipo == 'vendas':
             linhas, total = _rf_vendas_resumo(self.dados)
             resumo = f'Vendas recentes listadas: {len(linhas)}. Total aproximado: {_rf_money(total)}.'
+        elif tipo == 'produtos_vendidos':
+            linhas, tot_qtd, tot_valor = _rf_produtos_vendidos(
+                self.dados,
+                data_ini=self.f_data_ini.get(),
+                data_fim=self.f_data_fim.get(),
+                filtro_produto=self.f_produto.get(),
+                filtro_categoria=self.f_categoria.get(),
+                filtro_num_venda=self.f_num_venda.get(),
+            )
+            filtros_txt = []
+            if self.f_data_ini.get().strip() or self.f_data_fim.get().strip():
+                filtros_txt.append('período %s a %s' % (self.f_data_ini.get().strip() or '...', self.f_data_fim.get().strip() or '...'))
+            if self.f_produto.get().strip():
+                filtros_txt.append('produto "%s"' % self.f_produto.get().strip())
+            if self.f_categoria.get().strip():
+                filtros_txt.append('categoria "%s"' % self.f_categoria.get().strip())
+            if self.f_num_venda.get().strip():
+                filtros_txt.append('venda nº "%s"' % self.f_num_venda.get().strip())
+            filtro_desc = (' • Filtros: ' + '; '.join(filtros_txt)) if filtros_txt else ' • Sem filtros aplicados'
+            try:
+                qtd_disp = int(tot_qtd) if float(tot_qtd).is_integer() else round(tot_qtd, 3)
+            except Exception:
+                qtd_disp = tot_qtd
+            resumo = (f'Produtos vendidos: {len(linhas)} item(ns). '
+                      f'Quantidade total: {qtd_disp}. '
+                      f'Valor total: {_rf_money(tot_valor)}.{filtro_desc}')
         elif tipo == 'dashboard':
             venc = len(_rf_alertas_vencimentos_produtos(self.dados, dias=dias))
             est = len(_rf_estoque_baixo(self.dados))
@@ -5447,6 +5647,18 @@ class FarmaciaRelatoriosImpressoesWindow:
         else:
             linhas = []
         return titulo, linhas, resumo
+
+    def _limpar_filtros(self):
+        """Limpa os filtros do relatório de produtos vendidos e atualiza a prévia."""
+        try:
+            self.f_data_ini.set('')
+            self.f_data_fim.set('')
+            self.f_produto.set('')
+            self.f_categoria.set('')
+            self.f_num_venda.set('')
+            self._preview()
+        except Exception:
+            pass
 
     def _preview(self):
         try:
@@ -5521,6 +5733,7 @@ def _rf_patch_app():
                 menu.add_command(label='💊 Tratamentos contínuos / recompra', command=self.open_relatorios_farmacia)
                 menu.add_command(label='🏥 Prontuários ambulatoriais', command=self.open_relatorios_farmacia)
                 menu.add_command(label='📋 Controlados / PBM / Serviços / CRM', command=self.open_relatorios_farmacia)
+                menu.add_command(label='🛒 Produtos vendidos (filtros: data, produto, categoria, nº venda)', command=self.open_relatorios_farmacia)
                 menubar.add_cascade(label='📊 Relatórios Farma', menu=menu)
                 self.root.bind('<Control-Alt-r>', lambda event: self.open_relatorios_farmacia())
                 self.root.bind('<Control-Alt-R>', lambda event: self.open_relatorios_farmacia())
