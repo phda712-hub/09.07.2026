@@ -75476,37 +75476,67 @@ STATUS: {status.upper()}
             return str(sale.get('coupon_number') or sale.get('numero') or sale.get('numero_venda')
                        or sale.get('cupom') or sale.get('id') or sale.get('venda_id') or '').strip()
 
+        # Índice: id da categoria -> nome. (self.categories = {id: {'nome': ...}})
+        cat_id_to_nome = {}
+        try:
+            for _cid, _cdata in (getattr(self, 'categories', {}) or {}).items():
+                if isinstance(_cdata, dict):
+                    _cn = str(_cdata.get('nome') or _cdata.get('name') or '').strip()
+                elif _cdata not in (None, ''):
+                    _cn = str(_cdata).strip()
+                else:
+                    _cn = ''
+                if _cn:
+                    cat_id_to_nome[str(_cid)] = _cn
+        except Exception:
+            pass
+
+        def _nome_categoria(valor):
+            """Converte um id (ou valor bruto) de categoria no nome legível."""
+            v = str(valor or '').strip()
+            if not v:
+                return ''
+            # Se for um id conhecido, devolve o nome cadastrado.
+            if v in cat_id_to_nome:
+                return cat_id_to_nome[v]
+            # Caso contrário, assume que já é o próprio nome da categoria.
+            return v
+
         def _categoria_produto(pid, item):
-            # 1) categoria no próprio item da venda
-            cat = str(item.get('categoria') or item.get('grupo') or item.get('category') or '').strip()
-            if cat:
-                return cat
-            # 2) categoria no cadastro do produto (por id)
+            # 1) id/categoria informado no próprio item da venda.
+            raw = (item.get('category_id') or item.get('categoria_id') or item.get('categoria')
+                   or item.get('grupo') or item.get('category') or '')
+            nome_cat = _nome_categoria(raw)
+            if nome_cat and not str(nome_cat).isdigit():
+                return nome_cat
+            # 2) cadastro do produto (buscado pelo id do produto).
             prod = getattr(self, 'products', {}).get(str(pid), {}) if isinstance(getattr(self, 'products', {}), dict) else {}
             if isinstance(prod, dict):
-                cat = str(prod.get('categoria') or prod.get('grupo') or prod.get('categoria_nome') or '').strip()
-                if cat:
-                    return cat
+                raw = (prod.get('category_id') or prod.get('categoria_id') or prod.get('categoria')
+                       or prod.get('grupo') or prod.get('categoria_nome') or '')
+                nome_cat = _nome_categoria(raw)
+                if nome_cat:
+                    return nome_cat
             return ''
 
-        # Índice de categorias por nome (fallback quando itens vêm como lista).
+        # Índice: nome do produto -> nome da categoria (fallback p/ itens em lista).
         cat_por_nome = {}
         try:
             for _p in (getattr(self, 'products', {}) or {}).values():
                 if isinstance(_p, dict):
                     _n = str(_p.get('nome') or '').strip().lower()
-                    _c = str(_p.get('categoria') or _p.get('grupo') or '').strip()
+                    _raw = (_p.get('category_id') or _p.get('categoria_id') or _p.get('categoria')
+                            or _p.get('grupo') or '')
+                    _c = _nome_categoria(_raw)
                     if _n and _c:
                         cat_por_nome[_n] = _c
         except Exception:
             pass
 
-        # Lista de categorias existentes para o combo.
-        categorias_existentes = sorted({
-            str((p or {}).get('categoria') or (p or {}).get('grupo') or '').strip()
-            for p in (getattr(self, 'products', {}) or {}).values()
-            if isinstance(p, dict) and str((p or {}).get('categoria') or (p or {}).get('grupo') or '').strip()
-        })
+        # Lista de nomes de categorias para o combo de filtro.
+        categorias_existentes = sorted({v for v in cat_id_to_nome.values() if v})
+        if not categorias_existentes:
+            categorias_existentes = sorted({c for c in cat_por_nome.values() if c})
 
         hoje = datetime.date.today()
 
@@ -75637,9 +75667,11 @@ STATUS: {status.upper()}
                     qtd = parse_br_float(item.get('quantidade_peso', item.get('quantidade', item.get('qtd', 1)))) or 0.0
                     if qtd == 0:
                         qtd = 1.0
-                    preco = parse_br_float(item.get('preco', item.get('valor_unitario', item.get('preco_unit', 0)))) or 0.0
+                    preco = parse_br_float(item.get('preco', item.get('valor_unitario', item.get('preco_unit', item.get('preco_unitario', 0))))) or 0.0
                     sub = parse_br_float(item.get('subtotal', item.get('total', None)))
-                    if sub is None:
+                    # Se o subtotal não veio (None) ou veio zerado mas há preço,
+                    # recalcula a partir de quantidade x preço unitário.
+                    if sub is None or (not sub and preco):
                         desc = parse_br_float(item.get('desconto', 0.0)) or 0.0
                         acr = parse_br_float(item.get('acrescimo', 0.0)) or 0.0
                         sub = max(0.0, qtd * preco - desc + acr)
