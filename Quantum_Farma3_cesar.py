@@ -54068,7 +54068,93 @@ class CaixaWindow(tk.Toplevel):
         # Frame de botões
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill=tk.X, pady=(10, 0))
-        
+
+        # ── Relatório de PRODUTOS VENDIDOS DO DIA (perguntado após imprimir) ──
+        def _texto_produtos_vendidos_hoje():
+            """Gera o texto do relatório de produtos vendidos do dia atual."""
+            try:
+                app = getattr(self, 'parent_app', None)
+                if app and hasattr(app, 'gerar_texto_produtos_vendidos'):
+                    hoje = datetime.date.today()
+                    return app.gerar_texto_produtos_vendidos(data_ini=hoje, data_fim=hoje)
+            except Exception as e:
+                try:
+                    logger.error(f"Erro ao gerar relatório de produtos vendidos do dia: {e}")
+                except Exception:
+                    pass
+            return None, []
+
+        def _imprimir_texto_windows(txt):
+            """Imprime um texto usando o diálogo padrão do Windows."""
+            try:
+                import tempfile, sys
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+                    f.write(txt)
+                    temp_path = f.name
+                if sys.platform == 'win32':
+                    os.startfile(temp_path, 'print')
+                    return True
+                messagebox.showinfo("Info", f"Arquivo salvo em:\n{temp_path}", parent=dialog)
+                return True
+            except Exception as e:
+                messagebox.showerror("Erro", f"Erro ao imprimir produtos vendidos:\n{e}", parent=dialog)
+                return False
+
+        def _imprimir_texto_termica(txt):
+            """Imprime um texto na impressora térmica (respeita múltiplas impressoras)."""
+            try:
+                app = getattr(self, 'parent_app', None)
+                if app and hasattr(app, 'print_receipt_text'):
+                    app.print_receipt_text(txt)
+                    return True
+                gerenciador = None
+                if app and getattr(app, 'multi_printer_manager', None) and app.multi_printer_manager.is_enabled():
+                    gerenciador = app.multi_printer_manager.default_printer_manager
+                if not gerenciador and app and hasattr(app, 'thermal_printer_manager'):
+                    gerenciador = app.thermal_printer_manager
+                if gerenciador and gerenciador.is_enabled() and gerenciador.print_text(txt):
+                    return True
+            except Exception as e:
+                try:
+                    logger.error(f"Erro ao imprimir produtos vendidos na térmica: {e}")
+                except Exception:
+                    pass
+            return False
+
+        def perguntar_produtos_vendidos(canal='windows'):
+            """Após imprimir o fechamento, pergunta se deseja imprimir os
+            produtos vendidos do dia e imprime pelo mesmo canal usado."""
+            try:
+                if not messagebox.askyesno(
+                        "Produtos Vendidos do Dia",
+                        "Caixa fechado e impresso.\n\nDeseja também imprimir o relatório de PRODUTOS VENDIDOS do dia?",
+                        parent=dialog):
+                    return
+                txt, linhas = _texto_produtos_vendidos_hoje()
+                if not txt:
+                    messagebox.showwarning("Produtos Vendidos",
+                                           "Não foi possível gerar o relatório de produtos vendidos do dia.",
+                                           parent=dialog)
+                    return
+                if not linhas and not messagebox.askyesno(
+                        "Produtos Vendidos",
+                        "Nenhum produto vendido registrado hoje.\nDeseja imprimir mesmo assim?",
+                        parent=dialog):
+                    return
+                ok = _imprimir_texto_termica(txt) if canal == 'termica' else False
+                if not ok:
+                    ok = _imprimir_texto_windows(txt)
+                if ok:
+                    messagebox.showinfo("Produtos Vendidos",
+                                        "Relatório de produtos vendidos do dia enviado para impressão.",
+                                        parent=dialog)
+                else:
+                    messagebox.showwarning("Produtos Vendidos",
+                                           "Não foi possível imprimir o relatório de produtos vendidos do dia.",
+                                           parent=dialog)
+            except Exception as e:
+                messagebox.showerror("Produtos Vendidos", f"Erro ao imprimir produtos vendidos:\n{e}", parent=dialog)
+
         def imprimir_windows():
             """Imprime usando diálogo padrão do Windows."""
             try:
@@ -54085,8 +54171,10 @@ class CaixaWindow(tk.Toplevel):
                 if sys.platform == 'win32':
                     os.startfile(temp_path, 'print')
                     messagebox.showinfo("Impressão", "Documento enviado para impressão.", parent=dialog)
+                    perguntar_produtos_vendidos('windows')
                 else:
                     messagebox.showinfo("Info", f"Arquivo salvo em:\n{temp_path}", parent=dialog)
+                    perguntar_produtos_vendidos('windows')
             except Exception as e:
                 messagebox.showerror("Erro", f"Erro ao imprimir:\n{e}", parent=dialog)
         
@@ -54109,6 +54197,7 @@ class CaixaWindow(tk.Toplevel):
                         if dados_fechamento_escp and hasattr(gerenciador_termica, 'print_fechamento_escp'):
                             if gerenciador_termica.print_fechamento_escp(dados_fechamento_escp):
                                 messagebox.showinfo("Sucesso", "Relatório enviado para impressora térmica!", parent=dialog)
+                                perguntar_produtos_vendidos('termica')
                             else:
                                 messagebox.showerror("Erro", f"Falha ao enviar para impressora térmica.\n{gerenciador_termica.get_last_error()}", parent=dialog)
                         else:
@@ -54116,8 +54205,10 @@ class CaixaWindow(tk.Toplevel):
                             if hasattr(self.parent_app, 'print_receipt_text'):
                                 self.parent_app.print_receipt_text(texto)
                                 messagebox.showinfo("Sucesso", "Relatório enviado para impressora!", parent=dialog)
+                                perguntar_produtos_vendidos('termica')
                             elif gerenciador_termica.print_text(texto):
                                 messagebox.showinfo("Sucesso", "Relatório enviado para impressora térmica!", parent=dialog)
+                                perguntar_produtos_vendidos('termica')
                             else:
                                 messagebox.showerror("Erro", "Falha ao enviar para impressora térmica.", parent=dialog)
                     else:
@@ -75425,6 +75516,201 @@ STATUS: {status.upper()}
         report += "=" * 48 + "\n"
         ReportWindow(self.root, "Produtos Vendidos - Hoje", report, self)
 
+    # ── Núcleo reutilizável do relatório de PRODUTOS VENDIDOS ─────────────────
+    def _pv_data_venda(self, sale):
+        """Extrai a data (date) de uma venda a partir dos campos disponíveis."""
+        txt = str(sale.get('timestamp') or sale.get('data') or sale.get('data_venda') or '')
+        if not txt:
+            return None
+        txt = txt[:10]
+        for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y'):
+            try:
+                return datetime.datetime.strptime(txt, fmt).date()
+            except Exception:
+                pass
+        return None
+
+    def _pv_num_venda(self, sale):
+        """Retorna o número/cupom da venda."""
+        return str(sale.get('coupon_number') or sale.get('numero') or sale.get('numero_venda')
+                   or sale.get('cupom') or sale.get('id') or sale.get('venda_id') or '').strip()
+
+    def _pv_indices_categoria(self):
+        """Monta índices id->nome de categoria e nome_produto->nome_categoria."""
+        cat_id_to_nome = {}
+        try:
+            for _cid, _cdata in (getattr(self, 'categories', {}) or {}).items():
+                if isinstance(_cdata, dict):
+                    _cn = str(_cdata.get('nome') or _cdata.get('name') or '').strip()
+                elif _cdata not in (None, ''):
+                    _cn = str(_cdata).strip()
+                else:
+                    _cn = ''
+                if _cn:
+                    cat_id_to_nome[str(_cid)] = _cn
+        except Exception:
+            pass
+        cat_por_nome = {}
+        try:
+            for _p in (getattr(self, 'products', {}) or {}).values():
+                if isinstance(_p, dict):
+                    _n = str(_p.get('nome') or '').strip().lower()
+                    _raw = str(_p.get('category_id') or _p.get('categoria_id') or _p.get('categoria')
+                               or _p.get('grupo') or '').strip()
+                    _c = cat_id_to_nome.get(_raw, _raw)
+                    if _n and _c and not str(_c).isdigit():
+                        cat_por_nome[_n] = _c
+        except Exception:
+            pass
+        return cat_id_to_nome, cat_por_nome
+
+    def _pv_categorias_existentes(self):
+        """Lista de nomes de categorias para o filtro."""
+        cat_id_to_nome, cat_por_nome = self._pv_indices_categoria()
+        cats = sorted({v for v in cat_id_to_nome.values() if v})
+        if not cats:
+            cats = sorted({c for c in cat_por_nome.values() if c})
+        return cats
+
+    def _pv_coletar(self, d_ini, d_fim, f_prod='', f_cat='', f_num=''):
+        """Coleta as linhas (uma por item vendido) aplicando os filtros.
+        d_ini/d_fim são datetime.date ou None."""
+        vendas_base = [s for s in getattr(self, 'sales_log', []) if isinstance(s, dict)]
+        cat_id_to_nome, cat_por_nome = self._pv_indices_categoria()
+
+        def _nome_categoria(valor):
+            v = str(valor or '').strip()
+            if not v:
+                return ''
+            return cat_id_to_nome.get(v, v)
+
+        def _categoria_produto(pid, item):
+            raw = (item.get('category_id') or item.get('categoria_id') or item.get('categoria')
+                   or item.get('grupo') or item.get('category') or '')
+            nome_cat = _nome_categoria(raw)
+            if nome_cat and not str(nome_cat).isdigit():
+                return nome_cat
+            prod = getattr(self, 'products', {}).get(str(pid), {}) if isinstance(getattr(self, 'products', {}), dict) else {}
+            if isinstance(prod, dict):
+                raw = (prod.get('category_id') or prod.get('categoria_id') or prod.get('categoria')
+                       or prod.get('grupo') or prod.get('categoria_nome') or '')
+                nome_cat = _nome_categoria(raw)
+                if nome_cat:
+                    return nome_cat
+            return ''
+
+        def _texto(sale, *keys):
+            for k in keys:
+                v = sale.get(k)
+                if v not in (None, ''):
+                    return str(v)
+            return ''
+
+        f_prod = (f_prod or '').strip().lower()
+        f_cat = (f_cat or '').strip()
+        f_num = (f_num or '').strip().lower()
+
+        linhas = []
+        for sale in vendas_base:
+            dv = self._pv_data_venda(sale)
+            if d_ini and (not dv or dv < d_ini):
+                continue
+            if d_fim and (not dv or dv > d_fim):
+                continue
+            num_venda = self._pv_num_venda(sale)
+            if f_num and f_num not in num_venda.lower():
+                continue
+            usuario = _texto(sale, 'usuario', 'vendedor', 'operador', 'usuario_nome', 'vendedor_nome') or 'N/A'
+            status = str(sale.get('status') or sale.get('situacao') or 'finalizada').strip() or 'finalizada'
+            data_fmt = dv.strftime('%d/%m/%Y') if dv else str(sale.get('timestamp') or '')[:10]
+
+            itens = sale.get('itens') or sale.get('items') or {}
+            if isinstance(itens, dict):
+                iterable = itens.items()
+            elif isinstance(itens, list):
+                iterable = enumerate(itens)
+            else:
+                iterable = []
+            for pid, item in iterable:
+                if not isinstance(item, dict):
+                    continue
+                nome = (item.get('nome') or item.get('produto') or item.get('descricao')
+                        or getattr(self, 'products', {}).get(str(pid), {}).get('nome') or f'Produto {pid}')
+                nome = str(nome)
+                if f_prod and f_prod not in nome.lower():
+                    continue
+                categoria = _categoria_produto(pid, item)
+                if not categoria:
+                    categoria = cat_por_nome.get(nome.strip().lower(), '')
+                if f_cat and f_cat != 'Todas' and (categoria or '').strip().lower() != f_cat.lower():
+                    continue
+                qtd = parse_br_float(item.get('quantidade_peso', item.get('quantidade', item.get('qtd', 1)))) or 0.0
+                if qtd == 0:
+                    qtd = 1.0
+                preco = parse_br_float(item.get('preco', item.get('valor_unitario', item.get('preco_unit', item.get('preco_unitario', 0))))) or 0.0
+                sub = parse_br_float(item.get('subtotal', item.get('total', None)))
+                if sub is None or (not sub and preco):
+                    desc = parse_br_float(item.get('desconto', 0.0)) or 0.0
+                    acr = parse_br_float(item.get('acrescimo', 0.0)) or 0.0
+                    sub = max(0.0, qtd * preco - desc + acr)
+                linhas.append({
+                    'data': data_fmt, 'data_ord': dv or datetime.date.min,
+                    'num_venda': num_venda or '-', 'produto': nome,
+                    'categoria': categoria or '-', 'qtd': qtd, 'preco': preco,
+                    'subtotal': sub, 'usuario': usuario, 'status': status,
+                })
+        linhas.sort(key=lambda l: (l['data_ord'], l['num_venda']), reverse=True)
+        return linhas
+
+    def _pv_montar_texto(self, linhas, d_ini, d_fim, f_prod='', f_cat='', f_num=''):
+        """Monta o texto imprimível do relatório de produtos vendidos."""
+        largura = 132
+        linha = '=' * largura
+        sub = '-' * largura
+        periodo = f"{d_ini.strftime('%d/%m/%Y') if d_ini else 'início'} até {d_fim.strftime('%d/%m/%Y') if d_fim else 'fim'}"
+        report = linha + "\n"
+        report += "RELATÓRIO DE PRODUTOS VENDIDOS".center(largura) + "\n"
+        report += f"Emitido em {datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')}".center(largura) + "\n"
+        report += linha + "\n"
+        report += f"Período: {periodo}\n"
+        report += (f"Produto contém: {f_prod or 'Todos'} | Categoria: {f_cat or 'Todas'} | "
+                   f"Nº da venda contém: {f_num or 'Todos'}\n")
+        report += sub + "\n"
+        total_qtd = sum(l['qtd'] for l in linhas)
+        total_val = sum(l['subtotal'] for l in linhas)
+        report += f"Itens listados: {len(linhas)} | Quantidade total: {format_br_float(total_qtd, 3)} | Valor total: {format_br_currency(total_val)}\n"
+        report += sub + "\n"
+        report += (f"{'DATA':<11}{'Nº VENDA':<10}{'PRODUTO':<30}{'CATEGORIA':<16}"
+                   f"{'QTD':>9}{'UNIT':>12}{'SUBTOTAL':>13}{'USUÁRIO':<14}{'STATUS':<12}\n")
+        report += sub + "\n"
+        for l in linhas:
+            report += (f"{str(l['data'])[:10]:<11}{str(l['num_venda'])[:9]:<10}{l['produto'][:29]:<30}"
+                       f"{str(l['categoria'])[:15]:<16}{format_br_float(l['qtd'], 3):>9}"
+                       f"{format_br_currency(l['preco']):>12}{format_br_currency(l['subtotal']):>13}"
+                       f"  {str(l['usuario'])[:12]:<12}{str(l['status'])[:11]:<12}\n")
+        report += linha + "\n"
+        if linhas:
+            resumo = defaultdict(lambda: {'qtd': 0.0, 'total': 0.0})
+            for l in linhas:
+                resumo[l['produto']]['qtd'] += l['qtd']
+                resumo[l['produto']]['total'] += l['subtotal']
+            report += "\nRESUMO POR PRODUTO (mais vendidos por valor)\n" + sub + "\n"
+            report += f"{'PRODUTO':<60}{'QTD':>14}{'TOTAL':>18}\n"
+            for nome, d in sorted(resumo.items(), key=lambda kv: kv[1]['total'], reverse=True):
+                report += f"{nome[:60]:<60}{format_br_float(d['qtd'], 3):>14}{format_br_currency(d['total']):>18}\n"
+            report += linha + "\n"
+        else:
+            report += "Nenhum produto vendido encontrado com os filtros escolhidos.\n"
+        report += "Documento interno sem valor fiscal.\n"
+        return report
+
+    def gerar_texto_produtos_vendidos(self, data_ini=None, data_fim=None, filtro_produto='', filtro_categoria='', filtro_num_venda=''):
+        """Gera (texto, linhas) do relatório de produtos vendidos para o período.
+        data_ini/data_fim podem ser datetime.date ou None."""
+        linhas = self._pv_coletar(data_ini, data_fim, filtro_produto, filtro_categoria, filtro_num_venda)
+        texto = self._pv_montar_texto(linhas, data_ini, data_fim, filtro_produto, filtro_categoria, filtro_num_venda)
+        return texto, linhas
+
     def show_produtos_vendidos_filtrado_report(self):
         """Relatório detalhado de PRODUTOS VENDIDOS com filtros.
 
@@ -75442,18 +75728,6 @@ STATUS: {status.upper()}
             messagebox.showinfo("Relatório", "Nenhuma venda registrada para filtrar.", parent=self.root)
             return
 
-        def _data_venda(sale):
-            txt = str(sale.get('timestamp') or sale.get('data') or sale.get('data_venda') or '')
-            if not txt:
-                return None
-            txt = txt[:10]
-            for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y'):
-                try:
-                    return datetime.datetime.strptime(txt, fmt).date()
-                except Exception:
-                    pass
-            return None
-
         def _parse_data_usuario(txt):
             txt = str(txt or '').strip()
             if not txt:
@@ -75465,78 +75739,8 @@ STATUS: {status.upper()}
                     pass
             return None
 
-        def _texto(sale, *keys):
-            for k in keys:
-                v = sale.get(k)
-                if v not in (None, ''):
-                    return str(v)
-            return ''
-
-        def _num_venda(sale):
-            return str(sale.get('coupon_number') or sale.get('numero') or sale.get('numero_venda')
-                       or sale.get('cupom') or sale.get('id') or sale.get('venda_id') or '').strip()
-
-        # Índice: id da categoria -> nome. (self.categories = {id: {'nome': ...}})
-        cat_id_to_nome = {}
-        try:
-            for _cid, _cdata in (getattr(self, 'categories', {}) or {}).items():
-                if isinstance(_cdata, dict):
-                    _cn = str(_cdata.get('nome') or _cdata.get('name') or '').strip()
-                elif _cdata not in (None, ''):
-                    _cn = str(_cdata).strip()
-                else:
-                    _cn = ''
-                if _cn:
-                    cat_id_to_nome[str(_cid)] = _cn
-        except Exception:
-            pass
-
-        def _nome_categoria(valor):
-            """Converte um id (ou valor bruto) de categoria no nome legível."""
-            v = str(valor or '').strip()
-            if not v:
-                return ''
-            # Se for um id conhecido, devolve o nome cadastrado.
-            if v in cat_id_to_nome:
-                return cat_id_to_nome[v]
-            # Caso contrário, assume que já é o próprio nome da categoria.
-            return v
-
-        def _categoria_produto(pid, item):
-            # 1) id/categoria informado no próprio item da venda.
-            raw = (item.get('category_id') or item.get('categoria_id') or item.get('categoria')
-                   or item.get('grupo') or item.get('category') or '')
-            nome_cat = _nome_categoria(raw)
-            if nome_cat and not str(nome_cat).isdigit():
-                return nome_cat
-            # 2) cadastro do produto (buscado pelo id do produto).
-            prod = getattr(self, 'products', {}).get(str(pid), {}) if isinstance(getattr(self, 'products', {}), dict) else {}
-            if isinstance(prod, dict):
-                raw = (prod.get('category_id') or prod.get('categoria_id') or prod.get('categoria')
-                       or prod.get('grupo') or prod.get('categoria_nome') or '')
-                nome_cat = _nome_categoria(raw)
-                if nome_cat:
-                    return nome_cat
-            return ''
-
-        # Índice: nome do produto -> nome da categoria (fallback p/ itens em lista).
-        cat_por_nome = {}
-        try:
-            for _p in (getattr(self, 'products', {}) or {}).values():
-                if isinstance(_p, dict):
-                    _n = str(_p.get('nome') or '').strip().lower()
-                    _raw = (_p.get('category_id') or _p.get('categoria_id') or _p.get('categoria')
-                            or _p.get('grupo') or '')
-                    _c = _nome_categoria(_raw)
-                    if _n and _c:
-                        cat_por_nome[_n] = _c
-        except Exception:
-            pass
-
-        # Lista de nomes de categorias para o combo de filtro.
-        categorias_existentes = sorted({v for v in cat_id_to_nome.values() if v})
-        if not categorias_existentes:
-            categorias_existentes = sorted({c for c in cat_por_nome.values() if c})
+        # Categorias disponíveis para o filtro (usa o núcleo reutilizável).
+        categorias_existentes = self._pv_categorias_existentes()
 
         hoje = datetime.date.today()
 
@@ -75630,103 +75834,13 @@ STATUS: {status.upper()}
             f_cat = categoria_var.get().strip()
             f_num = num_venda_var.get().strip().lower()
 
-            linhas = []
-            for sale in vendas_base:
-                dv = _data_venda(sale)
-                if d_ini and (not dv or dv < d_ini):
-                    continue
-                if d_fim and (not dv or dv > d_fim):
-                    continue
-                num_venda = _num_venda(sale)
-                if f_num and f_num not in num_venda.lower():
-                    continue
-                usuario = _texto(sale, 'usuario', 'vendedor', 'operador', 'usuario_nome', 'vendedor_nome') or 'N/A'
-                status = str(sale.get('status') or sale.get('situacao') or 'finalizada').strip() or 'finalizada'
-                data_fmt = dv.strftime('%d/%m/%Y') if dv else str(sale.get('timestamp') or '')[:10]
-
-                itens = sale.get('itens') or sale.get('items') or {}
-                if isinstance(itens, dict):
-                    iterable = itens.items()
-                elif isinstance(itens, list):
-                    iterable = enumerate(itens)
-                else:
-                    iterable = []
-                for pid, item in iterable:
-                    if not isinstance(item, dict):
-                        continue
-                    nome = (item.get('nome') or item.get('produto') or item.get('descricao')
-                            or getattr(self, 'products', {}).get(str(pid), {}).get('nome') or f'Produto {pid}')
-                    nome = str(nome)
-                    if f_prod and f_prod not in nome.lower():
-                        continue
-                    categoria = _categoria_produto(pid, item)
-                    if not categoria:
-                        categoria = cat_por_nome.get(nome.strip().lower(), '')
-                    if f_cat and f_cat != 'Todas' and (categoria or '').strip().lower() != f_cat.lower():
-                        continue
-                    qtd = parse_br_float(item.get('quantidade_peso', item.get('quantidade', item.get('qtd', 1)))) or 0.0
-                    if qtd == 0:
-                        qtd = 1.0
-                    preco = parse_br_float(item.get('preco', item.get('valor_unitario', item.get('preco_unit', item.get('preco_unitario', 0))))) or 0.0
-                    sub = parse_br_float(item.get('subtotal', item.get('total', None)))
-                    # Se o subtotal não veio (None) ou veio zerado mas há preço,
-                    # recalcula a partir de quantidade x preço unitário.
-                    if sub is None or (not sub and preco):
-                        desc = parse_br_float(item.get('desconto', 0.0)) or 0.0
-                        acr = parse_br_float(item.get('acrescimo', 0.0)) or 0.0
-                        sub = max(0.0, qtd * preco - desc + acr)
-                    linhas.append({
-                        'data': data_fmt, 'data_ord': dv or datetime.date.min,
-                        'num_venda': num_venda or '-', 'produto': nome,
-                        'categoria': categoria or '-', 'qtd': qtd, 'preco': preco,
-                        'subtotal': sub, 'usuario': usuario, 'status': status,
-                    })
-            linhas.sort(key=lambda l: (l['data_ord'], l['num_venda']), reverse=True)
+            # Coleta usando o núcleo reutilizável (mesma lógica do fechamento de caixa).
+            linhas = self._pv_coletar(d_ini, d_fim, f_prod, f_cat, f_num)
             return linhas, (d_ini, d_fim, f_prod, f_cat, f_num)
 
         def montar_report(linhas, filtros):
             d_ini, d_fim, f_prod, f_cat, f_num = filtros
-            largura = 132
-            linha = '=' * largura
-            sub = '-' * largura
-            periodo = f"{d_ini.strftime('%d/%m/%Y') if d_ini else 'início'} até {d_fim.strftime('%d/%m/%Y') if d_fim else 'fim'}"
-            report = linha + "\n"
-            report += "RELATÓRIO DE PRODUTOS VENDIDOS".center(largura) + "\n"
-            report += f"Emitido em {datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')}".center(largura) + "\n"
-            report += linha + "\n"
-            report += f"Período: {periodo}\n"
-            report += (f"Produto contém: {f_prod or 'Todos'} | Categoria: {f_cat or 'Todas'} | "
-                       f"Nº da venda contém: {f_num or 'Todos'}\n")
-            report += sub + "\n"
-            total_qtd = sum(l['qtd'] for l in linhas)
-            total_val = sum(l['subtotal'] for l in linhas)
-            report += f"Itens listados: {len(linhas)} | Quantidade total: {format_br_float(total_qtd, 3)} | Valor total: {format_br_currency(total_val)}\n"
-            report += sub + "\n"
-            # Cabeçalho da tabela detalhada.
-            report += (f"{'DATA':<11}{'Nº VENDA':<10}{'PRODUTO':<30}{'CATEGORIA':<16}"
-                       f"{'QTD':>9}{'UNIT':>12}{'SUBTOTAL':>13}{'USUÁRIO':<14}{'STATUS':<12}\n")
-            report += sub + "\n"
-            for l in linhas:
-                report += (f"{str(l['data'])[:10]:<11}{str(l['num_venda'])[:9]:<10}{l['produto'][:29]:<30}"
-                           f"{str(l['categoria'])[:15]:<16}{format_br_float(l['qtd'], 3):>9}"
-                           f"{format_br_currency(l['preco']):>12}{format_br_currency(l['subtotal']):>13}"
-                           f"  {str(l['usuario'])[:12]:<12}{str(l['status'])[:11]:<12}\n")
-            report += linha + "\n"
-            # Resumo por produto.
-            if linhas:
-                resumo = defaultdict(lambda: {'qtd': 0.0, 'total': 0.0})
-                for l in linhas:
-                    resumo[l['produto']]['qtd'] += l['qtd']
-                    resumo[l['produto']]['total'] += l['subtotal']
-                report += "\nRESUMO POR PRODUTO (mais vendidos por valor)\n" + sub + "\n"
-                report += f"{'PRODUTO':<60}{'QTD':>14}{'TOTAL':>18}\n"
-                for nome, d in sorted(resumo.items(), key=lambda kv: kv[1]['total'], reverse=True):
-                    report += f"{nome[:60]:<60}{format_br_float(d['qtd'], 3):>14}{format_br_currency(d['total']):>18}\n"
-                report += linha + "\n"
-            else:
-                report += "Nenhum produto vendido encontrado com os filtros escolhidos.\n"
-            report += "Documento interno sem valor fiscal.\n"
-            return report
+            return self._pv_montar_texto(linhas, d_ini, d_fim, f_prod, f_cat, f_num)
 
         def gerar_previa():
             resultado = _coletar_linhas()
