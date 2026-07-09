@@ -75523,6 +75523,25 @@ STATUS: {status.upper()}
         win.transient(self.root)
         win.grab_set()
         win.configure(bg='#f8f9fa')
+        # Inicia a janela maximizada (tela cheia dentro da moldura da janela).
+        def _maximizar_janela():
+            try:
+                win.state('zoomed')  # Windows
+            except Exception:
+                try:
+                    win.attributes('-zoomed', True)  # Linux
+                except Exception:
+                    try:
+                        sw = win.winfo_screenwidth()
+                        sh = win.winfo_screenheight()
+                        win.geometry(f'{sw}x{sh}+0+0')
+                    except Exception:
+                        pass
+        try:
+            _maximizar_janela()
+            win.after(80, _maximizar_janela)
+        except Exception:
+            pass
 
         main = ttk.Frame(win, padding=16)
         main.pack(fill=tk.BOTH, expand=True)
