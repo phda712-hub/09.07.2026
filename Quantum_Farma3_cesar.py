@@ -75513,9 +75513,13 @@ STATUS: {status.upper()}
         win = tk.Toplevel(self.root)
         win.title("🛒 Filtros - Produtos Vendidos")
         try:
-            responsive_geometry(win, 860, 620)
+            responsive_geometry(win, 880, 640)
         except Exception:
-            win.geometry('860x620')
+            win.geometry('880x640')
+        try:
+            win.minsize(720, 480)
+        except Exception:
+            pass
         win.transient(self.root)
         win.grab_set()
         win.configure(bg='#f8f9fa')
@@ -75555,8 +75559,9 @@ STATUS: {status.upper()}
         for c in range(3):
             form.columnconfigure(c, weight=1)
 
-        preview = tk.Text(main, height=14, font=('Consolas', 9), wrap=tk.NONE)
-        preview.pack(fill=tk.BOTH, expand=True, pady=(12, 8))
+        # A prévia é criada aqui, mas só é empacotada DEPOIS da barra de botões,
+        # para garantir que os botões fiquem sempre visíveis no rodapé.
+        preview = tk.Text(main, height=12, font=('Consolas', 9), wrap=tk.NONE)
         preview.insert('1.0', 'Clique em "Gerar prévia" para visualizar os produtos vendidos.\n')
         preview.config(state='disabled')
 
@@ -75687,14 +75692,19 @@ STATUS: {status.upper()}
             if report is not None:
                 ReportWindow(self.root, "Produtos Vendidos (Filtrado)", report, self)
 
+        # Barra de botões fixada no rodapé (empacotada ANTES da prévia para
+        # nunca ser empurrada para fora da janela).
         btns = ttk.Frame(main)
-        btns.pack(fill=tk.X, pady=(4, 0))
+        btns.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
         ttk.Button(btns, text="📊 Gerar prévia", command=gerar_previa, bootstyle="info").pack(side=tk.LEFT, padx=5)
         ttk.Button(btns, text="🖨️ Abrir tela de impressão", command=abrir_relatorio, bootstyle="success").pack(side=tk.LEFT, padx=5)
         ttk.Button(btns, text="Hoje", command=lambda: (data_ini_var.set(hoje.strftime('%d/%m/%Y')), data_fim_var.set(hoje.strftime('%d/%m/%Y'))), bootstyle="secondary").pack(side=tk.LEFT, padx=5)
         ttk.Button(btns, text="Este mês", command=lambda: (data_ini_var.set(hoje.replace(day=1).strftime('%d/%m/%Y')), data_fim_var.set(hoje.strftime('%d/%m/%Y'))), bootstyle="secondary").pack(side=tk.LEFT, padx=5)
         ttk.Button(btns, text="Limpar filtros", command=lambda: (produto_var.set(''), categoria_var.set('Todas'), num_venda_var.set(''), data_ini_var.set(''), data_fim_var.set('')), bootstyle="secondary").pack(side=tk.LEFT, padx=5)
         ttk.Button(btns, text="Fechar", command=win.destroy, bootstyle="secondary").pack(side=tk.RIGHT, padx=5)
+
+        # Agora sim empacota a prévia para preencher o espaço entre filtros e botões.
+        preview.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(12, 4))
 
     def show_product_stock_report(self):
         """Gera e exibe o relatório de estoque de produtos."""
