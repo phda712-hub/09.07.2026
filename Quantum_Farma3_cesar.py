@@ -75532,8 +75532,10 @@ STATUS: {status.upper()}
         form = ttk.LabelFrame(main, text="Filtros disponíveis", padding=12)
         form.pack(fill=tk.X)
 
-        data_ini_var = tk.StringVar(value=hoje.replace(day=1).strftime('%d/%m/%Y'))
-        data_fim_var = tk.StringVar(value=hoje.strftime('%d/%m/%Y'))
+        # Por padrão, o período é sempre o dia anterior ao dia atual (ontem).
+        ontem = hoje - datetime.timedelta(days=1)
+        data_ini_var = tk.StringVar(value=ontem.strftime('%d/%m/%Y'))
+        data_fim_var = tk.StringVar(value=ontem.strftime('%d/%m/%Y'))
         produto_var = tk.StringVar(value='')
         categoria_var = tk.StringVar(value='Todas')
         num_venda_var = tk.StringVar(value='')
@@ -75698,9 +75700,10 @@ STATUS: {status.upper()}
         btns.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
         ttk.Button(btns, text="📊 Gerar prévia", command=gerar_previa, bootstyle="info").pack(side=tk.LEFT, padx=5)
         ttk.Button(btns, text="🖨️ Abrir tela de impressão", command=abrir_relatorio, bootstyle="success").pack(side=tk.LEFT, padx=5)
+        ttk.Button(btns, text="Ontem", command=lambda: (data_ini_var.set(ontem.strftime('%d/%m/%Y')), data_fim_var.set(ontem.strftime('%d/%m/%Y'))), bootstyle="secondary").pack(side=tk.LEFT, padx=5)
         ttk.Button(btns, text="Hoje", command=lambda: (data_ini_var.set(hoje.strftime('%d/%m/%Y')), data_fim_var.set(hoje.strftime('%d/%m/%Y'))), bootstyle="secondary").pack(side=tk.LEFT, padx=5)
         ttk.Button(btns, text="Este mês", command=lambda: (data_ini_var.set(hoje.replace(day=1).strftime('%d/%m/%Y')), data_fim_var.set(hoje.strftime('%d/%m/%Y'))), bootstyle="secondary").pack(side=tk.LEFT, padx=5)
-        ttk.Button(btns, text="Limpar filtros", command=lambda: (produto_var.set(''), categoria_var.set('Todas'), num_venda_var.set(''), data_ini_var.set(''), data_fim_var.set('')), bootstyle="secondary").pack(side=tk.LEFT, padx=5)
+        ttk.Button(btns, text="Limpar filtros", command=lambda: (produto_var.set(''), categoria_var.set('Todas'), num_venda_var.set(''), data_ini_var.set(ontem.strftime('%d/%m/%Y')), data_fim_var.set(ontem.strftime('%d/%m/%Y'))), bootstyle="secondary").pack(side=tk.LEFT, padx=5)
         ttk.Button(btns, text="Fechar", command=win.destroy, bootstyle="secondary").pack(side=tk.RIGHT, padx=5)
 
         # Agora sim empacota a prévia para preencher o espaço entre filtros e botões.
