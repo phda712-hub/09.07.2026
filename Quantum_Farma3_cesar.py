@@ -58321,6 +58321,7 @@ class PDVSuperApp:
                 _add_cmd(report_menu, "3.9   Fechamento de Caixa (Hoje)", self.show_closing_report, "relatorios.fechamento_caixa", accelerator="Ctrl+F")
                 _add_cmd(report_menu, "3.10  Produtos Vendidos (Hoje)", self.show_products_sold_report, "relatorios.produtos_vendidos", accelerator="Ctrl+Shift+P")
                 _add_cmd(report_menu, "3.11  Vendas por Cliente (Hoje)", self.show_sales_by_customer_report, "relatorios.vendas_cliente", accelerator="Ctrl+Shift+C")
+                _add_cmd(report_menu, "3.12  🛒 Produtos Vendidos (Filtros: data, produto, categoria, nº venda)", self.show_produtos_vendidos_filtrado_report, "relatorios.produtos_vendidos", accelerator="Alt+9")
                 _add_cmd(report_menu, "3.13  Vendas Mensal", self.show_monthly_sales_report, "relatorios.vendas_mensal", accelerator="Ctrl+M")
                 _add_cmd(report_menu, "3.14  Vendas por Forma de Pagamento", self.show_sales_by_payment_method_report, "relatorios.vendas_pagamento", accelerator="Ctrl+Shift+F")
                 _add_cmd(report_menu, "3.15  Vendas por Período", self.show_sales_by_period_report, "relatorios.vendas_periodo", accelerator="Alt+3")
@@ -75423,6 +75424,277 @@ STATUS: {status.upper()}
             report += f"{prod_name:<22}{qtd_str:>10}{valor_str:>14}\n"
         report += "=" * 48 + "\n"
         ReportWindow(self.root, "Produtos Vendidos - Hoje", report, self)
+
+    def show_produtos_vendidos_filtrado_report(self):
+        """Relatório detalhado de PRODUTOS VENDIDOS com filtros.
+
+        Filtros: período (data inicial/final), nome do produto, categoria e
+        número da venda. Cada linha do impresso traz: data, nº da venda,
+        produto, categoria, quantidade, preço unitário, subtotal, usuário que
+        vendeu e status (além de totais e resumo por produto).
+        """
+        if not check_permission("relatorios.produtos_vendidos"):
+            messagebox.showerror("Acesso Negado", "Você não tem permissão para visualizar este relatório.")
+            return
+
+        vendas_base = [s for s in getattr(self, 'sales_log', []) if isinstance(s, dict)]
+        if not vendas_base:
+            messagebox.showinfo("Relatório", "Nenhuma venda registrada para filtrar.", parent=self.root)
+            return
+
+        def _data_venda(sale):
+            txt = str(sale.get('timestamp') or sale.get('data') or sale.get('data_venda') or '')
+            if not txt:
+                return None
+            txt = txt[:10]
+            for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y'):
+                try:
+                    return datetime.datetime.strptime(txt, fmt).date()
+                except Exception:
+                    pass
+            return None
+
+        def _parse_data_usuario(txt):
+            txt = str(txt or '').strip()
+            if not txt:
+                return None
+            for fmt in ('%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y'):
+                try:
+                    return datetime.datetime.strptime(txt[:10], fmt).date()
+                except Exception:
+                    pass
+            return None
+
+        def _texto(sale, *keys):
+            for k in keys:
+                v = sale.get(k)
+                if v not in (None, ''):
+                    return str(v)
+            return ''
+
+        def _num_venda(sale):
+            return str(sale.get('coupon_number') or sale.get('numero') or sale.get('numero_venda')
+                       or sale.get('cupom') or sale.get('id') or sale.get('venda_id') or '').strip()
+
+        def _categoria_produto(pid, item):
+            # 1) categoria no próprio item da venda
+            cat = str(item.get('categoria') or item.get('grupo') or item.get('category') or '').strip()
+            if cat:
+                return cat
+            # 2) categoria no cadastro do produto (por id)
+            prod = getattr(self, 'products', {}).get(str(pid), {}) if isinstance(getattr(self, 'products', {}), dict) else {}
+            if isinstance(prod, dict):
+                cat = str(prod.get('categoria') or prod.get('grupo') or prod.get('categoria_nome') or '').strip()
+                if cat:
+                    return cat
+            return ''
+
+        # Índice de categorias por nome (fallback quando itens vêm como lista).
+        cat_por_nome = {}
+        try:
+            for _p in (getattr(self, 'products', {}) or {}).values():
+                if isinstance(_p, dict):
+                    _n = str(_p.get('nome') or '').strip().lower()
+                    _c = str(_p.get('categoria') or _p.get('grupo') or '').strip()
+                    if _n and _c:
+                        cat_por_nome[_n] = _c
+        except Exception:
+            pass
+
+        # Lista de categorias existentes para o combo.
+        categorias_existentes = sorted({
+            str((p or {}).get('categoria') or (p or {}).get('grupo') or '').strip()
+            for p in (getattr(self, 'products', {}) or {}).values()
+            if isinstance(p, dict) and str((p or {}).get('categoria') or (p or {}).get('grupo') or '').strip()
+        })
+
+        hoje = datetime.date.today()
+
+        win = tk.Toplevel(self.root)
+        win.title("🛒 Filtros - Produtos Vendidos")
+        try:
+            responsive_geometry(win, 860, 620)
+        except Exception:
+            win.geometry('860x620')
+        win.transient(self.root)
+        win.grab_set()
+        win.configure(bg='#f8f9fa')
+
+        main = ttk.Frame(win, padding=16)
+        main.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(main, text="RELATÓRIO DE PRODUTOS VENDIDOS", font=("Segoe UI", 15, "bold")).pack(anchor='w')
+        ttk.Label(main, text="Escolha os filtros desejados. Deixe em branco para considerar todos os registros.", foreground="#555").pack(anchor='w', pady=(2, 12))
+
+        form = ttk.LabelFrame(main, text="Filtros disponíveis", padding=12)
+        form.pack(fill=tk.X)
+
+        data_ini_var = tk.StringVar(value=hoje.replace(day=1).strftime('%d/%m/%Y'))
+        data_fim_var = tk.StringVar(value=hoje.strftime('%d/%m/%Y'))
+        produto_var = tk.StringVar(value='')
+        categoria_var = tk.StringVar(value='Todas')
+        num_venda_var = tk.StringVar(value='')
+
+        def add_label(row, col, text):
+            ttk.Label(form, text=text).grid(row=row, column=col, sticky='w', padx=6, pady=(6, 2))
+        def add_entry(row, col, var, width=22):
+            ent = ttk.Entry(form, textvariable=var, width=width)
+            ent.grid(row=row, column=col, sticky='ew', padx=6, pady=(0, 6))
+            return ent
+
+        add_label(0, 0, "Data inicial (dd/mm/aaaa):")
+        add_entry(1, 0, data_ini_var)
+        add_label(0, 1, "Data final (dd/mm/aaaa):")
+        add_entry(1, 1, data_fim_var)
+        add_label(0, 2, "Nº da venda contém:")
+        add_entry(1, 2, num_venda_var)
+
+        add_label(2, 0, "Nome do produto contém:")
+        add_entry(3, 0, produto_var)
+        add_label(2, 1, "Categoria:")
+        ttk.Combobox(form, textvariable=categoria_var, values=['Todas'] + categorias_existentes, width=22).grid(row=3, column=1, sticky='ew', padx=6, pady=(0, 6))
+        for c in range(3):
+            form.columnconfigure(c, weight=1)
+
+        preview = tk.Text(main, height=14, font=('Consolas', 9), wrap=tk.NONE)
+        preview.pack(fill=tk.BOTH, expand=True, pady=(12, 8))
+        preview.insert('1.0', 'Clique em "Gerar prévia" para visualizar os produtos vendidos.\n')
+        preview.config(state='disabled')
+
+        def _coletar_linhas():
+            d_ini = _parse_data_usuario(data_ini_var.get())
+            d_fim = _parse_data_usuario(data_fim_var.get())
+            if data_ini_var.get().strip() and not d_ini:
+                messagebox.showerror("Data inválida", "Data inicial inválida. Use dd/mm/aaaa.", parent=win); return None
+            if data_fim_var.get().strip() and not d_fim:
+                messagebox.showerror("Data inválida", "Data final inválida. Use dd/mm/aaaa.", parent=win); return None
+            if d_ini and d_fim and d_ini > d_fim:
+                messagebox.showerror("Período inválido", "A data inicial não pode ser maior que a data final.", parent=win); return None
+
+            f_prod = produto_var.get().strip().lower()
+            f_cat = categoria_var.get().strip()
+            f_num = num_venda_var.get().strip().lower()
+
+            linhas = []
+            for sale in vendas_base:
+                dv = _data_venda(sale)
+                if d_ini and (not dv or dv < d_ini):
+                    continue
+                if d_fim and (not dv or dv > d_fim):
+                    continue
+                num_venda = _num_venda(sale)
+                if f_num and f_num not in num_venda.lower():
+                    continue
+                usuario = _texto(sale, 'usuario', 'vendedor', 'operador', 'usuario_nome', 'vendedor_nome') or 'N/A'
+                status = str(sale.get('status') or sale.get('situacao') or 'finalizada').strip() or 'finalizada'
+                data_fmt = dv.strftime('%d/%m/%Y') if dv else str(sale.get('timestamp') or '')[:10]
+
+                itens = sale.get('itens') or sale.get('items') or {}
+                if isinstance(itens, dict):
+                    iterable = itens.items()
+                elif isinstance(itens, list):
+                    iterable = enumerate(itens)
+                else:
+                    iterable = []
+                for pid, item in iterable:
+                    if not isinstance(item, dict):
+                        continue
+                    nome = (item.get('nome') or item.get('produto') or item.get('descricao')
+                            or getattr(self, 'products', {}).get(str(pid), {}).get('nome') or f'Produto {pid}')
+                    nome = str(nome)
+                    if f_prod and f_prod not in nome.lower():
+                        continue
+                    categoria = _categoria_produto(pid, item)
+                    if not categoria:
+                        categoria = cat_por_nome.get(nome.strip().lower(), '')
+                    if f_cat and f_cat != 'Todas' and (categoria or '').strip().lower() != f_cat.lower():
+                        continue
+                    qtd = parse_br_float(item.get('quantidade_peso', item.get('quantidade', item.get('qtd', 1)))) or 0.0
+                    if qtd == 0:
+                        qtd = 1.0
+                    preco = parse_br_float(item.get('preco', item.get('valor_unitario', item.get('preco_unit', 0)))) or 0.0
+                    sub = parse_br_float(item.get('subtotal', item.get('total', None)))
+                    if sub is None:
+                        desc = parse_br_float(item.get('desconto', 0.0)) or 0.0
+                        acr = parse_br_float(item.get('acrescimo', 0.0)) or 0.0
+                        sub = max(0.0, qtd * preco - desc + acr)
+                    linhas.append({
+                        'data': data_fmt, 'data_ord': dv or datetime.date.min,
+                        'num_venda': num_venda or '-', 'produto': nome,
+                        'categoria': categoria or '-', 'qtd': qtd, 'preco': preco,
+                        'subtotal': sub, 'usuario': usuario, 'status': status,
+                    })
+            linhas.sort(key=lambda l: (l['data_ord'], l['num_venda']), reverse=True)
+            return linhas, (d_ini, d_fim, f_prod, f_cat, f_num)
+
+        def montar_report(linhas, filtros):
+            d_ini, d_fim, f_prod, f_cat, f_num = filtros
+            largura = 132
+            linha = '=' * largura
+            sub = '-' * largura
+            periodo = f"{d_ini.strftime('%d/%m/%Y') if d_ini else 'início'} até {d_fim.strftime('%d/%m/%Y') if d_fim else 'fim'}"
+            report = linha + "\n"
+            report += "RELATÓRIO DE PRODUTOS VENDIDOS".center(largura) + "\n"
+            report += f"Emitido em {datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')}".center(largura) + "\n"
+            report += linha + "\n"
+            report += f"Período: {periodo}\n"
+            report += (f"Produto contém: {f_prod or 'Todos'} | Categoria: {f_cat or 'Todas'} | "
+                       f"Nº da venda contém: {f_num or 'Todos'}\n")
+            report += sub + "\n"
+            total_qtd = sum(l['qtd'] for l in linhas)
+            total_val = sum(l['subtotal'] for l in linhas)
+            report += f"Itens listados: {len(linhas)} | Quantidade total: {format_br_float(total_qtd, 3)} | Valor total: {format_br_currency(total_val)}\n"
+            report += sub + "\n"
+            # Cabeçalho da tabela detalhada.
+            report += (f"{'DATA':<11}{'Nº VENDA':<10}{'PRODUTO':<30}{'CATEGORIA':<16}"
+                       f"{'QTD':>9}{'UNIT':>12}{'SUBTOTAL':>13}{'USUÁRIO':<14}{'STATUS':<12}\n")
+            report += sub + "\n"
+            for l in linhas:
+                report += (f"{str(l['data'])[:10]:<11}{str(l['num_venda'])[:9]:<10}{l['produto'][:29]:<30}"
+                           f"{str(l['categoria'])[:15]:<16}{format_br_float(l['qtd'], 3):>9}"
+                           f"{format_br_currency(l['preco']):>12}{format_br_currency(l['subtotal']):>13}"
+                           f"  {str(l['usuario'])[:12]:<12}{str(l['status'])[:11]:<12}\n")
+            report += linha + "\n"
+            # Resumo por produto.
+            if linhas:
+                resumo = defaultdict(lambda: {'qtd': 0.0, 'total': 0.0})
+                for l in linhas:
+                    resumo[l['produto']]['qtd'] += l['qtd']
+                    resumo[l['produto']]['total'] += l['subtotal']
+                report += "\nRESUMO POR PRODUTO (mais vendidos por valor)\n" + sub + "\n"
+                report += f"{'PRODUTO':<60}{'QTD':>14}{'TOTAL':>18}\n"
+                for nome, d in sorted(resumo.items(), key=lambda kv: kv[1]['total'], reverse=True):
+                    report += f"{nome[:60]:<60}{format_br_float(d['qtd'], 3):>14}{format_br_currency(d['total']):>18}\n"
+                report += linha + "\n"
+            else:
+                report += "Nenhum produto vendido encontrado com os filtros escolhidos.\n"
+            report += "Documento interno sem valor fiscal.\n"
+            return report
+
+        def gerar_previa():
+            resultado = _coletar_linhas()
+            if resultado is None:
+                return None
+            linhas, filtros = resultado
+            report = montar_report(linhas, filtros)
+            preview.config(state='normal')
+            preview.delete('1.0', tk.END)
+            preview.insert('1.0', report[:6000] + ('\n...\nPrévia limitada. Abra a tela de impressão para ver completo.' if len(report) > 6000 else ''))
+            preview.config(state='disabled')
+            return report
+
+        def abrir_relatorio():
+            report = gerar_previa()
+            if report is not None:
+                ReportWindow(self.root, "Produtos Vendidos (Filtrado)", report, self)
+
+        btns = ttk.Frame(main)
+        btns.pack(fill=tk.X, pady=(4, 0))
+        ttk.Button(btns, text="📊 Gerar prévia", command=gerar_previa, bootstyle="info").pack(side=tk.LEFT, padx=5)
+        ttk.Button(btns, text="🖨️ Abrir tela de impressão", command=abrir_relatorio, bootstyle="success").pack(side=tk.LEFT, padx=5)
+        ttk.Button(btns, text="Hoje", command=lambda: (data_ini_var.set(hoje.strftime('%d/%m/%Y')), data_fim_var.set(hoje.strftime('%d/%m/%Y'))), bootstyle="secondary").pack(side=tk.LEFT, padx=5)
+        ttk.Button(btns, text="Este mês", command=lambda: (data_ini_var.set(hoje.replace(day=1).strftime('%d/%m/%Y')), data_fim_var.set(hoje.strftime('%d/%m/%Y'))), bootstyle="secondary").pack(side=tk.LEFT, padx=5)
+        ttk.Button(btns, text="Limpar filtros", command=lambda: (produto_var.set(''), categoria_var.set('Todas'), num_venda_var.set(''), data_ini_var.set(''), data_fim_var.set('')), bootstyle="secondary").pack(side=tk.LEFT, padx=5)
+        ttk.Button(btns, text="Fechar", command=win.destroy, bootstyle="secondary").pack(side=tk.RIGHT, padx=5)
 
     def show_product_stock_report(self):
         """Gera e exibe o relatório de estoque de produtos."""
