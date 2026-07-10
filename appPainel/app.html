@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel de Senhas</title>
+<script src="jquery-1.8.2.js"></script>
+<script>
+// ===== Configuração do setor =====
+var setor = '8-25-46-40-42-43-44-41-26-27-28-29-30-31-32-33-34-35-36-37-38-39'; // Recepção
+//var setor = 2; // Classificação de risco
+//var setor = 3; // Consultório
+//var setor = 4; // Consultório Pediatra
+
+var dominio = '172.21.250.123/sistema_senha';
+//var dominio = 'localhost';
+
+var urlPainel = 'http://' + dominio + '/index.php/painel/setor/' + setor;
+
+var tempoLimiteCarregamentoPainel = 6000;
+var tempoNovaTentativa = 10000;
+var verificaAppOnline = false;
+
+$(function () {
+	// Enquanto o usuário não clica, mostramos a tela de início.
+	// O clique é OBRIGATÓRIO para o navegador liberar o áudio/voz (autoplay policy).
+	$('#start').show();
+
+	$('#start').on('click', function () {
+		// 1) Destrava o mecanismo de voz do navegador com um gesto do usuário.
+		aquecerVoz();
+		// 2) Inicia a aplicação.
+		$('#start').hide();
+		loadApp();
+	});
+});
+
+// "Aquece" a Web Speech API durante o clique, garantindo que a voz
+// fique liberada quando o painel (dentro do iframe) tentar falar.
+function aquecerVoz() {
+	try {
+		if ('speechSynthesis' in window) {
+			var u = new SpeechSynthesisUtterance(' ');
+			u.volume = 0; // silencioso, só para destravar
+			u.lang = 'pt-BR';
+			window.speechSynthesis.speak(u);
+		}
+	} catch (e) {}
+}
+
+function appIsOnline() {
+	if (verificaAppOnline) {
+		$.ajax({
+			type: 'GET',
+			url: urlPainel,
+			timeout: tempoLimiteCarregamentoPainel,
+			error: function () {
+				verificaAppOnline = false;
+				$('#msg').html('Estamos em manutenção.').show();
+				$('iframe').attr('src', '').hide();
+				setTimeout(loadApp, tempoNovaTentativa);
+			}
+		});
+	}
+	setTimeout(appIsOnline, tempoNovaTentativa);
+}
+
+function loadApp() {
+	$('#msg').html('Iniciando aplicação...').show();
+	$.ajax({
+		type: 'GET',
+		url: urlPainel,
+		timeout: tempoLimiteCarregamentoPainel,
+		success: function () {
+			$('iframe').attr('src', urlPainel).show();
+			$('#msg').hide();
+			verificaAppOnline = true;
+			setTimeout(appIsOnline, tempoNovaTentativa);
+		},
+		error: function () {
+			$('#msg').html('Estamos em manutenção.').show();
+			setTimeout(loadApp, tempoNovaTentativa);
+		}
+	});
+}
+</script>
+<style>
+@font-face {
+	font-family: 'Oswald';
+	font-style: normal;
+	font-weight: 400;
+	src: local('Oswald Regular'), local('Oswald-Regular'), url(fonts/oswald.woff2) format('woff2');
+}
+
+@font-face {
+	font-family: 'Oswald';
+	font-style: normal;
+	font-weight: 400;
+	src: local('Oswald Regular'), local('Oswald-Regular'), url(fonts/oswald.woff) format('woff');
+}
+
+html, body {
+	height: 100%;
+}
+
+body {
+	padding: 0;
+	margin: 0;
+	background: #FFF;
+	font-family: Oswald, Arial, sans-serif;
+}
+
+#msg {
+	text-align: center;
+	font-size: 30px;
+	margin-top: 30px;
+}
+
+#start {
+	display: none;
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	background: #0b5cab;
+	color: #fff;
+	cursor: pointer;
+	z-index: 9999;
+	text-align: center;
+}
+
+#start .box {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	width: 90%;
+}
+
+#start .titulo {
+	font-size: 48px;
+	margin-bottom: 20px;
+}
+
+#start .sub {
+	font-size: 26px;
+	opacity: 0.9;
+}
+</style>
+</head>
+<body>
+<div id="start">
+	<div class="box">
+		<div class="titulo">Painel de Senhas</div>
+		<div class="sub">Toque na tela para iniciar (ativa o som)</div>
+	</div>
+</div>
+
+<div id="msg"></div>
+<iframe src="" allow="autoplay; microphone" frameborder="0" border="0" width="100%" height="100%" style="display:none"></iframe>
+</body>
+</html>
