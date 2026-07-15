@@ -124,6 +124,7 @@ def _get_app_dir():
 APP_DIR = _get_app_dir()
 CONFIG_FILE = os.path.join(APP_DIR, "pdv_config.json")
 PRINTER_CONFIG_FILE = os.path.join(APP_DIR, "pdv_printer_config.json")
+KITCHEN_PRINTER_CONFIG_FILE = os.path.join(APP_DIR, "pdv_kitchen_printer_config.json")
 MULTI_PRINTER_CONFIG_FILE = os.path.join(APP_DIR, "pdv_multi_printer_config.json")
 AUDIT_LOG_FILE = os.path.join(APP_DIR, "pdv_audit.log")
 LICENCA_CACHE_FILE = os.path.join(APP_DIR, "pdv_licenca_cache.json")
@@ -5789,11 +5790,11 @@ class DatabaseHelper:
                     "VALUES ('Contas a Receber', 'conta_receber', 0, 1)"
                 )
 
-            # === Cardapio do restaurante DELICIAS FOOD (itens cadastrados SEM preco) ===
+            # === Produtos de teste do assistente 'TROQUE SEU KIT' (sem preco) ===
             try:
-                self.seed_cardapio_delicias_food()
+                self.seed_kit_teste()
             except Exception as _e_card:
-                print(f"Aviso ao semear cardapio Delicias Food: {_e_card}")
+                print(f"Aviso ao semear produtos de teste do kit: {_e_card}")
 
             # Perfis padrao agora sao criados pelo PermissionDatabaseSetup.setup()
         except Exception as e:
@@ -5803,9 +5804,9 @@ class DatabaseHelper:
     # CARDAPIO DELICIAS FOOD  -  cadastro automatico do cardapio (sem precos)
     # ========================================================================
     # Nomes das categorias (tipos_produto). Usados tambem pelo assistente
-    # "MONTE SEU PRATO". Mantidos SEM acento para evitar qualquer divergencia
+    # "TROQUE SEU KIT". Mantidos SEM acento para evitar qualquer divergencia
     # entre o cadastro e as consultas do assistente.
-    CAT_MONTE_PRATO = "MONTE SEU PRATO"
+    CAT_MONTE_PRATO = "TROQUE SEU KIT"
     CAT_PROTEINAS = "Proteinas"
     CAT_ACOMPANHAMENTOS = "Acompanhamentos"
     CAT_SUCOS = "Sucos"
@@ -5814,17 +5815,16 @@ class DatabaseHelper:
     CAT_AGUAS = "Aguas"
     CAT_SOBREMESAS = "Sobremesas"
 
-    def seed_cardapio_delicias_food(self):
-        """Cadastra o cardapio do restaurante DELICIAS FOOD.
+    def seed_kit_teste(self):
+        """Popula categorias de teste para o assistente 'TROQUE SEU KIT'.
 
-        - Todos os itens sao cadastrados SEM preco (preco_venda = 0). O preco
-          deve ser definido depois pelo cliente no cadastro de produtos.
-        - Idempotente: so insere o que ainda nao existe (pode rodar a cada
-          inicializacao sem duplicar).
-        - Se a categoria "MONTE SEU PRATO" ja existir, assume-se que o
-          cardapio ja foi cadastrado e o seed e ignorado (evita overhead).
+        - Remove (uma unica vez) o antigo cardapio de demonstracao e cria,
+          para CADA categoria usada pelo assistente, produtos genericos
+          'teste 1' ate 'teste 10' (cadastrados sem preco).
+        - Idempotente: se a categoria principal 'TROQUE SEU KIT' ja existir,
+          assume-se que o seed ja rodou e nada e feito.
         """
-        # Se ja existe a categoria principal, considera o cardapio cadastrado.
+        # Se ja existe a categoria principal, considera o seed ja aplicado.
         ja_existe = self.execute_query(
             "SELECT id FROM tipos_produto WHERE descricao = %s LIMIT 1",
             (self.CAT_MONTE_PRATO,)
@@ -5851,8 +5851,7 @@ class DatabaseHelper:
             )
             if rows:
                 return rows[0]["id"]
-            # preco_custo / preco_venda = 0 (cliente define depois). Estoque alto
-            # para itens de restaurante (feitos na hora) nao bloquearem a venda.
+            # preco = 0 (cliente define depois). Estoque alto para nao bloquear a venda.
             return self.execute_update(
                 "INSERT INTO produtos (codigo, descricao, unidade, tipo_produto_id, "
                 "preco_custo, preco_venda, estoque, estoque_minimo, ativo) "
@@ -5860,110 +5859,56 @@ class DatabaseHelper:
                 (codigo, descricao, tipo_id)
             )
 
-        # ---- MONTE SEU PRATO (tamanhos) ----
-        # O codigo guarda o numero de proteinas que o tamanho permite escolher
-        # (ultimo digito do codigo). Ex.: MSP-G2 = tamanho G com 2 proteinas.
-        tipo_monte = _get_or_create_tipo(self.CAT_MONTE_PRATO)
-        for desc, cod in [
-            ("Tamanho P - 1 Proteina", "MSP-P1"),
-            ("Tamanho P - 2 Proteinas", "MSP-P2"),
-            ("Tamanho G - 1 Proteina", "MSP-G1"),
-            ("Tamanho G - 2 Proteinas", "MSP-G2"),
-        ]:
-            _ensure_produto(desc, tipo_monte, cod)
+        # ---- Remove o antigo cardapio de demonstracao (Delicias Food) ----
+        # A antiga categoria de tamanhos 'MONTE SEU PRATO' e removida por
+        # completo (produtos + tipo). As demais categorias sao reaproveitadas
+        # (mesmo nome) e tem seus produtos antigos apagados mais abaixo.
+        try:
+            rows_antigo = self.execute_query(
+                "SELECT id FROM tipos_produto WHERE descricao = %s",
+                ("MONTE SEU PRATO",)) or []
+            for r in rows_antigo:
+                tid = r["id"]
+                self.execute_update(
+                    "DELETE FROM produtos WHERE tipo_produto_id = %s", (tid,))
+                self.execute_update(
+                    "DELETE FROM tipos_produto WHERE id = %s", (tid,))
+        except Exception as _e_rm:
+            print(f"Aviso ao remover cardapio antigo: {_e_rm}")
 
-        # ---- PROTEINAS ----
-        tipo_prot = _get_or_create_tipo(self.CAT_PROTEINAS)
-        proteinas = [
-            "Lasanha bolonhesa", "Lasanha de frango", "Panqueca de carne do sol",
-            "Panqueca de carne", "Panqueca de frango", "Escondidinho de frango",
-            "Escondidinho de carne", "Escondidinho de carne do sol", "Peixada",
-            "Peixe tilapia frita em postas", "Frango assado no forno",
-            "Porco assado na brasa", "Porco ao molho", "Cozido com pirao",
-            "Mao de vaca com pirao", "Frango a milanesa", "Frango parmegiana",
-            "Filezinho grelhado", "Carne trinchada", "Porco trinchado",
-            "Porco frito", "Porco frito no molho barbecue", "File de peixe frito",
-            "Creme de galinha", "Vatapa de frango", "Vatapa de camarao",
-            "Fricasse de frango", "Maninha assada", "Picanha assada",
-            "Picanha de porco assada", "Costelinha suina assada",
-            "Calabresa acebolada", "Escondidinho de calabresa",
-            "Linguica Toscana assada", "Linguica Toscana no forno",
-            "Linguica Toscana no molho barbecue", "Almondega", "Omelete de frango",
-            "Omelete de carne", "Omelete de carne do sol", "Ovo cozido",
-            "Ovo frito", "Feijoada", "Bobo de Camarao",
+        # ---- Categorias do assistente 'TROQUE SEU KIT' ----
+        # Para CADA categoria, cria produtos genericos 'teste 1' .. 'teste 10'.
+        categorias = [
+            self.CAT_MONTE_PRATO,      # o proprio kit (tamanhos)
+            self.CAT_PROTEINAS,
+            self.CAT_ACOMPANHAMENTOS,
+            self.CAT_SUCOS,
+            self.CAT_REFRI_200,
+            self.CAT_REFRI_350,
+            self.CAT_AGUAS,
+            self.CAT_SOBREMESAS,
         ]
-        for nome in proteinas:
-            _ensure_produto(nome, tipo_prot)
-
-        # ---- ACOMPANHAMENTOS (o codigo guarda o grupo) ----
-        tipo_acomp = _get_or_create_tipo(self.CAT_ACOMPANHAMENTOS)
-        acompanhamentos = [
-            # (descricao, grupo)
-            ("Arroz branco", "ARROZ"), ("Arroz temperado", "ARROZ"),
-            ("Baiao de dois", "ARROZ"), ("Macarrao espaguete", "ARROZ"),
-            ("Macarrao ninho", "ARROZ"),
-            ("Feijao carioca", "FEIJAO"), ("Feijao de corda", "FEIJAO"),
-            ("Feijao preto", "FEIJAO"),
-            ("Salada verde", "SALADA"), ("Salada de legumes", "SALADA"),
-            ("Salada de maionese", "SALADA"), ("Salada acelga com manga", "SALADA"),
-            ("Salada tropical", "SALADA"), ("Salada de repolho refogado", "SALADA"),
-            ("Salada de repolho cremoso", "SALADA"), ("Salada de repolho crua", "SALADA"),
-            ("Beterraba", "SALADA"), ("Batata doce", "SALADA"),
-            ("Abobora refogado", "SALADA"),
-        ]
-        for nome, grupo in acompanhamentos:
-            _ensure_produto(nome, tipo_acomp, f"ACOMP-{grupo}")
-
-        # ---- SUCOS (todos 400ml) ----
-        tipo_sucos = _get_or_create_tipo(self.CAT_SUCOS)
-        sucos = [
-            "Suco de Caja 400ml", "Suco de Caju 400ml", "Suco de Manga 400ml",
-            "Suco de Acerola 400ml", "Suco de Abacaxi 400ml", "Suco de Maracuja 400ml",
-            "Suco de Goiaba 400ml", "Suco de Graviola 400ml", "Suco de Siriguela 400ml",
-            "Suco de Tamarindo 400ml", "Suco de Sapoti 400ml",
-            "Suco de Abacaxi com Hortela 400ml",
-        ]
-        for nome in sucos:
-            _ensure_produto(nome, tipo_sucos)
-
-        # ---- REFRIGERANTES 200ml ----
-        tipo_r200 = _get_or_create_tipo(self.CAT_REFRI_200)
-        refri_200 = [
-            "Coca-Cola 200ml", "Coca-Cola Zero 200ml", "Sao Geraldo 200ml",
-            "Fanta Uva 200ml", "Fanta Laranja 200ml", "Guarana 200ml",
-        ]
-        for nome in refri_200:
-            _ensure_produto(nome, tipo_r200)
-
-        # ---- REFRIGERANTES 350ml (LATA) ----
-        tipo_r350 = _get_or_create_tipo(self.CAT_REFRI_350)
-        refri_350 = [
-            "Coca-Cola Lata 350ml", "Coca-Cola Lata Zero 350ml", "Fanta Uva Lata 350ml",
-            "Fanta Laranja Lata 350ml", "Sao Geraldo Zero 350ml", "Sao Geraldo 350ml",
-            "Guarana Lata 350ml",
-        ]
-        for nome in refri_350:
-            _ensure_produto(nome, tipo_r350)
-
-        # ---- AGUAS ----
-        tipo_aguas = _get_or_create_tipo(self.CAT_AGUAS)
-        for nome in ["Agua com gas 500ml", "Agua sem gas 500ml"]:
-            _ensure_produto(nome, tipo_aguas)
-
-        # ---- SOBREMESAS ----
-        tipo_sobr = _get_or_create_tipo(self.CAT_SOBREMESAS)
-        sobremesas = [
-            "Delicia de abacaxi", "Musse de abacaxi c/ abacaxi caramelizado",
-            "Palha italiana no pote", "Pudim", "Trufas", "Alfajor",
-            "Escondidinho de morango", "Escondidinho de chocolate",
-            "Musse de morango", "Bombom de uva", "Bombom de morango", "Brownie",
-            "Musse de limao", "Musse de maracuja", "Musse de chocolate",
-        ]
-        for nome in sobremesas:
-            _ensure_produto(nome, tipo_sobr)
+        for cat in categorias:
+            tipo_id = _get_or_create_tipo(cat)
+            # Limpa produtos antigos (cardapio de demonstracao) desta categoria
+            try:
+                self.execute_update(
+                    "DELETE FROM produtos WHERE tipo_produto_id = %s", (tipo_id,))
+            except Exception:
+                pass
+            for i in range(1, 11):
+                if cat == self.CAT_MONTE_PRATO:
+                    # No kit (tamanhos) o codigo guarda o numero de proteinas
+                    # permitidas (1 ou 2), lido pelo assistente.
+                    codigo = f"KIT{((i - 1) % 2) + 1}"
+                else:
+                    # Demais categorias sem codigo (acompanhamentos caem no
+                    # grupo 'Outros' do assistente).
+                    codigo = None
+                _ensure_produto(f"teste {i}", tipo_id, codigo)
 
         try:
-            _logger.info("Cardapio Delicias Food cadastrado (itens sem preco).")
+            _logger.info("Produtos de teste do 'TROQUE SEU KIT' cadastrados.")
         except Exception:
             pass
 
@@ -9272,6 +9217,9 @@ class PDVApp:
             ("Impressora", self.show_config_impressora, "#FF7043",
              PermissionConstants.DASHBOARD_BTN_IMPRESSORA, Icons.IMPRESSORA,
              "F12 - Configurar impressora"),
+            ("Impressora Cozinha", self.show_config_impressora_cozinha, "#F4511E",
+             PermissionConstants.DASHBOARD_BTN_IMPRESSORA, Icons.IMPRESSORA,
+             "Configurar impressora da cozinha (com todas as opcoes + impressoras por categoria)"),
             ("Multi-Impressoras", self.show_config_multi_impressora, "#E64A19",
              PermissionConstants.DASHBOARD_BTN_IMPRESSORA, Icons.IMPRESSORA,
              "Configurar multiplas impressoras por categoria"),
@@ -10906,16 +10854,16 @@ class PDVApp:
         StyledButton(busca_frame, text="Add", command=self.buscar_por_codigo,
                      color=COR_BOTAO_VERDE, width=6).pack(side="right", padx=2, pady=3)
 
-        # === MONTE SEU PRATO (assistente guiado do cardapio Delicias Food) ===
+        # === TROQUE SEU KIT (assistente guiado de montagem do kit) ===
         monte_frame = tk.Frame(left, bg=COR_FUNDO)
         monte_frame.pack(fill="x", pady=(0, 5))
         btn_monte = StyledButton(
-            monte_frame, text="🍽  MONTE SEU PRATO",
+            monte_frame, text="🔁  TROQUE SEU KIT",
             command=self.montar_prato_dialog,
             color=COR_BOTAO_LARANJA, width=30)
         btn_monte.pack(anchor="w")
         add_tooltip(btn_monte,
-                    "Montar um prato: tamanho, proteinas, acompanhamentos e extras")
+                    "Montar um kit: tamanho, proteinas, acompanhamentos e extras")
 
         # Carrinho (Treeview)
         cart_header = tk.Frame(left, bg=COR_FUNDO)
@@ -11425,13 +11373,13 @@ class PDVApp:
         ToastManager.info(f"Removido: {nome}")
 
     # ========================================================================
-    # ASSISTENTE "MONTE SEU PRATO"  (DELICIAS FOOD)
+    # ASSISTENTE "TROQUE SEU KIT"
     # Fluxo: 1) Tamanho  ->  2) Proteinas (limitado pelo tamanho)
     #        3) Acompanhamentos  ->  4) Revisao/adicionar ao carrinho
     #        5) Extras (sucos, refrigerantes, aguas, sobremesas)
     # ========================================================================
     def montar_prato_dialog(self):
-        """Abre o assistente guiado para montar um prato do cardapio."""
+        """Abre o assistente guiado para montar/trocar o kit."""
         db = DatabaseHelper.get_instance()
 
         def carregar():
@@ -11458,10 +11406,10 @@ class PDVApp:
         def on_loaded(data):
             if not data or not data.get("tamanhos"):
                 ErroAmigavel.mostrar_aviso(
-                    "O cardapio ainda nao foi cadastrado.\n\n"
-                    "Reinicie o sistema uma vez para que o cardapio do "
-                    "Delicias Food seja criado automaticamente.",
-                    titulo="Monte Seu Prato", parent=self.root)
+                    "Os produtos de teste do kit ainda nao foram cadastrados.\n\n"
+                    "Reinicie o sistema uma vez para que os produtos de teste "
+                    "do 'TROQUE SEU KIT' sejam criados automaticamente.",
+                    titulo="Troque Seu Kit", parent=self.root)
                 return
             self._abrir_wizard_prato(data)
 
@@ -11476,7 +11424,7 @@ class PDVApp:
         st = {"tam": None, "n_prot": 1, "proteinas": [], "acomp": []}
 
         dialog = tk.Toplevel(self.root)
-        dialog.title("Monte Seu Prato - Delicias Food")
+        dialog.title("Troque Seu Kit")
         dialog.geometry("760x620")
         dialog.configure(bg=COR_FUNDO)
         dialog.transient(self.root)
@@ -11486,7 +11434,7 @@ class PDVApp:
         header = tk.Frame(dialog, bg=COR_FUNDO2, height=58)
         header.pack(fill="x")
         header.pack_propagate(False)
-        tk.Label(header, text="🍽  MONTE SEU PRATO", bg=COR_FUNDO2,
+        tk.Label(header, text="🔁  TROQUE SEU KIT", bg=COR_FUNDO2,
                  fg=COR_BOTAO_LARANJA, font=("Segoe UI", 16, "bold")).pack(
                      side="left", padx=18, pady=10)
         self._lbl_passo_prato = tk.Label(header, text="", bg=COR_FUNDO2,
@@ -11532,19 +11480,19 @@ class PDVApp:
             return inner
 
         def _parse_n_prot(tam):
-            """Numero de proteinas que o tamanho permite."""
+            """Numero de proteinas que o tamanho permite (minimo 1)."""
             cod = (tam.get("codigo") or "").strip()
             if cod and cod[-1].isdigit():
-                return int(cod[-1])
+                return max(1, int(cod[-1]))
             m = re.search(r"(\d+)\s*Prote", tam.get("descricao", ""))
-            return int(m.group(1)) if m else 1
+            return max(1, int(m.group(1))) if m else 1
 
         # -------------------- ETAPA 1: TAMANHO --------------------
         def render_tamanho():
             _limpar(body)
             _limpar(footer)
             self._lbl_passo_prato.config(text="Etapa 1 de 4  -  Tamanho")
-            tk.Label(body, text="Escolha o tamanho do prato:", bg=COR_FUNDO,
+            tk.Label(body, text="Escolha o tamanho do kit:", bg=COR_FUNDO,
                      fg=COR_TEXTO, font=("Segoe UI", 13, "bold")).pack(
                          anchor="w", pady=(4, 12))
 
@@ -11731,7 +11679,7 @@ class PDVApp:
             _limpar(body)
             _limpar(footer)
             self._lbl_passo_prato.config(text="Etapa 4 de 4  -  Revisao")
-            tk.Label(body, text="Confira o prato montado:", bg=COR_FUNDO,
+            tk.Label(body, text="Confira o kit montado:", bg=COR_FUNDO,
                      fg=COR_TEXTO, font=("Segoe UI", 13, "bold")).pack(
                          anchor="w", pady=(4, 8))
 
@@ -11787,7 +11735,7 @@ class PDVApp:
             )
             self.carrinho.append(item)
             self.atualizar_tree_carrinho()
-            ToastManager.success("Prato adicionado ao carrinho!")
+            ToastManager.success("Kit adicionado ao carrinho!")
             render_extras_categorias()
 
         # -------------------- ETAPA 5: EXTRAS --------------------
@@ -11798,7 +11746,7 @@ class PDVApp:
             tk.Label(body, text="Deseja adicionar bebidas ou sobremesas?",
                      bg=COR_FUNDO, fg=COR_TEXTO,
                      font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(4, 4))
-            tk.Label(body, text="Itens que nao fazem parte do prato.",
+            tk.Label(body, text="Itens que nao fazem parte do kit.",
                      bg=COR_FUNDO, fg=COR_TEXTO2,
                      font=("Segoe UI", 10)).pack(anchor="w", pady=(0, 12))
 
@@ -11817,7 +11765,7 @@ class PDVApp:
                              color=cor, width=22).grid(
                                  row=i // 2, column=i % 2, padx=8, pady=8, sticky="w")
 
-            StyledButton(footer, text="+ Montar outro prato",
+            StyledButton(footer, text="+ Montar outro kit",
                          command=render_tamanho, color=COR_BOTAO_LARANJA,
                          width=20).pack(side="left", padx=12, pady=8)
             StyledButton(footer, text="✔ Concluir", command=dialog.destroy,
@@ -16346,7 +16294,8 @@ class PDVApp:
                 if not itens:
                     return (False, "Nenhum item na mesa para imprimir.")
                 texto = self._gerar_ticket_cozinha_mesa(numero, itens, completo=True)
-                ok, msg = self._imprimir_texto(texto)
+                ok, msg = self._imprimir_texto(
+                    texto, config=self._config_impressora_cozinha_efetiva())
                 if ok:
                     try:
                         DatabaseHelper.get_instance().execute_update(
@@ -16388,7 +16337,8 @@ class PDVApp:
                     return (None, "O ultimo item ja foi impresso. "
                                   "Inclua um novo item para imprimir novamente.")
                 texto = self._gerar_ticket_cozinha_mesa(numero, [ultimo], completo=False)
-                ok, msg = self._imprimir_texto(texto)
+                ok, msg = self._imprimir_texto(
+                    texto, config=self._config_impressora_cozinha_efetiva())
                 if ok:
                     try:
                         DatabaseHelper.get_instance().execute_update(
@@ -16499,6 +16449,17 @@ class PDVApp:
                 "FROM itens_mesa WHERE ocupacao_id = %s ORDER BY id DESC LIMIT 1", (oc_id,))
         return rows[0] if rows else None
 
+    def _config_impressora_cozinha_efetiva(self):
+        """Retorna a config da impressora da cozinha.
+        Se a impressora da cozinha ainda nao foi configurada (sem nome),
+        cai de volta para a impressora normal, para nao deixar de imprimir."""
+        cfg = self._load_printer_config("cozinha")
+        if not (cfg.get("nome_impressora") or "").strip():
+            padrao = self._load_printer_config("padrao")
+            if (padrao.get("nome_impressora") or "").strip():
+                return padrao
+        return cfg
+
     def _gerar_ticket_cozinha_mesa(self, numero, itens, completo=False):
         """Gera o texto do ticket da cozinha para uma mesa.
 
@@ -16507,7 +16468,7 @@ class PDVApp:
         ESC/POS (ESC E) quando a impressora e termica e nao esta em modo
         grafico; caso contrario, mantem apenas o destaque textual.
         """
-        cfg = self._load_printer_config()
+        cfg = self._config_impressora_cozinha_efetiva()
         try:
             largura = int(cfg.get("largura_papel", 48) or 48)
         except Exception:
@@ -21238,8 +21199,14 @@ function enviarPedido() {{
     # ========================================================================
     # CONFIGURACAO DE IMPRESSORA
     # ========================================================================
-    def _load_printer_config(self):
-        """Carrega configuracoes da impressora do arquivo JSON."""
+    def _printer_config_path(self, perfil="padrao"):
+        """Retorna o caminho do arquivo de config conforme o perfil.
+        perfil='cozinha' usa um arquivo separado (impressora da cozinha)."""
+        return KITCHEN_PRINTER_CONFIG_FILE if perfil == "cozinha" else PRINTER_CONFIG_FILE
+
+    def _load_printer_config(self, perfil="padrao"):
+        """Carrega configuracoes da impressora do arquivo JSON.
+        perfil='padrao' (impressora normal) ou 'cozinha' (impressora da cozinha)."""
         defaults = {
             "tipo_impressora": "Termica",
             "nome_impressora": "",
@@ -21263,9 +21230,10 @@ function enviarPedido() {{
             "servidor_impressao_url": "http://127.0.0.1:8899/print",
             "metodo_impressao": "Texto (ESC/POS)"
         }
+        path = self._printer_config_path(perfil)
         try:
-            if os.path.exists(PRINTER_CONFIG_FILE):
-                with open(PRINTER_CONFIG_FILE, "r", encoding="utf-8") as f:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
                     saved = json.load(f)
                 for k, v in defaults.items():
                     if k not in saved:
@@ -21285,16 +21253,18 @@ function enviarPedido() {{
                         except Exception:
                             saved["largura_papel"] = 42
                     saved["fonte_migrada_v2"] = True
-                    self._save_printer_config(saved)
+                    self._save_printer_config(saved, perfil)
                 return saved
         except Exception as e:
             print(f"Erro ao carregar config impressora: {e}")
         return defaults
 
-    def _save_printer_config(self, config):
-        """Salva configuracoes da impressora no arquivo JSON."""
+    def _save_printer_config(self, config, perfil="padrao"):
+        """Salva configuracoes da impressora no arquivo JSON.
+        perfil='padrao' (impressora normal) ou 'cozinha' (impressora da cozinha)."""
+        path = self._printer_config_path(perfil)
         try:
-            with open(PRINTER_CONFIG_FILE, "w", encoding="utf-8") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 json.dump(config, f, indent=2, ensure_ascii=False)
             return True
         except Exception as e:
@@ -21881,9 +21851,17 @@ function enviarPedido() {{
 
         return detalhes
 
-    def show_config_impressora(self):
-        """Tela de configuracao de impressora."""
+    def show_config_impressora_cozinha(self):
+        """Atalho: abre a tela de configuracao da IMPRESSORA DA COZINHA."""
+        self.show_config_impressora(perfil="cozinha")
+
+    def show_config_impressora(self, perfil="padrao"):
+        """Tela de configuracao de impressora.
+        perfil='padrao' (impressora normal) ou 'cozinha' (impressora da cozinha)."""
         self.clear_container()
+        _is_cozinha = (perfil == "cozinha")
+        _titulo_tela = ("Configuracao de Impressora da Cozinha"
+                        if _is_cozinha else "Configuracao de Impressora")
 
         # Barra superior
         top = tk.Frame(self.main_container, bg=COR_FUNDO2, height=52)
@@ -21897,7 +21875,7 @@ function enviarPedido() {{
             _neon.create_line(0, 1, e.width, 1, fill=COR_PRIMARIA, width=1)))
         StyledButton(top, text="◀ Voltar", command=self.show_main_menu,
                      color=COR_FUNDO3, width=10).pack(side="left", padx=10, pady=5)
-        tk.Label(top, text="Configuracao de Impressora", bg=COR_FUNDO2, fg=COR_PRIMARIA,
+        tk.Label(top, text=_titulo_tela, bg=COR_FUNDO2, fg=COR_PRIMARIA,
                  font=("Segoe UI", 14, "bold")).pack(side="left", padx=10)
         # Botoes Sair e Trocar de Usuario
         _btn_sair = StyledButton(top, text=f"{Icons.SAIR} Sair",
@@ -21913,8 +21891,8 @@ function enviarPedido() {{
         add_tooltip(_btn_trocar, "Trocar de usuario (Ctrl+L)")
 
 
-        # Carregar config atual
-        config = self._load_printer_config()
+        # Carregar config atual (perfil padrao ou cozinha)
+        config = self._load_printer_config(perfil)
 
         # Area com scroll
         scroll = ScrollableFrame(self.main_container)
@@ -22412,8 +22390,9 @@ function enviarPedido() {{
 
         def salvar_config():
             cfg = coletar_config()
-            if self._save_printer_config(cfg):
-                self.show_success("Configuracoes de impressora salvas com sucesso!")
+            if self._save_printer_config(cfg, perfil):
+                nome_cfg = ("impressora da cozinha" if _is_cozinha else "impressora")
+                self.show_success(f"Configuracoes de {nome_cfg} salvas com sucesso!")
             else:
                 self.show_error("Erro ao salvar configuracoes de impressora.")
 
@@ -22633,6 +22612,24 @@ function enviarPedido() {{
         StyledButton(btn_frame, text="Voltar",
                      command=self.show_main_menu,
                      color="#2a3a5c", width=10).pack(side="right", padx=8)
+
+        # Na impressora da cozinha, oferece tambem a configuracao de MULTIPLAS
+        # IMPRESSORAS POR CATEGORIA de produto (ex.: bar, chapa, sobremesas).
+        if _is_cozinha:
+            card_multi = CardFrame(content)
+            card_multi.pack(fill="x", padx=20, pady=8)
+            tk.Label(card_multi, text="Multiplas Impressoras por Categoria",
+                     bg=COR_CARD, fg=COR_PRIMARIA,
+                     font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=5, pady=(5, 4))
+            tk.Label(card_multi,
+                     text="Envie automaticamente cada categoria de produto para uma "
+                          "impressora diferente (ex.: cozinha, bar, chapa, sobremesas).",
+                     bg=COR_CARD, fg=COR_TEXTO2, font=("Segoe UI", 9),
+                     justify="left", wraplength=760).pack(anchor="w", padx=5, pady=(0, 6))
+            StyledButton(card_multi,
+                         text=f"{Icons.IMPRESSORA} Configurar Impressoras por Categoria",
+                         command=self.show_config_multi_impressora,
+                         color=COR_BOTAO_AZUL, width=34).pack(anchor="w", padx=5, pady=(0, 6))
 
     # ========================================================================
     # CONFIGURACAO DE MULTIPLAS IMPRESSORAS POR CATEGORIA
