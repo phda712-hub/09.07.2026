@@ -15750,11 +15750,20 @@ class PDVApp:
                 db = DatabaseHelper.get_instance()
                 oc_id = _ocupacao["id"]
                 if oc_id > 0:
-                    return db.execute_query(
-                        "SELECT id, descricao_produto, quantidade, preco_unitario, total, "
-                        "adicionais_descricao, COALESCE(adicionais_total, 0) as adicionais_total "
-                        "FROM itens_mesa WHERE ocupacao_id = %s ORDER BY id ASC", (oc_id,)
-                    )
+                    try:
+                        return db.execute_query(
+                            "SELECT id, descricao_produto, quantidade, preco_unitario, total, "
+                            "adicionais_descricao, COALESCE(adicionais_total, 0) as adicionais_total, "
+                            "COALESCE(observacao, '') as observacao "
+                            "FROM itens_mesa WHERE ocupacao_id = %s ORDER BY id ASC", (oc_id,)
+                        )
+                    except Exception:
+                        # Compatibilidade: banco sem a coluna observacao
+                        return db.execute_query(
+                            "SELECT id, descricao_produto, quantidade, preco_unitario, total, "
+                            "adicionais_descricao, COALESCE(adicionais_total, 0) as adicionais_total "
+                            "FROM itens_mesa WHERE ocupacao_id = %s ORDER BY id ASC", (oc_id,)
+                        )
                 return []
             def on_loaded(rows):
                 tree.delete(*tree.get_children())
@@ -15762,11 +15771,15 @@ class PDVApp:
                 for r in rows:
                     ad_desc = r.get("adicionais_descricao", "") or ""
                     ad_total = float(r.get("adicionais_total", 0))
+                    obs = (r.get("observacao", "") or "").strip()
+                    extras = ad_desc
+                    if obs:
+                        extras = (extras + " | " if extras else "") + f"Obs: {obs}"
                     tree.insert("", "end", values=(
                         r["id"], r["descricao_produto"], r["quantidade"],
                         FormatUtils.format_money(r["preco_unitario"]),
                         FormatUtils.format_money(r["total"]),
-                        ad_desc if ad_desc else "-"
+                        extras if extras else "-"
                     ))
                     total += float(r["total"]) + ad_total
                 lbl_total.config(text=f"Total: R$ {FormatUtils.format_money(total)}")
@@ -16018,15 +16031,174 @@ class PDVApp:
 
         carregar()
 
+    def _buscar_adicionais_produto(self, produto_id):
+        """Retorna os adicionais disponiveis para um produto.
+
+        Prioriza os adicionais vinculados ao tipo do produto; se o tipo nao
+        tiver nenhum configurado, retorna todos os adicionais ativos para que
+        a tela de adicionais ainda seja util.
+        """
+        try:
+            db = DatabaseHelper.get_instance()
+            rows = db.execute_query(
+                "SELECT a.id, a.descricao, a.preco "
+                "FROM produtos p "
+                "JOIN tipo_produto_adicionais tpa ON tpa.tipo_produto_id = p.tipo_produto_id "
+                "JOIN adicionais a ON a.id = tpa.adicional_id "
+                "WHERE p.id = %s AND a.ativo = 1 ORDER BY a.descricao",
+                (produto_id,))
+            if not rows:
+                rows = db.execute_query(
+                    "SELECT id, descricao, preco FROM adicionais "
+                    "WHERE ativo = 1 ORDER BY descricao")
+            return [{"id": r["id"], "descricao": r["descricao"],
+                     "preco": float(r.get("preco", 0) or 0)} for r in (rows or [])]
+        except Exception:
+            return []
+
+    def _selecionar_adicionais_item_mesa(self, produto_desc, adicionais, parent):
+        """Tela de selecao de adicionais para um item da mesa.
+
+        Retorna a lista de adicionais selecionados (dicts id/descricao/preco).
+        """
+        resultado = {"itens": []}
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Adicionais")
+        dlg.configure(bg=COR_FUNDO)
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.geometry("430x500")
+
+        tk.Label(dlg, text="Adicionais", bg=COR_FUNDO, fg=COR_PRIMARIA,
+                 font=("Segoe UI", 15, "bold")).pack(pady=(12, 2))
+        tk.Label(dlg, text=f"Item: {produto_desc}", bg=COR_FUNDO, fg=COR_TEXTO2,
+                 font=("Segoe UI", 9)).pack(pady=(0, 2))
+        tk.Label(dlg, text="Marque os adicionais desejados", bg=COR_FUNDO,
+                 fg=COR_TEXTO2, font=("Segoe UI", 8)).pack(pady=(0, 8))
+
+        scroll = ScrollableFrame(dlg)
+        scroll.pack(fill="both", expand=True, padx=12)
+        lista = scroll.scrollable_frame
+
+        vars_map = []  # (adicional, IntVar)
+        for ad in adicionais:
+            var = tk.IntVar(value=0)
+            txt = ad["descricao"]
+            if ad["preco"] > 0:
+                txt += f"   +R$ {FormatUtils.format_money(ad['preco'])}"
+            cb = tk.Checkbutton(lista, text=txt, variable=var, bg=COR_FUNDO,
+                                fg=COR_TEXTO, selectcolor=COR_FUNDO2,
+                                activebackground=COR_FUNDO, activeforeground=COR_TEXTO,
+                                anchor="w", font=("Segoe UI", 10))
+            cb.pack(fill="x", anchor="w", pady=2)
+            vars_map.append((ad, var))
+
+        def confirmar():
+            resultado["itens"] = [dict(ad) for ad, var in vars_map if var.get()]
+            dlg.destroy()
+
+        def pular():
+            resultado["itens"] = []
+            dlg.destroy()
+
+        btns = tk.Frame(dlg, bg=COR_FUNDO)
+        btns.pack(fill="x", pady=10)
+        StyledButton(btns, text=f"{Icons.CHECK} Confirmar", command=confirmar,
+                     color=COR_BOTAO_VERDE, width=14).pack(side="left", padx=10)
+        StyledButton(btns, text="Sem adicionais", command=pular,
+                     color=COR_FUNDO3, width=14).pack(side="right", padx=10)
+
+        dlg.protocol("WM_DELETE_WINDOW", pular)
+        try:
+            self.root.wait_window(dlg)
+        except Exception:
+            pass
+        return resultado["itens"]
+
+    def _observacao_cozinha_item_mesa(self, produto_desc, parent):
+        """Tela perguntando se deseja adicionar observacao para a cozinha.
+
+        Retorna o texto da observacao (ou string vazia se pulado).
+        """
+        resultado = {"obs": ""}
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Observacao para a cozinha")
+        dlg.configure(bg=COR_FUNDO)
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.geometry("450x330")
+
+        tk.Label(dlg, text="Observacao para a cozinha", bg=COR_FUNDO,
+                 fg=COR_PRIMARIA, font=("Segoe UI", 15, "bold")).pack(pady=(12, 2))
+        tk.Label(dlg, text=f"Item: {produto_desc}", bg=COR_FUNDO, fg=COR_TEXTO2,
+                 font=("Segoe UI", 9)).pack(pady=(0, 2))
+        tk.Label(dlg, text="Ex.: sem cebola, ponto da carne, sem gelo...",
+                 bg=COR_FUNDO, fg=COR_TEXTO2, font=("Segoe UI", 8)).pack(pady=(0, 6))
+
+        txt = tk.Text(dlg, height=6, bg=COR_FUNDO2, fg=COR_TEXTO,
+                      insertbackground=COR_TEXTO, font=("Segoe UI", 10), wrap="word")
+        txt.pack(fill="both", expand=True, padx=12, pady=4)
+        txt.focus_set()
+
+        def salvar():
+            resultado["obs"] = txt.get("1.0", "end").strip()
+            dlg.destroy()
+
+        def pular():
+            resultado["obs"] = ""
+            dlg.destroy()
+
+        btns = tk.Frame(dlg, bg=COR_FUNDO)
+        btns.pack(fill="x", pady=10)
+        StyledButton(btns, text=f"{Icons.SAVE} Salvar observacao", command=salvar,
+                     color=COR_BOTAO_VERDE, width=18).pack(side="left", padx=10)
+        StyledButton(btns, text="Sem observacao", command=pular,
+                     color=COR_FUNDO3, width=14).pack(side="right", padx=10)
+
+        dlg.protocol("WM_DELETE_WINDOW", pular)
+        try:
+            self.root.wait_window(dlg)
+        except Exception:
+            pass
+        return resultado["obs"]
+
     def _add_item_mesa(self, ocupacao_ref, mesa_id, row, refresh, dialog):
-        """Adiciona item a mesa via ocupacao_id (alinhado com Android)."""
+        """Adiciona item a mesa via ocupacao_id, com selecao de adicionais e
+        observacao para a cozinha (alinhado com Android)."""
         produto_id, descricao, preco = row[0], row[1], float(row[2])
         qtd = simpledialog.askfloat("Quantidade", f"Qtd de {descricao}:",
                                      initialvalue=1, minvalue=0.001, parent=dialog)
         if not qtd:
             return
+
+        # 1) Tela de adicionais (exibida quando ha adicionais cadastrados)
+        adicionais_disp = self._buscar_adicionais_produto(produto_id)
+        adicionais_sel = []
+        if adicionais_disp:
+            adicionais_sel = self._selecionar_adicionais_item_mesa(
+                descricao, adicionais_disp, dialog)
+
+        # 2) Tela de observacao para a cozinha
+        observacao = self._observacao_cozinha_item_mesa(descricao, dialog)
+
+        # Descricao/total dos adicionais escolhidos
+        adicionais_total = sum(float(a["preco"]) for a in adicionais_sel)
+        adicionais_desc = ", ".join(a["descricao"] for a in adicionais_sel) if adicionais_sel else None
+
         def salvar():
             db = DatabaseHelper.get_instance()
+            # Garante a coluna de observacao (compat. com bancos antigos)
+            try:
+                colrows = db.execute_query(
+                    "SELECT COUNT(*) as cnt FROM information_schema.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'itens_mesa' "
+                    "AND COLUMN_NAME = 'observacao'")
+                if colrows and int(colrows[0].get("cnt", 0)) == 0:
+                    db.execute_update(
+                        "ALTER TABLE itens_mesa ADD COLUMN observacao VARCHAR(500) DEFAULT NULL")
+            except Exception:
+                pass
+
             oc_id = ocupacao_ref["id"]
             # Se nao tem ocupacao, criar uma
             if oc_id == 0:
@@ -16041,9 +16213,22 @@ class PDVApp:
             # Inserir item vinculado a ocupacao (sem mesa_id, alinhado com Android)
             db.execute_update(
                 "INSERT INTO itens_mesa (ocupacao_id, produto_id, descricao_produto, "
-                "quantidade, preco_unitario, total) VALUES (%s,%s,%s,%s,%s,%s)",
-                (oc_id, produto_id, descricao, qtd, preco, qtd * preco)
+                "quantidade, preco_unitario, total, adicionais_descricao, adicionais_total, observacao) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (oc_id, produto_id, descricao, qtd, preco, qtd * preco,
+                 adicionais_desc, adicionais_total, (observacao or None))
             )
+            # Vincula os adicionais escolhidos ao item recem-inserido
+            if adicionais_sel:
+                res_item = db.execute_query("SELECT LAST_INSERT_ID() as lid")
+                item_id = int(res_item[0].get("lid", 0)) if res_item else 0
+                if item_id > 0:
+                    for a in adicionais_sel:
+                        db.execute_update(
+                            "INSERT INTO itens_mesa_adicionais "
+                            "(item_mesa_id, adicional_id, descricao_adicional, preco) "
+                            "VALUES (%s,%s,%s,%s)",
+                            (item_id, a["id"], a["descricao"], float(a["preco"])))
             # Atualizar status da ocupacao para ocupada se estava livre
             if oc_id > 0:
                 res_st = db.execute_query(
