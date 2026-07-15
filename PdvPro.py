@@ -2006,33 +2006,161 @@ class LicencaManager:
 # ============================================================================
 
 class AuditLogger:
-    """Registra acoes criticas do sistema em arquivo de log para auditoria."""
+    """Trilha de auditoria: registra as acoes dos usuarios em arquivo de log
+    e, quando o banco estiver disponivel, tambem na tabela `logs_auditoria`.
+
+    A gravacao no banco e feita em uma thread separada para nao bloquear a UI.
+    """
     _lock = threading.Lock()
+    _terminal = None
 
     @staticmethod
-    def log(acao, detalhes="", usuario=""):
-        """Grava uma entrada no log de auditoria."""
+    def _get_terminal():
+        if AuditLogger._terminal is None:
+            try:
+                AuditLogger._terminal = socket.gethostname()
+            except Exception:
+                AuditLogger._terminal = "desconhecido"
+        return AuditLogger._terminal
+
+    @staticmethod
+    def _resolver_usuario(usuario):
+        """Descobre login/nome/id do usuario a partir da Session quando nao informado."""
+        login = usuario or ""
+        nome = ""
+        uid = 0
         try:
-            with AuditLogger._lock:
-                ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                user_info = usuario or "Sistema"
-                linha = f"[{ts}] [{user_info}] {acao}"
-                if detalhes:
-                    linha += f" | {detalhes}"
-                with open(AUDIT_LOG_FILE, "a", encoding="utf-8", errors="replace") as f:
-                    f.write(linha + "\n")
+            if not login:
+                login = getattr(Session, "user_login", "") or ""
+            nome = getattr(Session, "user_nome", "") or ""
+            uid = int(getattr(Session, "user_id", 0) or 0)
+        except Exception:
+            pass
+        if not login:
+            login = "Sistema"
+        return login, nome, uid
+
+    @staticmethod
+    def _persistir_banco(ts, login, nome, uid, acao, categoria, detalhes, terminal):
+        """Insere o registro na tabela logs_auditoria (chamado em thread separada)."""
+        try:
+            # So tenta gravar se o banco ja foi inicializado
+            if getattr(DatabaseHelper, "_instance", None) is None:
+                return
+            db = DatabaseHelper.get_instance()
+            db.execute_update(
+                "INSERT INTO logs_auditoria "
+                "(data_hora, usuario_id, usuario_login, usuario_nome, acao, categoria, detalhes, terminal) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (ts, uid, login, nome, acao, categoria, detalhes or "", terminal)
+            )
+        except Exception:
+            # Auditoria nunca deve quebrar o fluxo principal
+            pass
+
+    @staticmethod
+    def log(acao, detalhes="", usuario="", categoria="GERAL"):
+        """Grava uma entrada no log de auditoria (arquivo + banco)."""
+        try:
+            ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            login, nome, uid = AuditLogger._resolver_usuario(usuario)
+            terminal = AuditLogger._get_terminal()
+
+            # 1) Arquivo de texto (sempre, para redundancia e compatibilidade)
+            try:
+                with AuditLogger._lock:
+                    linha = f"[{ts}] [{login}] {acao}"
+                    if detalhes:
+                        linha += f" | {detalhes}"
+                    with open(AUDIT_LOG_FILE, "a", encoding="utf-8", errors="replace") as f:
+                        f.write(linha + "\n")
+            except Exception:
+                pass
+
+            # 2) Banco de dados (em thread separada, nao bloqueante)
+            try:
+                t = threading.Thread(
+                    target=AuditLogger._persistir_banco,
+                    args=(ts, login, nome, uid, acao, categoria, detalhes, terminal),
+                    daemon=True)
+                t.start()
+            except Exception:
+                pass
         except Exception:
             pass
 
     @staticmethod
     def get_entries(limit=200):
-        """Retorna as ultimas N entradas do log."""
+        """Retorna as ultimas N entradas do log em arquivo (texto)."""
         try:
             if not os.path.exists(AUDIT_LOG_FILE):
                 return []
             with open(AUDIT_LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
                 linhas = f.readlines()
             return [l.strip() for l in linhas[-limit:] if l.strip()]
+        except Exception:
+            return []
+
+    @staticmethod
+    def query_db(usuario=None, acao=None, data_ini=None, data_fim=None,
+                 texto=None, limit=2000):
+        """Consulta a trilha de auditoria no banco com filtros opcionais.
+
+        Retorna lista de dicts (data_hora, usuario_login, usuario_nome, acao,
+        categoria, detalhes, terminal) da mais recente para a mais antiga.
+        """
+        try:
+            db = DatabaseHelper.get_instance()
+            where = []
+            params = []
+            if usuario:
+                where.append("usuario_login = %s")
+                params.append(usuario)
+            if acao:
+                where.append("acao = %s")
+                params.append(acao)
+            if data_ini:
+                where.append("data_hora >= %s")
+                params.append(f"{data_ini} 00:00:00")
+            if data_fim:
+                where.append("data_hora <= %s")
+                params.append(f"{data_fim} 23:59:59")
+            if texto:
+                where.append("(detalhes LIKE %s OR acao LIKE %s OR usuario_nome LIKE %s)")
+                like = f"%{texto}%"
+                params.extend([like, like, like])
+            sql = ("SELECT id, data_hora, usuario_id, usuario_login, usuario_nome, "
+                   "acao, categoria, detalhes, terminal FROM logs_auditoria")
+            if where:
+                sql += " WHERE " + " AND ".join(where)
+            sql += " ORDER BY id DESC LIMIT %s"
+            params.append(int(limit))
+            return db.execute_query(sql, tuple(params)) or []
+        except Exception:
+            return []
+
+    @staticmethod
+    def get_usuarios_db():
+        """Lista os logins distintos presentes na trilha de auditoria."""
+        try:
+            db = DatabaseHelper.get_instance()
+            rows = db.execute_query(
+                "SELECT DISTINCT usuario_login FROM logs_auditoria "
+                "WHERE usuario_login IS NOT NULL AND usuario_login <> '' "
+                "ORDER BY usuario_login")
+            return [r["usuario_login"] for r in (rows or [])]
+        except Exception:
+            return []
+
+    @staticmethod
+    def get_acoes_db():
+        """Lista os tipos de acao distintos presentes na trilha de auditoria."""
+        try:
+            db = DatabaseHelper.get_instance()
+            rows = db.execute_query(
+                "SELECT DISTINCT acao FROM logs_auditoria "
+                "WHERE acao IS NOT NULL AND acao <> '' ORDER BY acao")
+            return [r["acao"] for r in (rows or [])]
         except Exception:
             return []
 
@@ -5234,6 +5362,25 @@ class DatabaseHelper:
                 quantidade DECIMAL(10,3) DEFAULT 1,
                 preco_unitario DECIMAL(10,2) DEFAULT 0,
                 total DECIMAL(10,2) DEFAULT 0
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+
+        # Trilha de auditoria detalhada: registra TODAS as acoes dos usuarios
+        # (data/hora, usuario, acao, categoria e detalhes do que foi feito).
+        tables["logs_auditoria"] = """
+            CREATE TABLE IF NOT EXISTS logs_auditoria (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                data_hora DATETIME DEFAULT CURRENT_TIMESTAMP,
+                usuario_id INT DEFAULT 0,
+                usuario_login VARCHAR(150) DEFAULT NULL,
+                usuario_nome VARCHAR(200) DEFAULT NULL,
+                acao VARCHAR(120) DEFAULT NULL,
+                categoria VARCHAR(60) DEFAULT NULL,
+                detalhes TEXT DEFAULT NULL,
+                terminal VARCHAR(120) DEFAULT NULL,
+                INDEX idx_audit_data (data_hora),
+                INDEX idx_audit_usuario (usuario_login),
+                INDEX idx_audit_acao (acao)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
 
@@ -9130,8 +9277,9 @@ class PDVApp:
              "Configurar multiplas impressoras por categoria"),
             ("Licenca", self._show_tela_licenca_menu, "#FF5252",
              PermissionConstants.DASHBOARD_BTN_LICENCA, Icons.KEY, "Gerenciar licenca do sistema"),
-            ("Log Auditoria", self._show_audit_log, "#546E7A",
-             PermissionConstants.DASHBOARD_BTN_LOG_AUDITORIA, Icons.AUDIT, "Visualizar log de auditoria do sistema"),
+            ("Relatorio Auditoria", self._show_audit_log, "#546E7A",
+             PermissionConstants.DASHBOARD_BTN_LOG_AUDITORIA, Icons.AUDIT,
+             "Relatorio completo de auditoria: todas as acoes dos usuarios com filtros e exportacao"),
             ("Sobre", self.show_sobre, "#78909C",
              PermissionConstants.DASHBOARD_BTN_SOBRE, Icons.SOBRE, "Sobre o PDV Pro"),
             ("Trocar Senha", self.show_trocar_senha_dialog, "#FF9800",
@@ -10395,58 +10543,98 @@ class PDVApp:
     # LOG DE AUDITORIA
     # ========================================================================
     def _show_audit_log(self):
-        """Exibe o log de auditoria do sistema."""
+        """Relatorio de Auditoria: tudo o que cada usuario faz, com data/hora.
+
+        Le da tabela `logs_auditoria` (com fallback para o arquivo de log) e
+        permite filtrar por usuario, acao, periodo e texto, alem de exportar.
+        """
         dialog = tk.Toplevel(self.root)
-        dialog.title("Log de Auditoria")
-        dialog.geometry("860x560")
+        dialog.title("Relatorio de Auditoria")
+        dialog.geometry("1060x660")
         dialog.configure(bg=COR_FUNDO)
         dialog.transient(self.root)
         dialog.grab_set()
 
-        tk.Label(dialog, text=f"{Icons.AUDIT} Log de Auditoria",
+        tk.Label(dialog, text=f"{Icons.AUDIT} Relatorio de Auditoria",
                  bg=COR_FUNDO, fg=COR_PRIMARIA,
-                 font=("Segoe UI", 15, "bold")).pack(pady=(14, 4))
+                 font=("Segoe UI", 15, "bold")).pack(pady=(14, 2))
         tk.Label(dialog,
-                 text="Registro das acoes criticas do sistema",
-                 bg=COR_FUNDO, fg=COR_TEXTO2,
-                 font=("Segoe UI", 9)).pack()
+                 text="Trilha completa das acoes dos usuarios (o que, com o que, quando)",
+                 bg=COR_FUNDO, fg=COR_TEXTO2, font=("Segoe UI", 9)).pack()
 
-        NeonDivider(dialog, color=COR_PRIMARIA).pack(fill="x", padx=20, pady=8)
+        NeonDivider(dialog, color=COR_PRIMARIA).pack(fill="x", padx=20, pady=6)
 
-        # Busca
-        busca_f = tk.Frame(dialog, bg=COR_FUNDO)
-        busca_f.pack(fill="x", padx=20, pady=(0, 6))
-        tk.Label(busca_f, text="Filtrar:", bg=COR_FUNDO, fg=COR_TEXTO2,
-                 font=("Segoe UI", 9)).pack(side="left")
-        et_filtro = StyledEntry(busca_f, width=40)
-        et_filtro.pack(side="left", padx=8)
+        # ===== Filtros =====
+        filtros = tk.Frame(dialog, bg=COR_FUNDO)
+        filtros.pack(fill="x", padx=20, pady=(0, 4))
 
-        # Treeview
-        cols = ("timestamp", "usuario", "acao", "detalhes")
-        tree = ttk.Treeview(dialog, columns=cols, show="headings", height=18)
-        tree.heading("timestamp", text="Data/Hora")
-        tree.heading("usuario", text="Usuario")
-        tree.heading("acao", text="Acao")
-        tree.heading("detalhes", text="Detalhes")
-        tree.column("timestamp", width=140, anchor="center")
-        tree.column("usuario", width=110, anchor="center")
-        tree.column("acao", width=160)
-        tree.column("detalhes", width=380)
+        tk.Label(filtros, text="Usuario:", bg=COR_FUNDO, fg=COR_TEXTO2,
+                 font=("Segoe UI", 9)).grid(row=0, column=0, sticky="w", padx=(0, 4), pady=2)
+        cb_usuario = ttk.Combobox(filtros, width=18, state="readonly", values=["-- Todos --"])
+        cb_usuario.current(0)
+        cb_usuario.grid(row=0, column=1, padx=(0, 12), pady=2)
 
-        vsb = ttk.Scrollbar(dialog, orient="vertical", command=tree.yview)
-        tree.configure(yscrollcommand=vsb.set)
+        tk.Label(filtros, text="Acao:", bg=COR_FUNDO, fg=COR_TEXTO2,
+                 font=("Segoe UI", 9)).grid(row=0, column=2, sticky="w", padx=(0, 4), pady=2)
+        cb_acao = ttk.Combobox(filtros, width=26, state="readonly", values=["-- Todas --"])
+        cb_acao.current(0)
+        cb_acao.grid(row=0, column=3, padx=(0, 12), pady=2)
 
+        tk.Label(filtros, text="De:", bg=COR_FUNDO, fg=COR_TEXTO2,
+                 font=("Segoe UI", 9)).grid(row=0, column=4, sticky="w", padx=(0, 4), pady=2)
+        et_data_ini = StyledEntry(filtros, width=12)
+        et_data_ini.grid(row=0, column=5, padx=(0, 12), pady=2)
+
+        tk.Label(filtros, text="Ate:", bg=COR_FUNDO, fg=COR_TEXTO2,
+                 font=("Segoe UI", 9)).grid(row=0, column=6, sticky="w", padx=(0, 4), pady=2)
+        et_data_fim = StyledEntry(filtros, width=12)
+        et_data_fim.grid(row=0, column=7, padx=(0, 12), pady=2)
+
+        tk.Label(filtros, text="Texto:", bg=COR_FUNDO, fg=COR_TEXTO2,
+                 font=("Segoe UI", 9)).grid(row=1, column=0, sticky="w", padx=(0, 4), pady=2)
+        et_texto = StyledEntry(filtros, width=48)
+        et_texto.grid(row=1, column=1, columnspan=3, sticky="w", padx=(0, 12), pady=2)
+        tk.Label(filtros, text="(formato das datas: AAAA-MM-DD)", bg=COR_FUNDO,
+                 fg=COR_TEXTO2, font=("Segoe UI", 8)).grid(row=1, column=4, columnspan=4,
+                                                           sticky="w", pady=2)
+
+        # Datas padrao: ultimos 30 dias
+        try:
+            hoje = datetime.date.today()
+            et_data_ini.insert(0, (hoje - datetime.timedelta(days=30)).strftime("%Y-%m-%d"))
+            et_data_fim.insert(0, hoje.strftime("%Y-%m-%d"))
+        except Exception:
+            pass
+
+        # ===== Tabela =====
+        cols = ("data_hora", "usuario", "categoria", "acao", "detalhes")
         tree_f = tk.Frame(dialog, bg=COR_FUNDO)
         tree_f.pack(fill="both", expand=True, padx=20, pady=4)
-        vsb2 = ttk.Scrollbar(tree_f, orient="vertical", command=tree.yview)
-        tree.configure(yscrollcommand=vsb2.set)
-        tree.pack(side="left", fill="both", expand=True)
-        vsb2.pack(side="right", fill="y")
+        tree = ttk.Treeview(tree_f, columns=cols, show="headings", height=16)
+        for c, h, w, a in [("data_hora", "Data/Hora", 145, "center"),
+                            ("usuario", "Usuario", 120, "center"),
+                            ("categoria", "Categoria", 90, "center"),
+                            ("acao", "Acao", 190, "w"),
+                            ("detalhes", "Detalhes", 460, "w")]:
+            tree.heading(c, text=h)
+            tree.column(c, width=w, anchor=a)
+        vsb = ttk.Scrollbar(tree_f, orient="vertical", command=tree.yview)
+        hsb = ttk.Scrollbar(tree_f, orient="horizontal", command=tree.xview)
+        tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        tree_f.rowconfigure(0, weight=1)
+        tree_f.columnconfigure(0, weight=1)
 
-        all_entries = [None]
+        lbl_status = tk.Label(dialog, text="", bg=COR_FUNDO, fg=COR_TEXTO2,
+                              font=("Segoe UI", 9))
+        lbl_status.pack(anchor="w", padx=20)
 
-        def _parse_entry(linha):
-            # Formato: [2026-03-15 10:30:00] [usuario] ACAO | detalhes
+        rows_cache = [[]]
+
+        def _parse_file_entry(linha):
+            # Formato do arquivo: [2026-03-15 10:30:00] [usuario] ACAO | detalhes
             try:
                 ts = linha[1:20] if len(linha) > 20 else ""
                 resto = linha[22:] if len(linha) > 22 else linha
@@ -10454,57 +10642,118 @@ class PDVApp:
                 usuario = partes[0].strip("[").strip() if len(partes) > 1 else ""
                 resto2 = partes[1].strip() if len(partes) > 1 else resto
                 if "|" in resto2:
-                    acao, det = resto2.split("|", 1)
+                    ac, det = resto2.split("|", 1)
                 else:
-                    acao, det = resto2, ""
-                return ts, usuario, acao.strip(), det.strip()
+                    ac, det = resto2, ""
+                return ts, usuario, ac.strip(), det.strip()
             except Exception:
                 return "", "", linha, ""
 
-        def _carregar():
-            entradas = AuditLogger.get_entries(500)
-            all_entries[0] = entradas
-            return entradas
+        def _fmt_dt(v):
+            try:
+                if isinstance(v, str):
+                    return v[:19]
+                return v.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return str(v)
 
-        def _preencher(entradas, filtro=""):
+        def _preencher(rows):
+            rows_cache[0] = rows
             tree.delete(*tree.get_children())
-            for i, linha in enumerate(reversed(entradas)):
-                if filtro and filtro.lower() not in linha.lower():
-                    continue
-                ts, usr, acao, det = _parse_entry(linha)
+            for i, r in enumerate(rows):
                 tag = "even" if i % 2 == 0 else "odd"
-                tree.insert("", "end", values=(ts, usr, acao, det), tags=(tag,))
+                tree.insert("", "end", values=(
+                    _fmt_dt(r.get("data_hora", "")),
+                    r.get("usuario_login", "") or "",
+                    r.get("categoria", "") or "",
+                    r.get("acao", "") or "",
+                    r.get("detalhes", "") or ""
+                ), tags=(tag,))
             tree.tag_configure("even", background=COR_GLASS)
             tree.tag_configure("odd", background=COR_CARD)
+            lbl_status.config(text=f"{len(rows)} registro(s) encontrado(s)")
 
-        def _on_filtro(event=None):
-            if all_entries[0]:
-                _preencher(all_entries[0], et_filtro.get().strip())
+        def _aplicar():
+            # Le os filtros na thread principal (Tkinter nao e thread-safe)
+            usuario = cb_usuario.get()
+            usuario = None if usuario.startswith("--") else usuario
+            acao = cb_acao.get()
+            acao = None if acao.startswith("--") else acao
+            di = et_data_ini.get().strip() or None
+            df = et_data_fim.get().strip() or None
+            txt = et_texto.get().strip() or None
 
-        et_filtro.bind("<KeyRelease>", _on_filtro)
+            def _carregar():
+                rows = AuditLogger.query_db(usuario=usuario, acao=acao,
+                                            data_ini=di, data_fim=df, texto=txt, limit=5000)
+                # Fallback: se o banco nao retornou nada, tenta o arquivo de log
+                if not rows:
+                    fallback = []
+                    for linha in reversed(AuditLogger.get_entries(1000)):
+                        ts, usr, ac, det = _parse_file_entry(linha)
+                        if txt and txt.lower() not in linha.lower():
+                            continue
+                        if usuario and usuario.lower() != (usr or "").lower():
+                            continue
+                        fallback.append({"data_hora": ts, "usuario_login": usr,
+                                         "categoria": "", "acao": ac, "detalhes": det})
+                    rows = fallback
+                return rows
+            self.run_async(_carregar, _preencher)
 
-        def _on_loaded(entradas):
-            _preencher(entradas)
+        # Carregar valores dos comboboxes (usuarios e acoes distintas)
+        def _carregar_combos():
+            return (AuditLogger.get_usuarios_db(), AuditLogger.get_acoes_db())
+        def _on_combos(res):
+            usuarios, acoes = res
+            cb_usuario["values"] = ["-- Todos --"] + list(usuarios)
+            cb_acao["values"] = ["-- Todas --"] + list(acoes)
+        self.run_async(_carregar_combos, _on_combos)
 
-        self.run_async(_carregar, _on_loaded)
+        _aplicar()
 
-        # Botoes
+        # ===== Botoes =====
         btn_f = tk.Frame(dialog, bg=COR_FUNDO)
         btn_f.pack(fill="x", padx=20, pady=8)
 
-        def _exportar():
-            if all_entries[0]:
-                conteudo = "\n".join(all_entries[0])
-                DataExporter.export_text(conteudo, "audit_log", parent=dialog)
+        StyledButton(btn_f, text=f"{Icons.SEARCH} Aplicar filtros", command=_aplicar,
+                     color=COR_BOTAO_VERDE, width=16).pack(side="left", padx=4)
 
-        StyledButton(btn_f, text=f"{Icons.EXPORT} Exportar TXT",
-                     command=_exportar,
-                     color=COR_BOTAO_AZUL, width=16).pack(side="left", padx=4)
-        StyledButton(btn_f, text=f"{Icons.REFRESH} Atualizar",
-                     command=lambda: self.run_async(_carregar, _on_loaded),
+        def _limpar():
+            cb_usuario.current(0)
+            cb_acao.current(0)
+            et_data_ini.delete(0, tk.END)
+            et_data_fim.delete(0, tk.END)
+            et_texto.delete(0, tk.END)
+            _aplicar()
+        StyledButton(btn_f, text="Limpar", command=_limpar,
+                     color=COR_FUNDO3, width=9).pack(side="left", padx=4)
+
+        def _exportar_csv():
+            if not tree.get_children():
+                ToastManager.warning("Nenhum dado para exportar.")
+                return
+            DataExporter.export_treeview_csv(tree, "relatorio_auditoria", parent=dialog)
+        StyledButton(btn_f, text=f"{Icons.EXPORT} Exportar CSV", command=_exportar_csv,
+                     color=COR_BOTAO_AZUL, width=15).pack(side="left", padx=4)
+
+        def _exportar_txt():
+            rows = rows_cache[0]
+            if not rows:
+                ToastManager.warning("Nenhum dado para exportar.")
+                return
+            linhas = [
+                f"[{_fmt_dt(r.get('data_hora',''))}] [{r.get('usuario_login','') or ''}] "
+                f"({r.get('categoria','') or '-'}) {r.get('acao','') or ''} | "
+                f"{r.get('detalhes','') or ''}"
+                for r in rows]
+            DataExporter.export_text("\n".join(linhas), "relatorio_auditoria", parent=dialog)
+        StyledButton(btn_f, text=f"{Icons.EXPORT} Exportar TXT", command=_exportar_txt,
+                     color=COR_BOTAO_AZUL, width=15).pack(side="left", padx=4)
+
+        StyledButton(btn_f, text=f"{Icons.REFRESH} Atualizar", command=_aplicar,
                      color=COR_FUNDO3, width=12).pack(side="left", padx=4)
-        StyledButton(btn_f, text=f"{Icons.CROSS} Fechar",
-                     command=dialog.destroy,
+        StyledButton(btn_f, text=f"{Icons.CROSS} Fechar", command=dialog.destroy,
                      color="#2a3a5c", width=10).pack(side="right", padx=4)
 
     # ========================================================================
@@ -11013,6 +11262,11 @@ class PDVApp:
                 item.quantidade += qtd
                 item.total = item.quantidade * item.preco_unitario
                 self.atualizar_tree_carrinho()
+                AuditLogger.log(
+                    "VENDA_ITEM_ADICIONADO",
+                    f"Produto: {descricao} (ID {produto_id}) | Qtd +{qtd:g} | "
+                    f"Qtd total no item: {item.quantidade:g}",
+                    usuario=Session.user_login, categoria="VENDA")
                 return
         item = ItemVenda()
         item.produto_id = produto_id
@@ -11024,6 +11278,11 @@ class PDVApp:
         item.tipo_produto_desc = tipo_produto_desc
         self.carrinho.append(item)
         self.atualizar_tree_carrinho()
+        AuditLogger.log(
+            "VENDA_ITEM_ADICIONADO",
+            f"Produto: {descricao} (ID {produto_id}) | Qtd: {qtd:g} | "
+            f"Preco unit.: R$ {FormatUtils.format_money(item.preco_unitario)}",
+            usuario=Session.user_login, categoria="VENDA")
         # Buscar tipo_produto_id do banco se nao foi informado
         if tipo_produto_id is None:
             def _buscar_tipo():
@@ -11123,10 +11382,17 @@ class PDVApp:
             initialvalue=item.quantidade,
             minvalue=0.001, parent=self.root)
         if nova_qtd:
+            qtd_antiga = self.carrinho[idx].quantidade
             self.carrinho[idx].quantidade = nova_qtd
             self.carrinho[idx].total = nova_qtd * self.carrinho[idx].preco_unitario
             self.atualizar_tree_carrinho()
             ToastManager.info(f"Qtd atualizada: {nova_qtd:.3f}")
+            AuditLogger.log(
+                "VENDA_ITEM_QTD_ALTERADA",
+                f"Produto: {item.descricao_produto} (ID {item.produto_id}) | "
+                f"Qtd: {qtd_antiga:g} -> {nova_qtd:g} | "
+                f"Novo total item: R$ {FormatUtils.format_money(self.carrinho[idx].total)}",
+                usuario=Session.user_login, categoria="VENDA")
 
     def remover_item_carrinho(self):
         sel = self.tree_carrinho.selection()
@@ -11134,7 +11400,16 @@ class PDVApp:
             ToastManager.warning("Selecione um item para remover.")
             return
         idx = self.tree_carrinho.index(sel[0])
-        nome = self.carrinho[idx].descricao_produto
+        item_rem = self.carrinho[idx]
+        nome = item_rem.descricao_produto
+        # Auditoria: exclusao de item da lista de itens durante a venda
+        AuditLogger.log(
+            "VENDA_ITEM_REMOVIDO",
+            f"Produto: {nome} (ID {item_rem.produto_id}) | "
+            f"Qtd: {item_rem.quantidade:g} | "
+            f"Preco unit.: R$ {FormatUtils.format_money(item_rem.preco_unitario)} | "
+            f"Total removido: R$ {FormatUtils.format_money(item_rem.total)}",
+            usuario=Session.user_login, categoria="VENDA")
         del self.carrinho[idx]
         self.atualizar_tree_carrinho()
         ToastManager.info(f"Removido: {nome}")
@@ -11587,11 +11862,20 @@ class PDVApp:
 
     def limpar_carrinho(self):
         if self.carrinho:
+            qtd_itens = len(self.carrinho)
+            valor_total = sum(i.total for i in self.carrinho)
             if messagebox.askyesno("Confirmar",
                     f"Limpar todo o carrinho?\n({len(self.carrinho)} item(s))"):
+                nomes = ", ".join(f"{i.descricao_produto} x{i.quantidade:g}"
+                                  for i in self.carrinho)
                 self.carrinho.clear()
                 self.atualizar_tree_carrinho()
                 ToastManager.info("Carrinho limpo.")
+                AuditLogger.log(
+                    "VENDA_CARRINHO_LIMPO",
+                    f"{qtd_itens} item(ns) descartados | "
+                    f"Valor: R$ {FormatUtils.format_money(valor_total)} | Itens: {nomes}",
+                    usuario=Session.user_login, categoria="VENDA")
 
     def finalizar_venda(self):
         if not self.carrinho:
@@ -11984,6 +12268,23 @@ class PDVApp:
             dialog.destroy()
             era_edicao = getattr(self, "_editando_venda_id", None)
             self._editando_venda_id = None
+            # Auditoria: venda finalizada (ou editada) com resumo dos itens
+            try:
+                _itens_desc = "; ".join(
+                    f"{i.descricao_produto} x{i.quantidade:g} = R$ {FormatUtils.format_money(i.total)}"
+                    for i in self.carrinho)
+                _formas = "; ".join(
+                    f"R$ {FormatUtils.format_money(p.valor)}" for p in self.pagamentos_venda)
+                AuditLogger.log(
+                    "VENDA_EDITADA" if era_edicao else "VENDA_FINALIZADA",
+                    f"Venda #{venda_id} | Cliente: {self.venda_cliente_nome or 'Consumidor'} | "
+                    f"Total: R$ {FormatUtils.format_money(self.venda_total_liquido)} | "
+                    f"Recebido: R$ {FormatUtils.format_money(total_pago)} | "
+                    f"Troco: R$ {FormatUtils.format_money(troco)} | "
+                    f"Pagamentos: {_formas} | Itens: {_itens_desc}",
+                    usuario=Session.user_login, categoria="VENDA")
+            except Exception:
+                pass
             # Gerar cupom
             venda = Venda()
             venda.id = venda_id
@@ -15806,7 +16107,10 @@ class PDVApp:
             if not sel:
                 ToastManager.warning("Selecione um item para remover.")
                 return
-            item_id = tree.item(sel[0])["values"][0]
+            _vals = tree.item(sel[0])["values"]
+            item_id = _vals[0]
+            item_desc = _vals[1] if len(_vals) > 1 else "item"
+            item_val = _vals[4] if len(_vals) > 4 else ""
             if messagebox.askyesno("Confirmar", "Remover este item?", parent=dialog):
                 def do_remover():
                     db = DatabaseHelper.get_instance()
@@ -15815,7 +16119,13 @@ class PDVApp:
                     except Exception:
                         pass
                     db.execute_update("DELETE FROM itens_mesa WHERE id = %s", (item_id,))
-                self.run_async(do_remover, lambda _: carregar())
+                def _apos_remover(_):
+                    AuditLogger.log(
+                        "MESA_ITEM_REMOVIDO",
+                        f"Mesa {numero} | Item: {item_desc} (ID {item_id}) | Total: {item_val}",
+                        usuario=Session.user_login, categoria="MESA")
+                    carregar()
+                self.run_async(do_remover, _apos_remover)
 
         def salvar_mesa():
             """Salva garcom, pessoas e status via ocupacao_mesa (alinhado com Android)."""
@@ -15887,6 +16197,10 @@ class PDVApp:
 
             def on_salvo(_):
                 ToastManager.success("Mesa salva com sucesso!")
+                AuditLogger.log(
+                    "MESA_SALVA",
+                    f"Mesa {numero} | Garcom ID: {garcom_id} | Pessoas: {qtd_pessoas}",
+                    usuario=Session.user_login, categoria="MESA")
                 dialog.destroy()
                 self.carregar_mesas()
             self.run_async(do_salvar, on_salvo)
@@ -15914,6 +16228,10 @@ class PDVApp:
                             (oc_id,))
                 def on_limpa(_):
                     ToastManager.success(f"Mesa {numero} limpa com sucesso!")
+                    AuditLogger.log(
+                        "MESA_LIMPA",
+                        f"Mesa {numero} encerrada/limpa - todos os itens removidos",
+                        usuario=Session.user_login, categoria="MESA")
                     dialog.destroy()
                     self.carregar_mesas()
                 self.run_async(do_limpar, on_limpa)
@@ -15937,6 +16255,10 @@ class PDVApp:
                         (user_id, user_nome, oc_id))
             def on_reservada(_):
                 ToastManager.success(f"Mesa {numero} reservada!")
+                AuditLogger.log(
+                    "MESA_RESERVADA",
+                    f"Mesa {numero} reservada por {Session.user_nome or Session.user_login}",
+                    usuario=Session.user_login, categoria="MESA")
                 dialog.destroy()
                 self.carregar_mesas()
             self.run_async(do_reservar, on_reservada)
@@ -15961,6 +16283,9 @@ class PDVApp:
                             (oc_id,))
             def on_cancelada(_):
                 ToastManager.success("Reserva cancelada!")
+                AuditLogger.log(
+                    "MESA_RESERVA_CANCELADA", f"Mesa {numero} - reserva cancelada",
+                    usuario=Session.user_login, categoria="MESA")
                 dialog.destroy()
                 self.carregar_mesas()
             self.run_async(do_cancelar, on_cancelada)
@@ -15975,6 +16300,9 @@ class PDVApp:
                         "UPDATE ocupacao_mesa SET status = 'pronta' WHERE id = %s", (oc_id,))
             def on_marcada(_):
                 ToastManager.success(f"Mesa {numero} marcada como pronta para cobranca!")
+                AuditLogger.log(
+                    "MESA_PRONTA_COBRANCA", f"Mesa {numero} marcada como pronta para cobranca",
+                    usuario=Session.user_login, categoria="MESA")
                 dialog.destroy()
                 self.carregar_mesas()
             self.run_async(do_marcar, on_marcada)
@@ -15989,6 +16317,9 @@ class PDVApp:
                         "UPDATE ocupacao_mesa SET status = 'ocupada' WHERE id = %s", (oc_id,))
             def on_cancelada(_):
                 ToastManager.success("Status pronta cancelado. Mesa voltou para ocupada.")
+                AuditLogger.log(
+                    "MESA_PRONTA_CANCELADA", f"Mesa {numero} - status pronta cancelado (voltou a ocupada)",
+                    usuario=Session.user_login, categoria="MESA")
                 dialog.destroy()
                 self.carregar_mesas()
             self.run_async(do_cancelar, on_cancelada)
@@ -16238,7 +16569,21 @@ class PDVApp:
                 if res_st and res_st[0].get("status") in ("livre", None):
                     db.execute_update(
                         "UPDATE ocupacao_mesa SET status = 'ocupada' WHERE id = %s", (oc_id,))
-        self.run_async(salvar, lambda _: refresh())
+
+        def _apos_salvar(_):
+            _extra = ""
+            if adicionais_desc:
+                _extra += f" | Adicionais: {adicionais_desc}"
+            if observacao:
+                _extra += f" | Obs. cozinha: {observacao}"
+            AuditLogger.log(
+                "MESA_ITEM_ADICIONADO",
+                f"Mesa ID {mesa_id} | Produto: {descricao} (ID {produto_id}) | "
+                f"Qtd: {qtd:g} | Total: R$ {FormatUtils.format_money(qtd * preco + adicionais_total)}"
+                + _extra,
+                usuario=Session.user_login, categoria="MESA")
+            refresh()
+        self.run_async(salvar, _apos_salvar)
 
     # ========================================================================
     # GERENCIAR ARMARIOS (SAUNA) - Compativel com APK
