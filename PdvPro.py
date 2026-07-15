@@ -124,6 +124,7 @@ def _get_app_dir():
 APP_DIR = _get_app_dir()
 CONFIG_FILE = os.path.join(APP_DIR, "pdv_config.json")
 PRINTER_CONFIG_FILE = os.path.join(APP_DIR, "pdv_printer_config.json")
+KITCHEN_PRINTER_CONFIG_FILE = os.path.join(APP_DIR, "pdv_kitchen_printer_config.json")
 MULTI_PRINTER_CONFIG_FILE = os.path.join(APP_DIR, "pdv_multi_printer_config.json")
 AUDIT_LOG_FILE = os.path.join(APP_DIR, "pdv_audit.log")
 LICENCA_CACHE_FILE = os.path.join(APP_DIR, "pdv_licenca_cache.json")
@@ -2006,33 +2007,161 @@ class LicencaManager:
 # ============================================================================
 
 class AuditLogger:
-    """Registra acoes criticas do sistema em arquivo de log para auditoria."""
+    """Trilha de auditoria: registra as acoes dos usuarios em arquivo de log
+    e, quando o banco estiver disponivel, tambem na tabela `logs_auditoria`.
+
+    A gravacao no banco e feita em uma thread separada para nao bloquear a UI.
+    """
     _lock = threading.Lock()
+    _terminal = None
 
     @staticmethod
-    def log(acao, detalhes="", usuario=""):
-        """Grava uma entrada no log de auditoria."""
+    def _get_terminal():
+        if AuditLogger._terminal is None:
+            try:
+                AuditLogger._terminal = socket.gethostname()
+            except Exception:
+                AuditLogger._terminal = "desconhecido"
+        return AuditLogger._terminal
+
+    @staticmethod
+    def _resolver_usuario(usuario):
+        """Descobre login/nome/id do usuario a partir da Session quando nao informado."""
+        login = usuario or ""
+        nome = ""
+        uid = 0
         try:
-            with AuditLogger._lock:
-                ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                user_info = usuario or "Sistema"
-                linha = f"[{ts}] [{user_info}] {acao}"
-                if detalhes:
-                    linha += f" | {detalhes}"
-                with open(AUDIT_LOG_FILE, "a", encoding="utf-8", errors="replace") as f:
-                    f.write(linha + "\n")
+            if not login:
+                login = getattr(Session, "user_login", "") or ""
+            nome = getattr(Session, "user_nome", "") or ""
+            uid = int(getattr(Session, "user_id", 0) or 0)
+        except Exception:
+            pass
+        if not login:
+            login = "Sistema"
+        return login, nome, uid
+
+    @staticmethod
+    def _persistir_banco(ts, login, nome, uid, acao, categoria, detalhes, terminal):
+        """Insere o registro na tabela logs_auditoria (chamado em thread separada)."""
+        try:
+            # So tenta gravar se o banco ja foi inicializado
+            if getattr(DatabaseHelper, "_instance", None) is None:
+                return
+            db = DatabaseHelper.get_instance()
+            db.execute_update(
+                "INSERT INTO logs_auditoria "
+                "(data_hora, usuario_id, usuario_login, usuario_nome, acao, categoria, detalhes, terminal) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (ts, uid, login, nome, acao, categoria, detalhes or "", terminal)
+            )
+        except Exception:
+            # Auditoria nunca deve quebrar o fluxo principal
+            pass
+
+    @staticmethod
+    def log(acao, detalhes="", usuario="", categoria="GERAL"):
+        """Grava uma entrada no log de auditoria (arquivo + banco)."""
+        try:
+            ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            login, nome, uid = AuditLogger._resolver_usuario(usuario)
+            terminal = AuditLogger._get_terminal()
+
+            # 1) Arquivo de texto (sempre, para redundancia e compatibilidade)
+            try:
+                with AuditLogger._lock:
+                    linha = f"[{ts}] [{login}] {acao}"
+                    if detalhes:
+                        linha += f" | {detalhes}"
+                    with open(AUDIT_LOG_FILE, "a", encoding="utf-8", errors="replace") as f:
+                        f.write(linha + "\n")
+            except Exception:
+                pass
+
+            # 2) Banco de dados (em thread separada, nao bloqueante)
+            try:
+                t = threading.Thread(
+                    target=AuditLogger._persistir_banco,
+                    args=(ts, login, nome, uid, acao, categoria, detalhes, terminal),
+                    daemon=True)
+                t.start()
+            except Exception:
+                pass
         except Exception:
             pass
 
     @staticmethod
     def get_entries(limit=200):
-        """Retorna as ultimas N entradas do log."""
+        """Retorna as ultimas N entradas do log em arquivo (texto)."""
         try:
             if not os.path.exists(AUDIT_LOG_FILE):
                 return []
             with open(AUDIT_LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
                 linhas = f.readlines()
             return [l.strip() for l in linhas[-limit:] if l.strip()]
+        except Exception:
+            return []
+
+    @staticmethod
+    def query_db(usuario=None, acao=None, data_ini=None, data_fim=None,
+                 texto=None, limit=2000):
+        """Consulta a trilha de auditoria no banco com filtros opcionais.
+
+        Retorna lista de dicts (data_hora, usuario_login, usuario_nome, acao,
+        categoria, detalhes, terminal) da mais recente para a mais antiga.
+        """
+        try:
+            db = DatabaseHelper.get_instance()
+            where = []
+            params = []
+            if usuario:
+                where.append("usuario_login = %s")
+                params.append(usuario)
+            if acao:
+                where.append("acao = %s")
+                params.append(acao)
+            if data_ini:
+                where.append("data_hora >= %s")
+                params.append(f"{data_ini} 00:00:00")
+            if data_fim:
+                where.append("data_hora <= %s")
+                params.append(f"{data_fim} 23:59:59")
+            if texto:
+                where.append("(detalhes LIKE %s OR acao LIKE %s OR usuario_nome LIKE %s)")
+                like = f"%{texto}%"
+                params.extend([like, like, like])
+            sql = ("SELECT id, data_hora, usuario_id, usuario_login, usuario_nome, "
+                   "acao, categoria, detalhes, terminal FROM logs_auditoria")
+            if where:
+                sql += " WHERE " + " AND ".join(where)
+            sql += " ORDER BY id DESC LIMIT %s"
+            params.append(int(limit))
+            return db.execute_query(sql, tuple(params)) or []
+        except Exception:
+            return []
+
+    @staticmethod
+    def get_usuarios_db():
+        """Lista os logins distintos presentes na trilha de auditoria."""
+        try:
+            db = DatabaseHelper.get_instance()
+            rows = db.execute_query(
+                "SELECT DISTINCT usuario_login FROM logs_auditoria "
+                "WHERE usuario_login IS NOT NULL AND usuario_login <> '' "
+                "ORDER BY usuario_login")
+            return [r["usuario_login"] for r in (rows or [])]
+        except Exception:
+            return []
+
+    @staticmethod
+    def get_acoes_db():
+        """Lista os tipos de acao distintos presentes na trilha de auditoria."""
+        try:
+            db = DatabaseHelper.get_instance()
+            rows = db.execute_query(
+                "SELECT DISTINCT acao FROM logs_auditoria "
+                "WHERE acao IS NOT NULL AND acao <> '' ORDER BY acao")
+            return [r["acao"] for r in (rows or [])]
         except Exception:
             return []
 
@@ -5237,6 +5366,25 @@ class DatabaseHelper:
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """
 
+        # Trilha de auditoria detalhada: registra TODAS as acoes dos usuarios
+        # (data/hora, usuario, acao, categoria e detalhes do que foi feito).
+        tables["logs_auditoria"] = """
+            CREATE TABLE IF NOT EXISTS logs_auditoria (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                data_hora DATETIME DEFAULT CURRENT_TIMESTAMP,
+                usuario_id INT DEFAULT 0,
+                usuario_login VARCHAR(150) DEFAULT NULL,
+                usuario_nome VARCHAR(200) DEFAULT NULL,
+                acao VARCHAR(120) DEFAULT NULL,
+                categoria VARCHAR(60) DEFAULT NULL,
+                detalhes TEXT DEFAULT NULL,
+                terminal VARCHAR(120) DEFAULT NULL,
+                INDEX idx_audit_data (data_hora),
+                INDEX idx_audit_usuario (usuario_login),
+                INDEX idx_audit_acao (acao)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+
         return tables
 
     def _parse_columns_from_create_sql(self, create_sql):
@@ -5642,11 +5790,11 @@ class DatabaseHelper:
                     "VALUES ('Contas a Receber', 'conta_receber', 0, 1)"
                 )
 
-            # === Cardapio do restaurante DELICIAS FOOD (itens cadastrados SEM preco) ===
+            # === Produtos de teste do assistente 'TROQUE SEU KIT' (sem preco) ===
             try:
-                self.seed_cardapio_delicias_food()
+                self.seed_kit_teste()
             except Exception as _e_card:
-                print(f"Aviso ao semear cardapio Delicias Food: {_e_card}")
+                print(f"Aviso ao semear produtos de teste do kit: {_e_card}")
 
             # Perfis padrao agora sao criados pelo PermissionDatabaseSetup.setup()
         except Exception as e:
@@ -5656,9 +5804,9 @@ class DatabaseHelper:
     # CARDAPIO DELICIAS FOOD  -  cadastro automatico do cardapio (sem precos)
     # ========================================================================
     # Nomes das categorias (tipos_produto). Usados tambem pelo assistente
-    # "MONTE SEU PRATO". Mantidos SEM acento para evitar qualquer divergencia
+    # "TROQUE SEU KIT". Mantidos SEM acento para evitar qualquer divergencia
     # entre o cadastro e as consultas do assistente.
-    CAT_MONTE_PRATO = "MONTE SEU PRATO"
+    CAT_MONTE_PRATO = "TROQUE SEU KIT"
     CAT_PROTEINAS = "Proteinas"
     CAT_ACOMPANHAMENTOS = "Acompanhamentos"
     CAT_SUCOS = "Sucos"
@@ -5667,17 +5815,16 @@ class DatabaseHelper:
     CAT_AGUAS = "Aguas"
     CAT_SOBREMESAS = "Sobremesas"
 
-    def seed_cardapio_delicias_food(self):
-        """Cadastra o cardapio do restaurante DELICIAS FOOD.
+    def seed_kit_teste(self):
+        """Popula categorias de teste para o assistente 'TROQUE SEU KIT'.
 
-        - Todos os itens sao cadastrados SEM preco (preco_venda = 0). O preco
-          deve ser definido depois pelo cliente no cadastro de produtos.
-        - Idempotente: so insere o que ainda nao existe (pode rodar a cada
-          inicializacao sem duplicar).
-        - Se a categoria "MONTE SEU PRATO" ja existir, assume-se que o
-          cardapio ja foi cadastrado e o seed e ignorado (evita overhead).
+        - Remove (uma unica vez) o antigo cardapio de demonstracao e cria,
+          para CADA categoria usada pelo assistente, produtos genericos
+          'teste 1' ate 'teste 10' (cadastrados sem preco).
+        - Idempotente: se a categoria principal 'TROQUE SEU KIT' ja existir,
+          assume-se que o seed ja rodou e nada e feito.
         """
-        # Se ja existe a categoria principal, considera o cardapio cadastrado.
+        # Se ja existe a categoria principal, considera o seed ja aplicado.
         ja_existe = self.execute_query(
             "SELECT id FROM tipos_produto WHERE descricao = %s LIMIT 1",
             (self.CAT_MONTE_PRATO,)
@@ -5704,8 +5851,7 @@ class DatabaseHelper:
             )
             if rows:
                 return rows[0]["id"]
-            # preco_custo / preco_venda = 0 (cliente define depois). Estoque alto
-            # para itens de restaurante (feitos na hora) nao bloquearem a venda.
+            # preco = 0 (cliente define depois). Estoque alto para nao bloquear a venda.
             return self.execute_update(
                 "INSERT INTO produtos (codigo, descricao, unidade, tipo_produto_id, "
                 "preco_custo, preco_venda, estoque, estoque_minimo, ativo) "
@@ -5713,110 +5859,56 @@ class DatabaseHelper:
                 (codigo, descricao, tipo_id)
             )
 
-        # ---- MONTE SEU PRATO (tamanhos) ----
-        # O codigo guarda o numero de proteinas que o tamanho permite escolher
-        # (ultimo digito do codigo). Ex.: MSP-G2 = tamanho G com 2 proteinas.
-        tipo_monte = _get_or_create_tipo(self.CAT_MONTE_PRATO)
-        for desc, cod in [
-            ("Tamanho P - 1 Proteina", "MSP-P1"),
-            ("Tamanho P - 2 Proteinas", "MSP-P2"),
-            ("Tamanho G - 1 Proteina", "MSP-G1"),
-            ("Tamanho G - 2 Proteinas", "MSP-G2"),
-        ]:
-            _ensure_produto(desc, tipo_monte, cod)
+        # ---- Remove o antigo cardapio de demonstracao (Delicias Food) ----
+        # A antiga categoria de tamanhos 'MONTE SEU PRATO' e removida por
+        # completo (produtos + tipo). As demais categorias sao reaproveitadas
+        # (mesmo nome) e tem seus produtos antigos apagados mais abaixo.
+        try:
+            rows_antigo = self.execute_query(
+                "SELECT id FROM tipos_produto WHERE descricao = %s",
+                ("MONTE SEU PRATO",)) or []
+            for r in rows_antigo:
+                tid = r["id"]
+                self.execute_update(
+                    "DELETE FROM produtos WHERE tipo_produto_id = %s", (tid,))
+                self.execute_update(
+                    "DELETE FROM tipos_produto WHERE id = %s", (tid,))
+        except Exception as _e_rm:
+            print(f"Aviso ao remover cardapio antigo: {_e_rm}")
 
-        # ---- PROTEINAS ----
-        tipo_prot = _get_or_create_tipo(self.CAT_PROTEINAS)
-        proteinas = [
-            "Lasanha bolonhesa", "Lasanha de frango", "Panqueca de carne do sol",
-            "Panqueca de carne", "Panqueca de frango", "Escondidinho de frango",
-            "Escondidinho de carne", "Escondidinho de carne do sol", "Peixada",
-            "Peixe tilapia frita em postas", "Frango assado no forno",
-            "Porco assado na brasa", "Porco ao molho", "Cozido com pirao",
-            "Mao de vaca com pirao", "Frango a milanesa", "Frango parmegiana",
-            "Filezinho grelhado", "Carne trinchada", "Porco trinchado",
-            "Porco frito", "Porco frito no molho barbecue", "File de peixe frito",
-            "Creme de galinha", "Vatapa de frango", "Vatapa de camarao",
-            "Fricasse de frango", "Maninha assada", "Picanha assada",
-            "Picanha de porco assada", "Costelinha suina assada",
-            "Calabresa acebolada", "Escondidinho de calabresa",
-            "Linguica Toscana assada", "Linguica Toscana no forno",
-            "Linguica Toscana no molho barbecue", "Almondega", "Omelete de frango",
-            "Omelete de carne", "Omelete de carne do sol", "Ovo cozido",
-            "Ovo frito", "Feijoada", "Bobo de Camarao",
+        # ---- Categorias do assistente 'TROQUE SEU KIT' ----
+        # Para CADA categoria, cria produtos genericos 'teste 1' .. 'teste 10'.
+        categorias = [
+            self.CAT_MONTE_PRATO,      # o proprio kit (tamanhos)
+            self.CAT_PROTEINAS,
+            self.CAT_ACOMPANHAMENTOS,
+            self.CAT_SUCOS,
+            self.CAT_REFRI_200,
+            self.CAT_REFRI_350,
+            self.CAT_AGUAS,
+            self.CAT_SOBREMESAS,
         ]
-        for nome in proteinas:
-            _ensure_produto(nome, tipo_prot)
-
-        # ---- ACOMPANHAMENTOS (o codigo guarda o grupo) ----
-        tipo_acomp = _get_or_create_tipo(self.CAT_ACOMPANHAMENTOS)
-        acompanhamentos = [
-            # (descricao, grupo)
-            ("Arroz branco", "ARROZ"), ("Arroz temperado", "ARROZ"),
-            ("Baiao de dois", "ARROZ"), ("Macarrao espaguete", "ARROZ"),
-            ("Macarrao ninho", "ARROZ"),
-            ("Feijao carioca", "FEIJAO"), ("Feijao de corda", "FEIJAO"),
-            ("Feijao preto", "FEIJAO"),
-            ("Salada verde", "SALADA"), ("Salada de legumes", "SALADA"),
-            ("Salada de maionese", "SALADA"), ("Salada acelga com manga", "SALADA"),
-            ("Salada tropical", "SALADA"), ("Salada de repolho refogado", "SALADA"),
-            ("Salada de repolho cremoso", "SALADA"), ("Salada de repolho crua", "SALADA"),
-            ("Beterraba", "SALADA"), ("Batata doce", "SALADA"),
-            ("Abobora refogado", "SALADA"),
-        ]
-        for nome, grupo in acompanhamentos:
-            _ensure_produto(nome, tipo_acomp, f"ACOMP-{grupo}")
-
-        # ---- SUCOS (todos 400ml) ----
-        tipo_sucos = _get_or_create_tipo(self.CAT_SUCOS)
-        sucos = [
-            "Suco de Caja 400ml", "Suco de Caju 400ml", "Suco de Manga 400ml",
-            "Suco de Acerola 400ml", "Suco de Abacaxi 400ml", "Suco de Maracuja 400ml",
-            "Suco de Goiaba 400ml", "Suco de Graviola 400ml", "Suco de Siriguela 400ml",
-            "Suco de Tamarindo 400ml", "Suco de Sapoti 400ml",
-            "Suco de Abacaxi com Hortela 400ml",
-        ]
-        for nome in sucos:
-            _ensure_produto(nome, tipo_sucos)
-
-        # ---- REFRIGERANTES 200ml ----
-        tipo_r200 = _get_or_create_tipo(self.CAT_REFRI_200)
-        refri_200 = [
-            "Coca-Cola 200ml", "Coca-Cola Zero 200ml", "Sao Geraldo 200ml",
-            "Fanta Uva 200ml", "Fanta Laranja 200ml", "Guarana 200ml",
-        ]
-        for nome in refri_200:
-            _ensure_produto(nome, tipo_r200)
-
-        # ---- REFRIGERANTES 350ml (LATA) ----
-        tipo_r350 = _get_or_create_tipo(self.CAT_REFRI_350)
-        refri_350 = [
-            "Coca-Cola Lata 350ml", "Coca-Cola Lata Zero 350ml", "Fanta Uva Lata 350ml",
-            "Fanta Laranja Lata 350ml", "Sao Geraldo Zero 350ml", "Sao Geraldo 350ml",
-            "Guarana Lata 350ml",
-        ]
-        for nome in refri_350:
-            _ensure_produto(nome, tipo_r350)
-
-        # ---- AGUAS ----
-        tipo_aguas = _get_or_create_tipo(self.CAT_AGUAS)
-        for nome in ["Agua com gas 500ml", "Agua sem gas 500ml"]:
-            _ensure_produto(nome, tipo_aguas)
-
-        # ---- SOBREMESAS ----
-        tipo_sobr = _get_or_create_tipo(self.CAT_SOBREMESAS)
-        sobremesas = [
-            "Delicia de abacaxi", "Musse de abacaxi c/ abacaxi caramelizado",
-            "Palha italiana no pote", "Pudim", "Trufas", "Alfajor",
-            "Escondidinho de morango", "Escondidinho de chocolate",
-            "Musse de morango", "Bombom de uva", "Bombom de morango", "Brownie",
-            "Musse de limao", "Musse de maracuja", "Musse de chocolate",
-        ]
-        for nome in sobremesas:
-            _ensure_produto(nome, tipo_sobr)
+        for cat in categorias:
+            tipo_id = _get_or_create_tipo(cat)
+            # Limpa produtos antigos (cardapio de demonstracao) desta categoria
+            try:
+                self.execute_update(
+                    "DELETE FROM produtos WHERE tipo_produto_id = %s", (tipo_id,))
+            except Exception:
+                pass
+            for i in range(1, 11):
+                if cat == self.CAT_MONTE_PRATO:
+                    # No kit (tamanhos) o codigo guarda o numero de proteinas
+                    # permitidas (1 ou 2), lido pelo assistente.
+                    codigo = f"KIT{((i - 1) % 2) + 1}"
+                else:
+                    # Demais categorias sem codigo (acompanhamentos caem no
+                    # grupo 'Outros' do assistente).
+                    codigo = None
+                _ensure_produto(f"teste {i}", tipo_id, codigo)
 
         try:
-            _logger.info("Cardapio Delicias Food cadastrado (itens sem preco).")
+            _logger.info("Produtos de teste do 'TROQUE SEU KIT' cadastrados.")
         except Exception:
             pass
 
@@ -9125,13 +9217,17 @@ class PDVApp:
             ("Impressora", self.show_config_impressora, "#FF7043",
              PermissionConstants.DASHBOARD_BTN_IMPRESSORA, Icons.IMPRESSORA,
              "F12 - Configurar impressora"),
+            ("Impressora Cozinha", self.show_config_impressora_cozinha, "#F4511E",
+             PermissionConstants.DASHBOARD_BTN_IMPRESSORA, Icons.IMPRESSORA,
+             "Configurar impressora da cozinha (com todas as opcoes + impressoras por categoria)"),
             ("Multi-Impressoras", self.show_config_multi_impressora, "#E64A19",
              PermissionConstants.DASHBOARD_BTN_IMPRESSORA, Icons.IMPRESSORA,
              "Configurar multiplas impressoras por categoria"),
             ("Licenca", self._show_tela_licenca_menu, "#FF5252",
              PermissionConstants.DASHBOARD_BTN_LICENCA, Icons.KEY, "Gerenciar licenca do sistema"),
-            ("Log Auditoria", self._show_audit_log, "#546E7A",
-             PermissionConstants.DASHBOARD_BTN_LOG_AUDITORIA, Icons.AUDIT, "Visualizar log de auditoria do sistema"),
+            ("Relatorio Auditoria", self._show_audit_log, "#546E7A",
+             PermissionConstants.DASHBOARD_BTN_LOG_AUDITORIA, Icons.AUDIT,
+             "Relatorio completo de auditoria: todas as acoes dos usuarios com filtros e exportacao"),
             ("Sobre", self.show_sobre, "#78909C",
              PermissionConstants.DASHBOARD_BTN_SOBRE, Icons.SOBRE, "Sobre o PDV Pro"),
             ("Trocar Senha", self.show_trocar_senha_dialog, "#FF9800",
@@ -10395,58 +10491,105 @@ class PDVApp:
     # LOG DE AUDITORIA
     # ========================================================================
     def _show_audit_log(self):
-        """Exibe o log de auditoria do sistema."""
+        """Relatorio de Auditoria: tudo o que cada usuario faz, com data/hora.
+
+        Le da tabela `logs_auditoria` (com fallback para o arquivo de log) e
+        permite filtrar por usuario, acao, periodo e texto, alem de exportar.
+        """
         dialog = tk.Toplevel(self.root)
-        dialog.title("Log de Auditoria")
-        dialog.geometry("860x560")
+        dialog.title("Relatorio de Auditoria")
+        dialog.geometry("1060x660")
+        dialog.minsize(900, 520)
         dialog.configure(bg=COR_FUNDO)
         dialog.transient(self.root)
         dialog.grab_set()
 
-        tk.Label(dialog, text=f"{Icons.AUDIT} Log de Auditoria",
+        tk.Label(dialog, text=f"{Icons.AUDIT} Relatorio de Auditoria",
                  bg=COR_FUNDO, fg=COR_PRIMARIA,
-                 font=("Segoe UI", 15, "bold")).pack(pady=(14, 4))
+                 font=("Segoe UI", 15, "bold")).pack(pady=(14, 2))
         tk.Label(dialog,
-                 text="Registro das acoes criticas do sistema",
-                 bg=COR_FUNDO, fg=COR_TEXTO2,
-                 font=("Segoe UI", 9)).pack()
+                 text="Trilha completa das acoes dos usuarios (o que, com o que, quando)",
+                 bg=COR_FUNDO, fg=COR_TEXTO2, font=("Segoe UI", 9)).pack()
 
-        NeonDivider(dialog, color=COR_PRIMARIA).pack(fill="x", padx=20, pady=8)
+        NeonDivider(dialog, color=COR_PRIMARIA).pack(fill="x", padx=20, pady=6)
 
-        # Busca
-        busca_f = tk.Frame(dialog, bg=COR_FUNDO)
-        busca_f.pack(fill="x", padx=20, pady=(0, 6))
-        tk.Label(busca_f, text="Filtrar:", bg=COR_FUNDO, fg=COR_TEXTO2,
-                 font=("Segoe UI", 9)).pack(side="left")
-        et_filtro = StyledEntry(busca_f, width=40)
-        et_filtro.pack(side="left", padx=8)
+        # ===== Filtros =====
+        filtros = tk.Frame(dialog, bg=COR_FUNDO)
+        filtros.pack(fill="x", padx=20, pady=(0, 4))
 
-        # Treeview
-        cols = ("timestamp", "usuario", "acao", "detalhes")
-        tree = ttk.Treeview(dialog, columns=cols, show="headings", height=18)
-        tree.heading("timestamp", text="Data/Hora")
-        tree.heading("usuario", text="Usuario")
-        tree.heading("acao", text="Acao")
-        tree.heading("detalhes", text="Detalhes")
-        tree.column("timestamp", width=140, anchor="center")
-        tree.column("usuario", width=110, anchor="center")
-        tree.column("acao", width=160)
-        tree.column("detalhes", width=380)
+        tk.Label(filtros, text="Usuario:", bg=COR_FUNDO, fg=COR_TEXTO2,
+                 font=("Segoe UI", 9)).grid(row=0, column=0, sticky="w", padx=(0, 4), pady=2)
+        cb_usuario = ttk.Combobox(filtros, width=18, state="readonly", values=["-- Todos --"])
+        cb_usuario.current(0)
+        cb_usuario.grid(row=0, column=1, padx=(0, 12), pady=2)
 
-        vsb = ttk.Scrollbar(dialog, orient="vertical", command=tree.yview)
-        tree.configure(yscrollcommand=vsb.set)
+        tk.Label(filtros, text="Acao:", bg=COR_FUNDO, fg=COR_TEXTO2,
+                 font=("Segoe UI", 9)).grid(row=0, column=2, sticky="w", padx=(0, 4), pady=2)
+        cb_acao = ttk.Combobox(filtros, width=26, state="readonly", values=["-- Todas --"])
+        cb_acao.current(0)
+        cb_acao.grid(row=0, column=3, padx=(0, 12), pady=2)
 
+        tk.Label(filtros, text="De:", bg=COR_FUNDO, fg=COR_TEXTO2,
+                 font=("Segoe UI", 9)).grid(row=0, column=4, sticky="w", padx=(0, 4), pady=2)
+        et_data_ini = StyledEntry(filtros, width=12)
+        et_data_ini.grid(row=0, column=5, padx=(0, 12), pady=2)
+
+        tk.Label(filtros, text="Ate:", bg=COR_FUNDO, fg=COR_TEXTO2,
+                 font=("Segoe UI", 9)).grid(row=0, column=6, sticky="w", padx=(0, 4), pady=2)
+        et_data_fim = StyledEntry(filtros, width=12)
+        et_data_fim.grid(row=0, column=7, padx=(0, 12), pady=2)
+
+        tk.Label(filtros, text="Texto:", bg=COR_FUNDO, fg=COR_TEXTO2,
+                 font=("Segoe UI", 9)).grid(row=1, column=0, sticky="w", padx=(0, 4), pady=2)
+        et_texto = StyledEntry(filtros, width=48)
+        et_texto.grid(row=1, column=1, columnspan=3, sticky="w", padx=(0, 12), pady=2)
+        tk.Label(filtros, text="(formato das datas: AAAA-MM-DD)", bg=COR_FUNDO,
+                 fg=COR_TEXTO2, font=("Segoe UI", 8)).grid(row=1, column=4, columnspan=4,
+                                                           sticky="w", pady=2)
+
+        # Datas padrao: ultimos 30 dias
+        try:
+            hoje = datetime.date.today()
+            et_data_ini.insert(0, (hoje - datetime.timedelta(days=30)).strftime("%Y-%m-%d"))
+            et_data_fim.insert(0, hoje.strftime("%Y-%m-%d"))
+        except Exception:
+            pass
+
+        # ===== Rodape com botoes =====
+        # Empacotado no fundo ANTES da tabela para garantir que os botoes de
+        # filtro/busca fiquem SEMPRE visiveis, mesmo com a janela pequena.
+        btn_f = tk.Frame(dialog, bg=COR_FUNDO)
+        btn_f.pack(side="bottom", fill="x", padx=20, pady=8)
+
+        lbl_status = tk.Label(dialog, text="", bg=COR_FUNDO, fg=COR_TEXTO2,
+                              font=("Segoe UI", 9))
+        lbl_status.pack(side="bottom", anchor="w", padx=20)
+
+        # ===== Tabela =====
+        cols = ("data_hora", "usuario", "categoria", "acao", "detalhes")
         tree_f = tk.Frame(dialog, bg=COR_FUNDO)
-        tree_f.pack(fill="both", expand=True, padx=20, pady=4)
-        vsb2 = ttk.Scrollbar(tree_f, orient="vertical", command=tree.yview)
-        tree.configure(yscrollcommand=vsb2.set)
-        tree.pack(side="left", fill="both", expand=True)
-        vsb2.pack(side="right", fill="y")
+        tree_f.pack(side="top", fill="both", expand=True, padx=20, pady=4)
+        tree = ttk.Treeview(tree_f, columns=cols, show="headings", height=16)
+        for c, h, w, a in [("data_hora", "Data/Hora", 145, "center"),
+                            ("usuario", "Usuario", 120, "center"),
+                            ("categoria", "Categoria", 90, "center"),
+                            ("acao", "Acao", 190, "w"),
+                            ("detalhes", "Detalhes", 460, "w")]:
+            tree.heading(c, text=h)
+            tree.column(c, width=w, anchor=a)
+        vsb = ttk.Scrollbar(tree_f, orient="vertical", command=tree.yview)
+        hsb = ttk.Scrollbar(tree_f, orient="horizontal", command=tree.xview)
+        tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        tree_f.rowconfigure(0, weight=1)
+        tree_f.columnconfigure(0, weight=1)
 
-        all_entries = [None]
+        rows_cache = [[]]
 
-        def _parse_entry(linha):
-            # Formato: [2026-03-15 10:30:00] [usuario] ACAO | detalhes
+        def _parse_file_entry(linha):
+            # Formato do arquivo: [2026-03-15 10:30:00] [usuario] ACAO | detalhes
             try:
                 ts = linha[1:20] if len(linha) > 20 else ""
                 resto = linha[22:] if len(linha) > 22 else linha
@@ -10454,57 +10597,121 @@ class PDVApp:
                 usuario = partes[0].strip("[").strip() if len(partes) > 1 else ""
                 resto2 = partes[1].strip() if len(partes) > 1 else resto
                 if "|" in resto2:
-                    acao, det = resto2.split("|", 1)
+                    ac, det = resto2.split("|", 1)
                 else:
-                    acao, det = resto2, ""
-                return ts, usuario, acao.strip(), det.strip()
+                    ac, det = resto2, ""
+                return ts, usuario, ac.strip(), det.strip()
             except Exception:
                 return "", "", linha, ""
 
-        def _carregar():
-            entradas = AuditLogger.get_entries(500)
-            all_entries[0] = entradas
-            return entradas
+        def _fmt_dt(v):
+            try:
+                if isinstance(v, str):
+                    return v[:19]
+                return v.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return str(v)
 
-        def _preencher(entradas, filtro=""):
+        def _preencher(rows):
+            rows_cache[0] = rows
             tree.delete(*tree.get_children())
-            for i, linha in enumerate(reversed(entradas)):
-                if filtro and filtro.lower() not in linha.lower():
-                    continue
-                ts, usr, acao, det = _parse_entry(linha)
+            for i, r in enumerate(rows):
                 tag = "even" if i % 2 == 0 else "odd"
-                tree.insert("", "end", values=(ts, usr, acao, det), tags=(tag,))
+                tree.insert("", "end", values=(
+                    _fmt_dt(r.get("data_hora", "")),
+                    r.get("usuario_login", "") or "",
+                    r.get("categoria", "") or "",
+                    r.get("acao", "") or "",
+                    r.get("detalhes", "") or ""
+                ), tags=(tag,))
             tree.tag_configure("even", background=COR_GLASS)
             tree.tag_configure("odd", background=COR_CARD)
+            lbl_status.config(text=f"{len(rows)} registro(s) encontrado(s)")
 
-        def _on_filtro(event=None):
-            if all_entries[0]:
-                _preencher(all_entries[0], et_filtro.get().strip())
+        def _aplicar():
+            # Le os filtros na thread principal (Tkinter nao e thread-safe)
+            usuario = cb_usuario.get()
+            usuario = None if usuario.startswith("--") else usuario
+            acao = cb_acao.get()
+            acao = None if acao.startswith("--") else acao
+            di = et_data_ini.get().strip() or None
+            df = et_data_fim.get().strip() or None
+            txt = et_texto.get().strip() or None
 
-        et_filtro.bind("<KeyRelease>", _on_filtro)
+            def _carregar():
+                rows = AuditLogger.query_db(usuario=usuario, acao=acao,
+                                            data_ini=di, data_fim=df, texto=txt, limit=5000)
+                # Fallback: se o banco nao retornou nada, tenta o arquivo de log
+                if not rows:
+                    fallback = []
+                    for linha in reversed(AuditLogger.get_entries(1000)):
+                        ts, usr, ac, det = _parse_file_entry(linha)
+                        if txt and txt.lower() not in linha.lower():
+                            continue
+                        if usuario and usuario.lower() != (usr or "").lower():
+                            continue
+                        fallback.append({"data_hora": ts, "usuario_login": usr,
+                                         "categoria": "", "acao": ac, "detalhes": det})
+                    rows = fallback
+                return rows
+            self.run_async(_carregar, _preencher)
 
-        def _on_loaded(entradas):
-            _preencher(entradas)
+        # Atalhos: pressionar Enter nos campos ou escolher usuario/acao ja busca
+        for _campo in (et_data_ini, et_data_fim, et_texto):
+            _campo.bind("<Return>", lambda e: _aplicar())
+        cb_usuario.bind("<<ComboboxSelected>>", lambda e: _aplicar())
+        cb_acao.bind("<<ComboboxSelected>>", lambda e: _aplicar())
 
-        self.run_async(_carregar, _on_loaded)
+        # Carregar valores dos comboboxes (usuarios e acoes distintas)
+        def _carregar_combos():
+            return (AuditLogger.get_usuarios_db(), AuditLogger.get_acoes_db())
+        def _on_combos(res):
+            usuarios, acoes = res
+            cb_usuario["values"] = ["-- Todos --"] + list(usuarios)
+            cb_acao["values"] = ["-- Todas --"] + list(acoes)
+        self.run_async(_carregar_combos, _on_combos)
 
-        # Botoes
-        btn_f = tk.Frame(dialog, bg=COR_FUNDO)
-        btn_f.pack(fill="x", padx=20, pady=8)
+        _aplicar()
 
-        def _exportar():
-            if all_entries[0]:
-                conteudo = "\n".join(all_entries[0])
-                DataExporter.export_text(conteudo, "audit_log", parent=dialog)
+        # ===== Botoes (o frame btn_f ja foi criado e ancorado no rodape) =====
+        StyledButton(btn_f, text=f"{Icons.SEARCH} Buscar", command=_aplicar,
+                     color=COR_BOTAO_VERDE, width=14).pack(side="left", padx=4)
 
-        StyledButton(btn_f, text=f"{Icons.EXPORT} Exportar TXT",
-                     command=_exportar,
-                     color=COR_BOTAO_AZUL, width=16).pack(side="left", padx=4)
-        StyledButton(btn_f, text=f"{Icons.REFRESH} Atualizar",
-                     command=lambda: self.run_async(_carregar, _on_loaded),
+        def _limpar():
+            cb_usuario.current(0)
+            cb_acao.current(0)
+            et_data_ini.delete(0, tk.END)
+            et_data_fim.delete(0, tk.END)
+            et_texto.delete(0, tk.END)
+            _aplicar()
+        StyledButton(btn_f, text="Limpar", command=_limpar,
+                     color=COR_FUNDO3, width=9).pack(side="left", padx=4)
+
+        def _exportar_csv():
+            if not tree.get_children():
+                ToastManager.warning("Nenhum dado para exportar.")
+                return
+            DataExporter.export_treeview_csv(tree, "relatorio_auditoria", parent=dialog)
+        StyledButton(btn_f, text=f"{Icons.EXPORT} Exportar CSV", command=_exportar_csv,
+                     color=COR_BOTAO_AZUL, width=15).pack(side="left", padx=4)
+
+        def _exportar_txt():
+            rows = rows_cache[0]
+            if not rows:
+                ToastManager.warning("Nenhum dado para exportar.")
+                return
+            linhas = [
+                f"[{_fmt_dt(r.get('data_hora',''))}] [{r.get('usuario_login','') or ''}] "
+                f"({r.get('categoria','') or '-'}) {r.get('acao','') or ''} | "
+                f"{r.get('detalhes','') or ''}"
+                for r in rows]
+            DataExporter.export_text("\n".join(linhas), "relatorio_auditoria", parent=dialog)
+        StyledButton(btn_f, text=f"{Icons.EXPORT} Exportar TXT", command=_exportar_txt,
+                     color=COR_BOTAO_AZUL, width=15).pack(side="left", padx=4)
+
+        StyledButton(btn_f, text=f"{Icons.REFRESH} Atualizar", command=_aplicar,
                      color=COR_FUNDO3, width=12).pack(side="left", padx=4)
-        StyledButton(btn_f, text=f"{Icons.CROSS} Fechar",
-                     command=dialog.destroy,
+        StyledButton(btn_f, text=f"{Icons.CROSS} Fechar", command=dialog.destroy,
                      color="#2a3a5c", width=10).pack(side="right", padx=4)
 
     # ========================================================================
@@ -10647,16 +10854,16 @@ class PDVApp:
         StyledButton(busca_frame, text="Add", command=self.buscar_por_codigo,
                      color=COR_BOTAO_VERDE, width=6).pack(side="right", padx=2, pady=3)
 
-        # === MONTE SEU PRATO (assistente guiado do cardapio Delicias Food) ===
+        # === TROQUE SEU KIT (assistente guiado de montagem do kit) ===
         monte_frame = tk.Frame(left, bg=COR_FUNDO)
         monte_frame.pack(fill="x", pady=(0, 5))
         btn_monte = StyledButton(
-            monte_frame, text="🍽  MONTE SEU PRATO",
+            monte_frame, text="🔁  TROQUE SEU KIT",
             command=self.montar_prato_dialog,
             color=COR_BOTAO_LARANJA, width=30)
         btn_monte.pack(anchor="w")
         add_tooltip(btn_monte,
-                    "Montar um prato: tamanho, proteinas, acompanhamentos e extras")
+                    "Montar um kit: tamanho, proteinas, acompanhamentos e extras")
 
         # Carrinho (Treeview)
         cart_header = tk.Frame(left, bg=COR_FUNDO)
@@ -11013,6 +11220,11 @@ class PDVApp:
                 item.quantidade += qtd
                 item.total = item.quantidade * item.preco_unitario
                 self.atualizar_tree_carrinho()
+                AuditLogger.log(
+                    "VENDA_ITEM_ADICIONADO",
+                    f"Produto: {descricao} (ID {produto_id}) | Qtd +{qtd:g} | "
+                    f"Qtd total no item: {item.quantidade:g}",
+                    usuario=Session.user_login, categoria="VENDA")
                 return
         item = ItemVenda()
         item.produto_id = produto_id
@@ -11024,6 +11236,11 @@ class PDVApp:
         item.tipo_produto_desc = tipo_produto_desc
         self.carrinho.append(item)
         self.atualizar_tree_carrinho()
+        AuditLogger.log(
+            "VENDA_ITEM_ADICIONADO",
+            f"Produto: {descricao} (ID {produto_id}) | Qtd: {qtd:g} | "
+            f"Preco unit.: R$ {FormatUtils.format_money(item.preco_unitario)}",
+            usuario=Session.user_login, categoria="VENDA")
         # Buscar tipo_produto_id do banco se nao foi informado
         if tipo_produto_id is None:
             def _buscar_tipo():
@@ -11123,10 +11340,17 @@ class PDVApp:
             initialvalue=item.quantidade,
             minvalue=0.001, parent=self.root)
         if nova_qtd:
+            qtd_antiga = self.carrinho[idx].quantidade
             self.carrinho[idx].quantidade = nova_qtd
             self.carrinho[idx].total = nova_qtd * self.carrinho[idx].preco_unitario
             self.atualizar_tree_carrinho()
             ToastManager.info(f"Qtd atualizada: {nova_qtd:.3f}")
+            AuditLogger.log(
+                "VENDA_ITEM_QTD_ALTERADA",
+                f"Produto: {item.descricao_produto} (ID {item.produto_id}) | "
+                f"Qtd: {qtd_antiga:g} -> {nova_qtd:g} | "
+                f"Novo total item: R$ {FormatUtils.format_money(self.carrinho[idx].total)}",
+                usuario=Session.user_login, categoria="VENDA")
 
     def remover_item_carrinho(self):
         sel = self.tree_carrinho.selection()
@@ -11134,19 +11358,28 @@ class PDVApp:
             ToastManager.warning("Selecione um item para remover.")
             return
         idx = self.tree_carrinho.index(sel[0])
-        nome = self.carrinho[idx].descricao_produto
+        item_rem = self.carrinho[idx]
+        nome = item_rem.descricao_produto
+        # Auditoria: exclusao de item da lista de itens durante a venda
+        AuditLogger.log(
+            "VENDA_ITEM_REMOVIDO",
+            f"Produto: {nome} (ID {item_rem.produto_id}) | "
+            f"Qtd: {item_rem.quantidade:g} | "
+            f"Preco unit.: R$ {FormatUtils.format_money(item_rem.preco_unitario)} | "
+            f"Total removido: R$ {FormatUtils.format_money(item_rem.total)}",
+            usuario=Session.user_login, categoria="VENDA")
         del self.carrinho[idx]
         self.atualizar_tree_carrinho()
         ToastManager.info(f"Removido: {nome}")
 
     # ========================================================================
-    # ASSISTENTE "MONTE SEU PRATO"  (DELICIAS FOOD)
+    # ASSISTENTE "TROQUE SEU KIT"
     # Fluxo: 1) Tamanho  ->  2) Proteinas (limitado pelo tamanho)
     #        3) Acompanhamentos  ->  4) Revisao/adicionar ao carrinho
     #        5) Extras (sucos, refrigerantes, aguas, sobremesas)
     # ========================================================================
     def montar_prato_dialog(self):
-        """Abre o assistente guiado para montar um prato do cardapio."""
+        """Abre o assistente guiado para montar/trocar o kit."""
         db = DatabaseHelper.get_instance()
 
         def carregar():
@@ -11173,10 +11406,10 @@ class PDVApp:
         def on_loaded(data):
             if not data or not data.get("tamanhos"):
                 ErroAmigavel.mostrar_aviso(
-                    "O cardapio ainda nao foi cadastrado.\n\n"
-                    "Reinicie o sistema uma vez para que o cardapio do "
-                    "Delicias Food seja criado automaticamente.",
-                    titulo="Monte Seu Prato", parent=self.root)
+                    "Os produtos de teste do kit ainda nao foram cadastrados.\n\n"
+                    "Reinicie o sistema uma vez para que os produtos de teste "
+                    "do 'TROQUE SEU KIT' sejam criados automaticamente.",
+                    titulo="Troque Seu Kit", parent=self.root)
                 return
             self._abrir_wizard_prato(data)
 
@@ -11191,7 +11424,7 @@ class PDVApp:
         st = {"tam": None, "n_prot": 1, "proteinas": [], "acomp": []}
 
         dialog = tk.Toplevel(self.root)
-        dialog.title("Monte Seu Prato - Delicias Food")
+        dialog.title("Troque Seu Kit")
         dialog.geometry("760x620")
         dialog.configure(bg=COR_FUNDO)
         dialog.transient(self.root)
@@ -11201,7 +11434,7 @@ class PDVApp:
         header = tk.Frame(dialog, bg=COR_FUNDO2, height=58)
         header.pack(fill="x")
         header.pack_propagate(False)
-        tk.Label(header, text="🍽  MONTE SEU PRATO", bg=COR_FUNDO2,
+        tk.Label(header, text="🔁  TROQUE SEU KIT", bg=COR_FUNDO2,
                  fg=COR_BOTAO_LARANJA, font=("Segoe UI", 16, "bold")).pack(
                      side="left", padx=18, pady=10)
         self._lbl_passo_prato = tk.Label(header, text="", bg=COR_FUNDO2,
@@ -11247,19 +11480,19 @@ class PDVApp:
             return inner
 
         def _parse_n_prot(tam):
-            """Numero de proteinas que o tamanho permite."""
+            """Numero de proteinas que o tamanho permite (minimo 1)."""
             cod = (tam.get("codigo") or "").strip()
             if cod and cod[-1].isdigit():
-                return int(cod[-1])
+                return max(1, int(cod[-1]))
             m = re.search(r"(\d+)\s*Prote", tam.get("descricao", ""))
-            return int(m.group(1)) if m else 1
+            return max(1, int(m.group(1))) if m else 1
 
         # -------------------- ETAPA 1: TAMANHO --------------------
         def render_tamanho():
             _limpar(body)
             _limpar(footer)
             self._lbl_passo_prato.config(text="Etapa 1 de 4  -  Tamanho")
-            tk.Label(body, text="Escolha o tamanho do prato:", bg=COR_FUNDO,
+            tk.Label(body, text="Escolha o tamanho do kit:", bg=COR_FUNDO,
                      fg=COR_TEXTO, font=("Segoe UI", 13, "bold")).pack(
                          anchor="w", pady=(4, 12))
 
@@ -11446,7 +11679,7 @@ class PDVApp:
             _limpar(body)
             _limpar(footer)
             self._lbl_passo_prato.config(text="Etapa 4 de 4  -  Revisao")
-            tk.Label(body, text="Confira o prato montado:", bg=COR_FUNDO,
+            tk.Label(body, text="Confira o kit montado:", bg=COR_FUNDO,
                      fg=COR_TEXTO, font=("Segoe UI", 13, "bold")).pack(
                          anchor="w", pady=(4, 8))
 
@@ -11502,7 +11735,7 @@ class PDVApp:
             )
             self.carrinho.append(item)
             self.atualizar_tree_carrinho()
-            ToastManager.success("Prato adicionado ao carrinho!")
+            ToastManager.success("Kit adicionado ao carrinho!")
             render_extras_categorias()
 
         # -------------------- ETAPA 5: EXTRAS --------------------
@@ -11513,7 +11746,7 @@ class PDVApp:
             tk.Label(body, text="Deseja adicionar bebidas ou sobremesas?",
                      bg=COR_FUNDO, fg=COR_TEXTO,
                      font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(4, 4))
-            tk.Label(body, text="Itens que nao fazem parte do prato.",
+            tk.Label(body, text="Itens que nao fazem parte do kit.",
                      bg=COR_FUNDO, fg=COR_TEXTO2,
                      font=("Segoe UI", 10)).pack(anchor="w", pady=(0, 12))
 
@@ -11532,7 +11765,7 @@ class PDVApp:
                              color=cor, width=22).grid(
                                  row=i // 2, column=i % 2, padx=8, pady=8, sticky="w")
 
-            StyledButton(footer, text="+ Montar outro prato",
+            StyledButton(footer, text="+ Montar outro kit",
                          command=render_tamanho, color=COR_BOTAO_LARANJA,
                          width=20).pack(side="left", padx=12, pady=8)
             StyledButton(footer, text="✔ Concluir", command=dialog.destroy,
@@ -11587,11 +11820,20 @@ class PDVApp:
 
     def limpar_carrinho(self):
         if self.carrinho:
+            qtd_itens = len(self.carrinho)
+            valor_total = sum(i.total for i in self.carrinho)
             if messagebox.askyesno("Confirmar",
                     f"Limpar todo o carrinho?\n({len(self.carrinho)} item(s))"):
+                nomes = ", ".join(f"{i.descricao_produto} x{i.quantidade:g}"
+                                  for i in self.carrinho)
                 self.carrinho.clear()
                 self.atualizar_tree_carrinho()
                 ToastManager.info("Carrinho limpo.")
+                AuditLogger.log(
+                    "VENDA_CARRINHO_LIMPO",
+                    f"{qtd_itens} item(ns) descartados | "
+                    f"Valor: R$ {FormatUtils.format_money(valor_total)} | Itens: {nomes}",
+                    usuario=Session.user_login, categoria="VENDA")
 
     def finalizar_venda(self):
         if not self.carrinho:
@@ -11984,6 +12226,23 @@ class PDVApp:
             dialog.destroy()
             era_edicao = getattr(self, "_editando_venda_id", None)
             self._editando_venda_id = None
+            # Auditoria: venda finalizada (ou editada) com resumo dos itens
+            try:
+                _itens_desc = "; ".join(
+                    f"{i.descricao_produto} x{i.quantidade:g} = R$ {FormatUtils.format_money(i.total)}"
+                    for i in self.carrinho)
+                _formas = "; ".join(
+                    f"R$ {FormatUtils.format_money(p.valor)}" for p in self.pagamentos_venda)
+                AuditLogger.log(
+                    "VENDA_EDITADA" if era_edicao else "VENDA_FINALIZADA",
+                    f"Venda #{venda_id} | Cliente: {self.venda_cliente_nome or 'Consumidor'} | "
+                    f"Total: R$ {FormatUtils.format_money(self.venda_total_liquido)} | "
+                    f"Recebido: R$ {FormatUtils.format_money(total_pago)} | "
+                    f"Troco: R$ {FormatUtils.format_money(troco)} | "
+                    f"Pagamentos: {_formas} | Itens: {_itens_desc}",
+                    usuario=Session.user_login, categoria="VENDA")
+            except Exception:
+                pass
             # Gerar cupom
             venda = Venda()
             venda.id = venda_id
@@ -15368,8 +15627,19 @@ class PDVApp:
             fg=COR_PRIMARIA, font=("Segoe UI", 9, "bold"))
         self._lbl_mesas_info.pack(side="right", padx=12)
 
-        scroll_mesas = ScrollableFrame(content)
-        scroll_mesas.pack(fill="both", expand=True)
+        # Area dividida: painel de detalhe (esquerda, oculto) + grade de mesas (direita)
+        split = tk.Frame(content, bg=COR_FUNDO)
+        split.pack(fill="both", expand=True)
+
+        # Painel de detalhe da mesa embutido a esquerda.
+        # Fica oculto ate uma mesa ser clicada; quando exibido, encaixa-se
+        # no espaco vazio a esquerda preenchendo toda a altura disponivel.
+        self._mesa_detalhe_panel = tk.Frame(split, bg=COR_FUNDO, width=520)
+        self._mesa_detalhe_panel.pack_propagate(False)
+        # (nao empacotar agora - exibido sob demanda em _show_mesa_detalhe)
+
+        scroll_mesas = ScrollableFrame(split)
+        scroll_mesas.pack(side="right", fill="both", expand=True)
         self.mesas_frame = scroll_mesas.scrollable_frame
 
         self.carregar_mesas()
@@ -15606,13 +15876,47 @@ class PDVApp:
         self._show_mesa_detalhe(mesa_id, mesa["numero"], ocupacao_id, status, mesa)
 
     def _show_mesa_detalhe(self, mesa_id, numero, ocupacao_id, status_atual, mesa_data):
-        """Dialog de detalhe da mesa - alinhado com Android GerenciarMesasActivity."""
-        dialog = tk.Toplevel(self.root)
-        dialog.title(f"Mesa {numero}")
-        dialog.geometry("700x600")
-        dialog.configure(bg=COR_FUNDO)
-        dialog.transient(self.root)
-        dialog.grab_set()
+        """Detalhe da mesa embutido no painel esquerdo (encaixa no espaco vazio).
+
+        Antes abria uma janela flutuante (Toplevel). Agora renderiza dentro do
+        painel `self._mesa_detalhe_panel`, que se encaixa a esquerda da grade de
+        mesas, ocupando exatamente o espaco vertical disponivel.
+        """
+        container = getattr(self, "_mesa_detalhe_panel", None)
+
+        # Fallback: se a tela de mesas nao esta montada, volta ao Toplevel
+        if container is None or not container.winfo_exists():
+            dialog = tk.Toplevel(self.root)
+            dialog.title(f"Mesa {numero}")
+            dialog.geometry("700x600")
+            dialog.configure(bg=COR_FUNDO)
+            dialog.transient(self.root)
+            dialog.grab_set()
+        else:
+            # Limpa conteudo anterior do painel
+            for _w in container.winfo_children():
+                _w.destroy()
+            # Conteudo do detalhe vai dentro de um frame interno.
+            # Assim, dialog.destroy() (usado em varios pontos) remove apenas
+            # o conteudo e o painel volta a se ocultar automaticamente.
+            container.configure(bg=COR_FUNDO)
+            dialog = tk.Frame(container, bg=COR_FUNDO)
+            dialog.pack(fill="both", expand=True)
+
+            def _ocultar_painel_no_destroy(e, _c=container, _d=dialog):
+                # Quando o frame interno e destruido, esconde o painel se ficou vazio
+                if e.widget is _d:
+                    try:
+                        if _c.winfo_exists() and not _c.winfo_children():
+                            _c.pack_forget()
+                    except Exception:
+                        pass
+            dialog.bind("<Destroy>", _ocultar_painel_no_destroy)
+
+            # Exibe o painel encaixado a esquerda (apos criar o conteudo).
+            # Pack incondicional: e idempotente e evita que o painel fique
+            # oculto ao alternar rapidamente entre mesas.
+            container.pack(side="left", fill="y", padx=(0, 8))
 
         # Dados de reserva
         reservado_por_id = int(mesa_data.get("reservado_por_usuario_id", 0))
@@ -15621,9 +15925,14 @@ class PDVApp:
         usuario_eh_dono = (reservado_por_id == Session.user_id) if hasattr(Session, 'user_id') else True
         pode_editar = not mesa_reservada or usuario_eh_dono
 
-        # Header
-        tk.Label(dialog, text=f"Mesa {numero}", bg=COR_FUNDO, fg=COR_PRIMARIA,
-                 font=("Segoe UI", 16, "bold")).pack(pady=5)
+        # Header com botao de fechar (painel embutido)
+        header = tk.Frame(dialog, bg=COR_FUNDO)
+        header.pack(fill="x", pady=5)
+        tk.Label(header, text=f"Mesa {numero}", bg=COR_FUNDO, fg=COR_PRIMARIA,
+                 font=("Segoe UI", 16, "bold")).pack(side="left", padx=10)
+        StyledButton(header, text=f"{Icons.SAIR} Fechar",
+                     command=lambda: dialog.destroy(),
+                     color=COR_FUNDO3, width=9).pack(side="right", padx=10)
 
         # Info de reserva/pronta (alinhado com Android)
         if mesa_reservada:
@@ -15681,11 +15990,11 @@ class PDVApp:
         # Tabela de itens
         cols = ("id", "produto", "qtd", "preco", "total", "adicionais")
         tree = ttk.Treeview(dialog, columns=cols, show="headings", height=10)
-        for c, h, w in [("id","ID",50),("produto","Produto",220),("qtd","Qtd",60),
-                         ("preco","Preco",80),("total","Total",80),("adicionais","Adicionais",120)]:
+        for c, h, w in [("id","ID",40),("produto","Produto",150),("qtd","Qtd",45),
+                         ("preco","Preco",75),("total","Total",75),("adicionais","Adicionais",95)]:
             tree.heading(c, text=h)
             tree.column(c, width=w, anchor="center" if c in ("id","qtd") else "e" if c in ("preco","total") else "w")
-        tree.pack(fill="both", expand=True, padx=15, pady=5)
+        tree.pack(fill="both", expand=True, padx=8, pady=5)
 
         lbl_total = tk.Label(dialog, text="Total: R$ 0,00", bg=COR_FUNDO, fg=COR_SUCESSO,
                               font=("Segoe UI", 14, "bold"))
@@ -15700,11 +16009,20 @@ class PDVApp:
                 db = DatabaseHelper.get_instance()
                 oc_id = _ocupacao["id"]
                 if oc_id > 0:
-                    return db.execute_query(
-                        "SELECT id, descricao_produto, quantidade, preco_unitario, total, "
-                        "adicionais_descricao, COALESCE(adicionais_total, 0) as adicionais_total "
-                        "FROM itens_mesa WHERE ocupacao_id = %s ORDER BY id ASC", (oc_id,)
-                    )
+                    try:
+                        return db.execute_query(
+                            "SELECT id, descricao_produto, quantidade, preco_unitario, total, "
+                            "adicionais_descricao, COALESCE(adicionais_total, 0) as adicionais_total, "
+                            "COALESCE(observacao, '') as observacao "
+                            "FROM itens_mesa WHERE ocupacao_id = %s ORDER BY id ASC", (oc_id,)
+                        )
+                    except Exception:
+                        # Compatibilidade: banco sem a coluna observacao
+                        return db.execute_query(
+                            "SELECT id, descricao_produto, quantidade, preco_unitario, total, "
+                            "adicionais_descricao, COALESCE(adicionais_total, 0) as adicionais_total "
+                            "FROM itens_mesa WHERE ocupacao_id = %s ORDER BY id ASC", (oc_id,)
+                        )
                 return []
             def on_loaded(rows):
                 tree.delete(*tree.get_children())
@@ -15712,13 +16030,19 @@ class PDVApp:
                 for r in rows:
                     ad_desc = r.get("adicionais_descricao", "") or ""
                     ad_total = float(r.get("adicionais_total", 0))
+                    obs = (r.get("observacao", "") or "").strip()
+                    extras = ad_desc
+                    if obs:
+                        extras = (extras + " | " if extras else "") + f"Obs: {obs}"
+                    # Total do item = produto + adicionais
+                    item_total = float(r["total"]) + ad_total
                     tree.insert("", "end", values=(
                         r["id"], r["descricao_produto"], r["quantidade"],
                         FormatUtils.format_money(r["preco_unitario"]),
-                        FormatUtils.format_money(r["total"]),
-                        ad_desc if ad_desc else "-"
+                        FormatUtils.format_money(item_total),
+                        extras if extras else "-"
                     ))
-                    total += float(r["total"]) + ad_total
+                    total += item_total
                 lbl_total.config(text=f"Total: R$ {FormatUtils.format_money(total)}")
             self.run_async(load, on_loaded)
 
@@ -15741,7 +16065,10 @@ class PDVApp:
             if not sel:
                 ToastManager.warning("Selecione um item para remover.")
                 return
-            item_id = tree.item(sel[0])["values"][0]
+            _vals = tree.item(sel[0])["values"]
+            item_id = _vals[0]
+            item_desc = _vals[1] if len(_vals) > 1 else "item"
+            item_val = _vals[4] if len(_vals) > 4 else ""
             if messagebox.askyesno("Confirmar", "Remover este item?", parent=dialog):
                 def do_remover():
                     db = DatabaseHelper.get_instance()
@@ -15750,7 +16077,13 @@ class PDVApp:
                     except Exception:
                         pass
                     db.execute_update("DELETE FROM itens_mesa WHERE id = %s", (item_id,))
-                self.run_async(do_remover, lambda _: carregar())
+                def _apos_remover(_):
+                    AuditLogger.log(
+                        "MESA_ITEM_REMOVIDO",
+                        f"Mesa {numero} | Item: {item_desc} (ID {item_id}) | Total: {item_val}",
+                        usuario=Session.user_login, categoria="MESA")
+                    carregar()
+                self.run_async(do_remover, _apos_remover)
 
         def salvar_mesa():
             """Salva garcom, pessoas e status via ocupacao_mesa (alinhado com Android)."""
@@ -15822,6 +16155,10 @@ class PDVApp:
 
             def on_salvo(_):
                 ToastManager.success("Mesa salva com sucesso!")
+                AuditLogger.log(
+                    "MESA_SALVA",
+                    f"Mesa {numero} | Garcom ID: {garcom_id} | Pessoas: {qtd_pessoas}",
+                    usuario=Session.user_login, categoria="MESA")
                 dialog.destroy()
                 self.carregar_mesas()
             self.run_async(do_salvar, on_salvo)
@@ -15849,6 +16186,10 @@ class PDVApp:
                             (oc_id,))
                 def on_limpa(_):
                     ToastManager.success(f"Mesa {numero} limpa com sucesso!")
+                    AuditLogger.log(
+                        "MESA_LIMPA",
+                        f"Mesa {numero} encerrada/limpa - todos os itens removidos",
+                        usuario=Session.user_login, categoria="MESA")
                     dialog.destroy()
                     self.carregar_mesas()
                 self.run_async(do_limpar, on_limpa)
@@ -15872,6 +16213,10 @@ class PDVApp:
                         (user_id, user_nome, oc_id))
             def on_reservada(_):
                 ToastManager.success(f"Mesa {numero} reservada!")
+                AuditLogger.log(
+                    "MESA_RESERVADA",
+                    f"Mesa {numero} reservada por {Session.user_nome or Session.user_login}",
+                    usuario=Session.user_login, categoria="MESA")
                 dialog.destroy()
                 self.carregar_mesas()
             self.run_async(do_reservar, on_reservada)
@@ -15896,6 +16241,9 @@ class PDVApp:
                             (oc_id,))
             def on_cancelada(_):
                 ToastManager.success("Reserva cancelada!")
+                AuditLogger.log(
+                    "MESA_RESERVA_CANCELADA", f"Mesa {numero} - reserva cancelada",
+                    usuario=Session.user_login, categoria="MESA")
                 dialog.destroy()
                 self.carregar_mesas()
             self.run_async(do_cancelar, on_cancelada)
@@ -15910,6 +16258,9 @@ class PDVApp:
                         "UPDATE ocupacao_mesa SET status = 'pronta' WHERE id = %s", (oc_id,))
             def on_marcada(_):
                 ToastManager.success(f"Mesa {numero} marcada como pronta para cobranca!")
+                AuditLogger.log(
+                    "MESA_PRONTA_COBRANCA", f"Mesa {numero} marcada como pronta para cobranca",
+                    usuario=Session.user_login, categoria="MESA")
                 dialog.destroy()
                 self.carregar_mesas()
             self.run_async(do_marcar, on_marcada)
@@ -15924,9 +16275,90 @@ class PDVApp:
                         "UPDATE ocupacao_mesa SET status = 'ocupada' WHERE id = %s", (oc_id,))
             def on_cancelada(_):
                 ToastManager.success("Status pronta cancelado. Mesa voltou para ocupada.")
+                AuditLogger.log(
+                    "MESA_PRONTA_CANCELADA", f"Mesa {numero} - status pronta cancelado (voltou a ocupada)",
+                    usuario=Session.user_login, categoria="MESA")
                 dialog.destroy()
                 self.carregar_mesas()
             self.run_async(do_cancelar, on_cancelada)
+
+        def imprimir_todos_cozinha():
+            """Imprime TODOS os itens da mesa para a cozinha (impressao completa)."""
+            oc_id = _ocupacao["id"]
+            if oc_id <= 0:
+                ToastManager.warning("Nenhum item para imprimir.")
+                return
+
+            def tarefa():
+                itens = self._buscar_itens_cozinha_mesa(oc_id)
+                if not itens:
+                    return (False, "Nenhum item na mesa para imprimir.")
+                ok, msg = self._imprimir_cozinha_mesa_roteado(
+                    numero, itens, completo=True)
+                if ok:
+                    try:
+                        DatabaseHelper.get_instance().execute_update(
+                            "UPDATE itens_mesa SET impresso = 1 WHERE ocupacao_id = %s", (oc_id,))
+                    except Exception:
+                        pass
+                return (ok, msg)
+
+            def on_done(res):
+                ok, msg = res if res else (False, "Falha ao imprimir.")
+                if ok:
+                    ToastManager.success("Impressao COMPLETA enviada para a cozinha.")
+                    AuditLogger.log(
+                        "MESA_IMPRESSAO_COZINHA_TODOS",
+                        f"Mesa {numero} - impressao completa de todos os itens para a cozinha",
+                        usuario=Session.user_login, categoria="MESA")
+                    carregar()
+                else:
+                    self.show_error(msg)
+            self.run_async(tarefa, on_done)
+
+        def imprimir_ultimo_cozinha():
+            """Imprime SOMENTE o ultimo item da mesa, uma unica vez.
+
+            Se o ultimo item ja foi impresso, avisa e nao imprime de novo -
+            so volta a imprimir quando um novo ultimo item for incluido.
+            """
+            oc_id = _ocupacao["id"]
+            if oc_id <= 0:
+                ToastManager.warning("Nenhum item para imprimir.")
+                return
+
+            def tarefa():
+                ultimo = self._buscar_ultimo_item_cozinha_mesa(oc_id)
+                if not ultimo:
+                    return (False, "Nenhum item na mesa para imprimir.")
+                if int(ultimo.get("impresso", 0) or 0) == 1:
+                    # Sinaliza (None) que o ultimo item ja foi impresso
+                    return (None, "O ultimo item ja foi impresso. "
+                                  "Inclua um novo item para imprimir novamente.")
+                ok, msg = self._imprimir_cozinha_mesa_roteado(
+                    numero, [ultimo], completo=False)
+                if ok:
+                    try:
+                        DatabaseHelper.get_instance().execute_update(
+                            "UPDATE itens_mesa SET impresso = 1 WHERE id = %s", (ultimo["id"],))
+                    except Exception:
+                        pass
+                return (ok, msg)
+
+            def on_done(res):
+                estado, msg = res if res else (False, "Falha ao imprimir.")
+                if estado is None:
+                    ToastManager.warning(msg)
+                elif estado:
+                    ToastManager.success("Ultimo item enviado para a cozinha.")
+                    AuditLogger.log(
+                        "MESA_IMPRESSAO_COZINHA_ULTIMO",
+                        f"Mesa {numero} - impressao do ultimo item para a cozinha",
+                        usuario=Session.user_login, categoria="MESA")
+                    carregar()
+                else:
+                    self.show_error(msg)
+            self.run_async(tarefa, on_done)
 
         # Botoes de acao (alinhado com Android)
         btn_frame = tk.Frame(dialog, bg=COR_FUNDO)
@@ -15935,8 +16367,21 @@ class PDVApp:
         if pode_editar:
             StyledButton(btn_frame, text=f"{Icons.ADD} Add Item", command=add_item,
                          color=COR_BOTAO_VERDE, width=12).pack(side="left", padx=3)
-            StyledButton(btn_frame, text=f"{Icons.REMOVE} Remover", command=remover_item,
+            StyledButton(btn_frame, text=f"{Icons.DELETE} Remover", command=remover_item,
                          color=COR_ERRO, width=12).pack(side="left", padx=3)
+
+        # Botoes de impressao para a COZINHA
+        if status_atual != "livre":
+            btn_frame_cozinha = tk.Frame(dialog, bg=COR_FUNDO)
+            btn_frame_cozinha.pack(fill="x", padx=15, pady=(0, 5))
+            StyledButton(btn_frame_cozinha,
+                         text=f"{Icons.PRINT} IMPRIMIR TODOS P/ COZINHA",
+                         command=imprimir_todos_cozinha,
+                         color=COR_BOTAO_LARANJA, width=24).pack(side="left", padx=3)
+            StyledButton(btn_frame_cozinha,
+                         text=f"{Icons.PRINT} Imprimir ultimo item",
+                         command=imprimir_ultimo_cozinha,
+                         color="#26A69A", width=18).pack(side="left", padx=3)
 
         btn_frame2 = tk.Frame(dialog, bg=COR_FUNDO)
         btn_frame2.pack(fill="x", padx=15, pady=5)
@@ -15968,15 +16413,396 @@ class PDVApp:
 
         carregar()
 
+    def _buscar_itens_cozinha_mesa(self, oc_id):
+        """Retorna todos os itens de uma ocupacao de mesa para impressao na cozinha.
+        Inclui o tipo_produto_id (categoria) para roteamento por impressora."""
+        if not oc_id or oc_id <= 0:
+            return []
+        db = DatabaseHelper.get_instance()
+        try:
+            return db.execute_query(
+                "SELECT im.id, im.descricao_produto, im.quantidade, im.adicionais_descricao, "
+                "COALESCE(im.observacao, '') as observacao, COALESCE(im.impresso, 0) as impresso, "
+                "COALESCE(p.tipo_produto_id, 0) as tipo_produto_id "
+                "FROM itens_mesa im LEFT JOIN produtos p ON p.id = im.produto_id "
+                "WHERE im.ocupacao_id = %s ORDER BY im.id ASC", (oc_id,)) or []
+        except Exception:
+            # Compatibilidade: banco sem a coluna observacao
+            return db.execute_query(
+                "SELECT im.id, im.descricao_produto, im.quantidade, im.adicionais_descricao, "
+                "COALESCE(im.impresso, 0) as impresso, "
+                "COALESCE(p.tipo_produto_id, 0) as tipo_produto_id "
+                "FROM itens_mesa im LEFT JOIN produtos p ON p.id = im.produto_id "
+                "WHERE im.ocupacao_id = %s ORDER BY im.id ASC", (oc_id,)) or []
+
+    def _buscar_ultimo_item_cozinha_mesa(self, oc_id):
+        """Retorna o ultimo item incluido na mesa (maior id) ou None."""
+        if not oc_id or oc_id <= 0:
+            return None
+        db = DatabaseHelper.get_instance()
+        try:
+            rows = db.execute_query(
+                "SELECT im.id, im.descricao_produto, im.quantidade, im.adicionais_descricao, "
+                "COALESCE(im.observacao, '') as observacao, COALESCE(im.impresso, 0) as impresso, "
+                "COALESCE(p.tipo_produto_id, 0) as tipo_produto_id "
+                "FROM itens_mesa im LEFT JOIN produtos p ON p.id = im.produto_id "
+                "WHERE im.ocupacao_id = %s ORDER BY im.id DESC LIMIT 1", (oc_id,))
+        except Exception:
+            rows = db.execute_query(
+                "SELECT im.id, im.descricao_produto, im.quantidade, im.adicionais_descricao, "
+                "COALESCE(im.impresso, 0) as impresso, "
+                "COALESCE(p.tipo_produto_id, 0) as tipo_produto_id "
+                "FROM itens_mesa im LEFT JOIN produtos p ON p.id = im.produto_id "
+                "WHERE im.ocupacao_id = %s ORDER BY im.id DESC LIMIT 1", (oc_id,))
+        return rows[0] if rows else None
+
+    def _imprimir_cozinha_mesa_roteado(self, numero, itens, completo=False):
+        """Imprime o ticket da cozinha roteando por categoria de produto.
+
+        Se a configuracao de MULTIPLAS IMPRESSORAS POR CATEGORIA estiver ativa,
+        cada categoria e enviada para a impressora mapeada. Os itens sem
+        categoria mapeada vao para a impressora da cozinha. Se a multi-impressora
+        estiver desativada, imprime tudo na impressora da cozinha (comportamento
+        padrao). Retorna (sucesso: bool, mensagem: str).
+        """
+        try:
+            multi_cfg = self._load_multi_printer_config()
+        except Exception:
+            multi_cfg = {}
+
+        base_cfg = self._config_impressora_cozinha_efetiva()
+
+        # Sem multi-impressora ativa -> tudo na impressora da cozinha
+        if not multi_cfg.get("ativo", False) or not multi_cfg.get("impressoras"):
+            texto = self._gerar_ticket_cozinha_mesa(numero, itens, completo=completo)
+            return self._imprimir_texto(texto, config=base_cfg)
+
+        modo = multi_cfg.get("modo_impressao", "local")
+
+        # Agrupa itens por categoria (tipo_produto_id), normalizando para int
+        def _to_int(v):
+            try:
+                return int(v)
+            except Exception:
+                return 0
+        itens_por_tipo = {}
+        for it in itens:
+            tid = _to_int(it.get("tipo_produto_id", 0))
+            itens_por_tipo.setdefault(tid, []).append(it)
+
+        algum_ok = False
+        tipos_roteados = set()
+        ultimo_res = (True, "")
+
+        for imp in multi_cfg.get("impressoras", []):
+            if not imp.get("ativa", True):
+                continue
+            cats = [_to_int(c) for c in imp.get("categorias", [])]
+            if not cats:
+                continue
+            itens_imp = []
+            for cid in cats:
+                if cid in itens_por_tipo:
+                    itens_imp.extend(itens_por_tipo[cid])
+                    tipos_roteados.add(cid)
+            if not itens_imp:
+                continue
+            texto = self._gerar_ticket_cozinha_mesa(numero, itens_imp, completo=completo)
+            if modo == "servidor":
+                try:
+                    self._enviar_para_servidor_impressao(texto, imp, multi_cfg)
+                    algum_ok = True
+                except Exception as e:
+                    ultimo_res = (False, str(e))
+            else:
+                cfg_imp = dict(base_cfg)
+                cfg_imp["nome_impressora"] = imp.get("nome_sistema", "")
+                cfg_imp["porta_impressora"] = imp.get("porta", "")
+                cfg_imp["tipo_impressora"] = imp.get("tipo_impressora", "Termica")
+                cfg_imp["codepage"] = imp.get("codepage", "UTF-8")
+                cfg_imp["largura_papel"] = imp.get(
+                    "largura_papel", base_cfg.get("largura_papel", 48))
+                cfg_imp["corte_automatico"] = imp.get("corte_automatico", True)
+                cfg_imp["abrir_gaveta"] = imp.get("abrir_gaveta", False)
+                cfg_imp["modo_fonte"] = imp.get(
+                    "modo_fonte", base_cfg.get("modo_fonte", "Grande"))
+                cfg_imp["num_copias"] = imp.get("num_copias", 1)
+                ok, msg = self._imprimir_texto(texto, config=cfg_imp)
+                ultimo_res = (ok, msg)
+                if ok:
+                    algum_ok = True
+
+        # Itens sem categoria mapeada -> impressora da cozinha (fallback)
+        itens_restantes = []
+        for tid, lst in itens_por_tipo.items():
+            if tid not in tipos_roteados:
+                itens_restantes.extend(lst)
+        if itens_restantes:
+            texto = self._gerar_ticket_cozinha_mesa(numero, itens_restantes, completo=completo)
+            ok, msg = self._imprimir_texto(texto, config=base_cfg)
+            ultimo_res = (ok, msg)
+            if ok:
+                algum_ok = True
+
+        if algum_ok:
+            return (True, "Enviado para as impressoras por categoria.")
+        return ultimo_res
+
+    def _config_impressora_cozinha_efetiva(self):
+        """Retorna a config da impressora da cozinha.
+        Se a impressora da cozinha ainda nao foi configurada (sem nome),
+        cai de volta para a impressora normal, para nao deixar de imprimir."""
+        cfg = self._load_printer_config("cozinha")
+        if not (cfg.get("nome_impressora") or "").strip():
+            padrao = self._load_printer_config("padrao")
+            if (padrao.get("nome_impressora") or "").strip():
+                return padrao
+        return cfg
+
+    def _gerar_ticket_cozinha_mesa(self, numero, itens, completo=False):
+        """Gera o texto do ticket da cozinha para uma mesa.
+
+        Quando completo=True, o cabecalho vem destacado e em NEGRITO avisando
+        que e a impressao completa de todos os itens. O negrito e feito via
+        ESC/POS (ESC E) quando a impressora e termica e nao esta em modo
+        grafico; caso contrario, mantem apenas o destaque textual.
+        """
+        cfg = self._config_impressora_cozinha_efetiva()
+        try:
+            largura = int(cfg.get("largura_papel", 48) or 48)
+        except Exception:
+            largura = 48
+        largura = max(24, min(largura, 64))
+
+        metodo = str(cfg.get("metodo_impressao", "")).lower()
+        tipo = cfg.get("tipo_impressora", "Termica")
+        usar_escpos = (tipo == "Termica") and (not metodo.startswith("graf"))
+        BOLD_ON = "\x1b\x45\x01" if usar_escpos else ""
+        BOLD_OFF = "\x1b\x45\x00" if usar_escpos else ""
+
+        linha = "=" * largura
+        tracos = "-" * largura
+
+        def centro(t):
+            return str(t)[:largura].center(largura)
+
+        L = []
+        L.append(linha)
+        if completo:
+            # Cabecalho destacado + negrito: impressao completa de todos os itens
+            L.append(BOLD_ON + centro("*** C O Z I N H A ***") + BOLD_OFF)
+            L.append(BOLD_ON + centro("IMPRESSAO COMPLETA") + BOLD_OFF)
+            L.append(BOLD_ON + centro(">>> TODOS OS ITENS DA MESA <<<") + BOLD_OFF)
+        else:
+            L.append(BOLD_ON + centro("*** C O Z I N H A ***") + BOLD_OFF)
+            L.append(BOLD_ON + centro("ULTIMO ITEM INCLUIDO") + BOLD_OFF)
+        L.append(linha)
+        L.append(BOLD_ON + f"MESA: {numero}" + BOLD_OFF)
+        L.append("Data: " + datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
+        oper = ""
+        try:
+            oper = Session.user_nome or Session.user_login or ""
+        except Exception:
+            oper = ""
+        if oper:
+            L.append(f"Operador: {oper}")
+        L.append(tracos)
+
+        for it in itens:
+            qtd = it.get("quantidade", 0)
+            try:
+                qf = float(qtd)
+                qtd_str = f"{qf:.0f}" if qf == int(qf) else f"{qf:.3f}"
+            except Exception:
+                qtd_str = str(qtd)
+            desc = str(it.get("descricao_produto", "") or "")
+            L.append(BOLD_ON + f"{qtd_str} x {desc}" + BOLD_OFF)
+            ad = (it.get("adicionais_descricao") or "").strip()
+            if ad:
+                for parte in ad.split(","):
+                    p = parte.strip()
+                    if p:
+                        L.append(f"   + {p}")
+            obs = (it.get("observacao") or "").strip()
+            if obs:
+                L.append(f"   >> OBS: {obs}")
+            L.append(tracos)
+
+        L.append(f"Total de itens: {len(itens)}")
+        if completo:
+            L.append(BOLD_ON + centro(">> IMPRESSAO COMPLETA <<") + BOLD_OFF)
+        L.append(linha)
+        # Espaco para o corte do papel
+        return "\n".join(L) + "\n\n\n"
+
+    def _buscar_adicionais_produto(self, produto_id):
+        """Retorna os adicionais disponiveis para um produto.
+
+        Prioriza os adicionais vinculados ao tipo do produto; se o tipo nao
+        tiver nenhum configurado, retorna todos os adicionais ativos para que
+        a tela de adicionais ainda seja util.
+        """
+        try:
+            db = DatabaseHelper.get_instance()
+            rows = db.execute_query(
+                "SELECT a.id, a.descricao, a.preco "
+                "FROM produtos p "
+                "JOIN tipo_produto_adicionais tpa ON tpa.tipo_produto_id = p.tipo_produto_id "
+                "JOIN adicionais a ON a.id = tpa.adicional_id "
+                "WHERE p.id = %s AND a.ativo = 1 ORDER BY a.descricao",
+                (produto_id,))
+            if not rows:
+                rows = db.execute_query(
+                    "SELECT id, descricao, preco FROM adicionais "
+                    "WHERE ativo = 1 ORDER BY descricao")
+            return [{"id": r["id"], "descricao": r["descricao"],
+                     "preco": float(r.get("preco", 0) or 0)} for r in (rows or [])]
+        except Exception:
+            return []
+
+    def _selecionar_adicionais_item_mesa(self, produto_desc, adicionais, parent):
+        """Tela de selecao de adicionais para um item da mesa.
+
+        Retorna a lista de adicionais selecionados (dicts id/descricao/preco).
+        """
+        resultado = {"itens": []}
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Adicionais")
+        dlg.configure(bg=COR_FUNDO)
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.geometry("430x500")
+
+        tk.Label(dlg, text="Adicionais", bg=COR_FUNDO, fg=COR_PRIMARIA,
+                 font=("Segoe UI", 15, "bold")).pack(pady=(12, 2))
+        tk.Label(dlg, text=f"Item: {produto_desc}", bg=COR_FUNDO, fg=COR_TEXTO2,
+                 font=("Segoe UI", 9)).pack(pady=(0, 2))
+        tk.Label(dlg, text="Marque os adicionais desejados", bg=COR_FUNDO,
+                 fg=COR_TEXTO2, font=("Segoe UI", 8)).pack(pady=(0, 8))
+
+        scroll = ScrollableFrame(dlg)
+        scroll.pack(fill="both", expand=True, padx=12)
+        lista = scroll.scrollable_frame
+
+        vars_map = []  # (adicional, IntVar)
+        for ad in adicionais:
+            var = tk.IntVar(value=0)
+            txt = ad["descricao"]
+            if ad["preco"] > 0:
+                txt += f"   +R$ {FormatUtils.format_money(ad['preco'])}"
+            cb = tk.Checkbutton(lista, text=txt, variable=var, bg=COR_FUNDO,
+                                fg=COR_TEXTO, selectcolor=COR_FUNDO2,
+                                activebackground=COR_FUNDO, activeforeground=COR_TEXTO,
+                                anchor="w", font=("Segoe UI", 10))
+            cb.pack(fill="x", anchor="w", pady=2)
+            vars_map.append((ad, var))
+
+        def confirmar():
+            resultado["itens"] = [dict(ad) for ad, var in vars_map if var.get()]
+            dlg.destroy()
+
+        def pular():
+            resultado["itens"] = []
+            dlg.destroy()
+
+        btns = tk.Frame(dlg, bg=COR_FUNDO)
+        btns.pack(fill="x", pady=10)
+        StyledButton(btns, text=f"{Icons.CHECK} Confirmar", command=confirmar,
+                     color=COR_BOTAO_VERDE, width=14).pack(side="left", padx=10)
+        StyledButton(btns, text="Sem adicionais", command=pular,
+                     color=COR_FUNDO3, width=14).pack(side="right", padx=10)
+
+        dlg.protocol("WM_DELETE_WINDOW", pular)
+        try:
+            self.root.wait_window(dlg)
+        except Exception:
+            pass
+        return resultado["itens"]
+
+    def _observacao_cozinha_item_mesa(self, produto_desc, parent):
+        """Tela perguntando se deseja adicionar observacao para a cozinha.
+
+        Retorna o texto da observacao (ou string vazia se pulado).
+        """
+        resultado = {"obs": ""}
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Observacao para a cozinha")
+        dlg.configure(bg=COR_FUNDO)
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.geometry("450x330")
+
+        tk.Label(dlg, text="Observacao para a cozinha", bg=COR_FUNDO,
+                 fg=COR_PRIMARIA, font=("Segoe UI", 15, "bold")).pack(pady=(12, 2))
+        tk.Label(dlg, text=f"Item: {produto_desc}", bg=COR_FUNDO, fg=COR_TEXTO2,
+                 font=("Segoe UI", 9)).pack(pady=(0, 2))
+        tk.Label(dlg, text="Ex.: sem cebola, ponto da carne, sem gelo...",
+                 bg=COR_FUNDO, fg=COR_TEXTO2, font=("Segoe UI", 8)).pack(pady=(0, 6))
+
+        txt = tk.Text(dlg, height=6, bg=COR_FUNDO2, fg=COR_TEXTO,
+                      insertbackground=COR_TEXTO, font=("Segoe UI", 10), wrap="word")
+        txt.pack(fill="both", expand=True, padx=12, pady=4)
+        txt.focus_set()
+
+        def salvar():
+            resultado["obs"] = txt.get("1.0", "end").strip()
+            dlg.destroy()
+
+        def pular():
+            resultado["obs"] = ""
+            dlg.destroy()
+
+        btns = tk.Frame(dlg, bg=COR_FUNDO)
+        btns.pack(fill="x", pady=10)
+        StyledButton(btns, text=f"{Icons.SAVE} Salvar observacao", command=salvar,
+                     color=COR_BOTAO_VERDE, width=18).pack(side="left", padx=10)
+        StyledButton(btns, text="Sem observacao", command=pular,
+                     color=COR_FUNDO3, width=14).pack(side="right", padx=10)
+
+        dlg.protocol("WM_DELETE_WINDOW", pular)
+        try:
+            self.root.wait_window(dlg)
+        except Exception:
+            pass
+        return resultado["obs"]
+
     def _add_item_mesa(self, ocupacao_ref, mesa_id, row, refresh, dialog):
-        """Adiciona item a mesa via ocupacao_id (alinhado com Android)."""
+        """Adiciona item a mesa via ocupacao_id, com selecao de adicionais e
+        observacao para a cozinha (alinhado com Android)."""
         produto_id, descricao, preco = row[0], row[1], float(row[2])
         qtd = simpledialog.askfloat("Quantidade", f"Qtd de {descricao}:",
                                      initialvalue=1, minvalue=0.001, parent=dialog)
         if not qtd:
             return
+
+        # 1) Tela de adicionais (exibida quando ha adicionais cadastrados)
+        adicionais_disp = self._buscar_adicionais_produto(produto_id)
+        adicionais_sel = []
+        if adicionais_disp:
+            adicionais_sel = self._selecionar_adicionais_item_mesa(
+                descricao, adicionais_disp, dialog)
+
+        # 2) Tela de observacao para a cozinha
+        observacao = self._observacao_cozinha_item_mesa(descricao, dialog)
+
+        # Descricao/total dos adicionais escolhidos
+        adicionais_total = sum(float(a["preco"]) for a in adicionais_sel)
+        adicionais_desc = ", ".join(a["descricao"] for a in adicionais_sel) if adicionais_sel else None
+
         def salvar():
             db = DatabaseHelper.get_instance()
+            # Garante a coluna de observacao (compat. com bancos antigos)
+            try:
+                colrows = db.execute_query(
+                    "SELECT COUNT(*) as cnt FROM information_schema.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'itens_mesa' "
+                    "AND COLUMN_NAME = 'observacao'")
+                if colrows and int(colrows[0].get("cnt", 0)) == 0:
+                    db.execute_update(
+                        "ALTER TABLE itens_mesa ADD COLUMN observacao VARCHAR(500) DEFAULT NULL")
+            except Exception:
+                pass
+
             oc_id = ocupacao_ref["id"]
             # Se nao tem ocupacao, criar uma
             if oc_id == 0:
@@ -15991,9 +16817,22 @@ class PDVApp:
             # Inserir item vinculado a ocupacao (sem mesa_id, alinhado com Android)
             db.execute_update(
                 "INSERT INTO itens_mesa (ocupacao_id, produto_id, descricao_produto, "
-                "quantidade, preco_unitario, total) VALUES (%s,%s,%s,%s,%s,%s)",
-                (oc_id, produto_id, descricao, qtd, preco, qtd * preco)
+                "quantidade, preco_unitario, total, adicionais_descricao, adicionais_total, observacao) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (oc_id, produto_id, descricao, qtd, preco, qtd * preco,
+                 adicionais_desc, adicionais_total, (observacao or None))
             )
+            # Vincula os adicionais escolhidos ao item recem-inserido
+            if adicionais_sel:
+                res_item = db.execute_query("SELECT LAST_INSERT_ID() as lid")
+                item_id = int(res_item[0].get("lid", 0)) if res_item else 0
+                if item_id > 0:
+                    for a in adicionais_sel:
+                        db.execute_update(
+                            "INSERT INTO itens_mesa_adicionais "
+                            "(item_mesa_id, adicional_id, descricao_adicional, preco) "
+                            "VALUES (%s,%s,%s,%s)",
+                            (item_id, a["id"], a["descricao"], float(a["preco"])))
             # Atualizar status da ocupacao para ocupada se estava livre
             if oc_id > 0:
                 res_st = db.execute_query(
@@ -16001,7 +16840,21 @@ class PDVApp:
                 if res_st and res_st[0].get("status") in ("livre", None):
                     db.execute_update(
                         "UPDATE ocupacao_mesa SET status = 'ocupada' WHERE id = %s", (oc_id,))
-        self.run_async(salvar, lambda _: refresh())
+
+        def _apos_salvar(_):
+            _extra = ""
+            if adicionais_desc:
+                _extra += f" | Adicionais: {adicionais_desc}"
+            if observacao:
+                _extra += f" | Obs. cozinha: {observacao}"
+            AuditLogger.log(
+                "MESA_ITEM_ADICIONADO",
+                f"Mesa ID {mesa_id} | Produto: {descricao} (ID {produto_id}) | "
+                f"Qtd: {qtd:g} | Total: R$ {FormatUtils.format_money(qtd * preco + adicionais_total)}"
+                + _extra,
+                usuario=Session.user_login, categoria="MESA")
+            refresh()
+        self.run_async(salvar, _apos_salvar)
 
     # ========================================================================
     # GERENCIAR ARMARIOS (SAUNA) - Compativel com APK
@@ -20445,8 +21298,14 @@ function enviarPedido() {{
     # ========================================================================
     # CONFIGURACAO DE IMPRESSORA
     # ========================================================================
-    def _load_printer_config(self):
-        """Carrega configuracoes da impressora do arquivo JSON."""
+    def _printer_config_path(self, perfil="padrao"):
+        """Retorna o caminho do arquivo de config conforme o perfil.
+        perfil='cozinha' usa um arquivo separado (impressora da cozinha)."""
+        return KITCHEN_PRINTER_CONFIG_FILE if perfil == "cozinha" else PRINTER_CONFIG_FILE
+
+    def _load_printer_config(self, perfil="padrao"):
+        """Carrega configuracoes da impressora do arquivo JSON.
+        perfil='padrao' (impressora normal) ou 'cozinha' (impressora da cozinha)."""
         defaults = {
             "tipo_impressora": "Termica",
             "nome_impressora": "",
@@ -20470,9 +21329,10 @@ function enviarPedido() {{
             "servidor_impressao_url": "http://127.0.0.1:8899/print",
             "metodo_impressao": "Texto (ESC/POS)"
         }
+        path = self._printer_config_path(perfil)
         try:
-            if os.path.exists(PRINTER_CONFIG_FILE):
-                with open(PRINTER_CONFIG_FILE, "r", encoding="utf-8") as f:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
                     saved = json.load(f)
                 for k, v in defaults.items():
                     if k not in saved:
@@ -20492,16 +21352,18 @@ function enviarPedido() {{
                         except Exception:
                             saved["largura_papel"] = 42
                     saved["fonte_migrada_v2"] = True
-                    self._save_printer_config(saved)
+                    self._save_printer_config(saved, perfil)
                 return saved
         except Exception as e:
             print(f"Erro ao carregar config impressora: {e}")
         return defaults
 
-    def _save_printer_config(self, config):
-        """Salva configuracoes da impressora no arquivo JSON."""
+    def _save_printer_config(self, config, perfil="padrao"):
+        """Salva configuracoes da impressora no arquivo JSON.
+        perfil='padrao' (impressora normal) ou 'cozinha' (impressora da cozinha)."""
+        path = self._printer_config_path(perfil)
         try:
-            with open(PRINTER_CONFIG_FILE, "w", encoding="utf-8") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 json.dump(config, f, indent=2, ensure_ascii=False)
             return True
         except Exception as e:
@@ -21088,9 +21950,17 @@ function enviarPedido() {{
 
         return detalhes
 
-    def show_config_impressora(self):
-        """Tela de configuracao de impressora."""
+    def show_config_impressora_cozinha(self):
+        """Atalho: abre a tela de configuracao da IMPRESSORA DA COZINHA."""
+        self.show_config_impressora(perfil="cozinha")
+
+    def show_config_impressora(self, perfil="padrao"):
+        """Tela de configuracao de impressora.
+        perfil='padrao' (impressora normal) ou 'cozinha' (impressora da cozinha)."""
         self.clear_container()
+        _is_cozinha = (perfil == "cozinha")
+        _titulo_tela = ("Configuracao de Impressora da Cozinha"
+                        if _is_cozinha else "Configuracao de Impressora")
 
         # Barra superior
         top = tk.Frame(self.main_container, bg=COR_FUNDO2, height=52)
@@ -21104,7 +21974,7 @@ function enviarPedido() {{
             _neon.create_line(0, 1, e.width, 1, fill=COR_PRIMARIA, width=1)))
         StyledButton(top, text="◀ Voltar", command=self.show_main_menu,
                      color=COR_FUNDO3, width=10).pack(side="left", padx=10, pady=5)
-        tk.Label(top, text="Configuracao de Impressora", bg=COR_FUNDO2, fg=COR_PRIMARIA,
+        tk.Label(top, text=_titulo_tela, bg=COR_FUNDO2, fg=COR_PRIMARIA,
                  font=("Segoe UI", 14, "bold")).pack(side="left", padx=10)
         # Botoes Sair e Trocar de Usuario
         _btn_sair = StyledButton(top, text=f"{Icons.SAIR} Sair",
@@ -21120,8 +21990,8 @@ function enviarPedido() {{
         add_tooltip(_btn_trocar, "Trocar de usuario (Ctrl+L)")
 
 
-        # Carregar config atual
-        config = self._load_printer_config()
+        # Carregar config atual (perfil padrao ou cozinha)
+        config = self._load_printer_config(perfil)
 
         # Area com scroll
         scroll = ScrollableFrame(self.main_container)
@@ -21619,8 +22489,9 @@ function enviarPedido() {{
 
         def salvar_config():
             cfg = coletar_config()
-            if self._save_printer_config(cfg):
-                self.show_success("Configuracoes de impressora salvas com sucesso!")
+            if self._save_printer_config(cfg, perfil):
+                nome_cfg = ("impressora da cozinha" if _is_cozinha else "impressora")
+                self.show_success(f"Configuracoes de {nome_cfg} salvas com sucesso!")
             else:
                 self.show_error("Erro ao salvar configuracoes de impressora.")
 
@@ -21840,6 +22711,24 @@ function enviarPedido() {{
         StyledButton(btn_frame, text="Voltar",
                      command=self.show_main_menu,
                      color="#2a3a5c", width=10).pack(side="right", padx=8)
+
+        # Na impressora da cozinha, oferece tambem a configuracao de MULTIPLAS
+        # IMPRESSORAS POR CATEGORIA de produto (ex.: bar, chapa, sobremesas).
+        if _is_cozinha:
+            card_multi = CardFrame(content)
+            card_multi.pack(fill="x", padx=20, pady=8)
+            tk.Label(card_multi, text="Multiplas Impressoras por Categoria",
+                     bg=COR_CARD, fg=COR_PRIMARIA,
+                     font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=5, pady=(5, 4))
+            tk.Label(card_multi,
+                     text="Envie automaticamente cada categoria de produto para uma "
+                          "impressora diferente (ex.: cozinha, bar, chapa, sobremesas).",
+                     bg=COR_CARD, fg=COR_TEXTO2, font=("Segoe UI", 9),
+                     justify="left", wraplength=760).pack(anchor="w", padx=5, pady=(0, 6))
+            StyledButton(card_multi,
+                         text=f"{Icons.IMPRESSORA} Configurar Impressoras por Categoria",
+                         command=self.show_config_multi_impressora,
+                         color=COR_BOTAO_AZUL, width=34).pack(anchor="w", padx=5, pady=(0, 6))
 
     # ========================================================================
     # CONFIGURACAO DE MULTIPLAS IMPRESSORAS POR CATEGORIA
