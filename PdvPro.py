@@ -15775,13 +15775,15 @@ class PDVApp:
                     extras = ad_desc
                     if obs:
                         extras = (extras + " | " if extras else "") + f"Obs: {obs}"
+                    # Total do item = produto + adicionais
+                    item_total = float(r["total"]) + ad_total
                     tree.insert("", "end", values=(
                         r["id"], r["descricao_produto"], r["quantidade"],
                         FormatUtils.format_money(r["preco_unitario"]),
-                        FormatUtils.format_money(r["total"]),
+                        FormatUtils.format_money(item_total),
                         extras if extras else "-"
                     ))
-                    total += float(r["total"]) + ad_total
+                    total += item_total
                 lbl_total.config(text=f"Total: R$ {FormatUtils.format_money(total)}")
             self.run_async(load, on_loaded)
 
