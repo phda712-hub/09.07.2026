@@ -15935,7 +15935,7 @@ class PDVApp:
         if pode_editar:
             StyledButton(btn_frame, text=f"{Icons.ADD} Add Item", command=add_item,
                          color=COR_BOTAO_VERDE, width=12).pack(side="left", padx=3)
-            StyledButton(btn_frame, text=f"{Icons.REMOVE} Remover", command=remover_item,
+            StyledButton(btn_frame, text=f"{Icons.DELETE} Remover", command=remover_item,
                          color=COR_ERRO, width=12).pack(side="left", padx=3)
 
         btn_frame2 = tk.Frame(dialog, bg=COR_FUNDO)
