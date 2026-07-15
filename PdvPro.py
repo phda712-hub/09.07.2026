@@ -10551,6 +10551,7 @@ class PDVApp:
         dialog = tk.Toplevel(self.root)
         dialog.title("Relatorio de Auditoria")
         dialog.geometry("1060x660")
+        dialog.minsize(900, 520)
         dialog.configure(bg=COR_FUNDO)
         dialog.transient(self.root)
         dialog.grab_set()
@@ -10606,10 +10607,20 @@ class PDVApp:
         except Exception:
             pass
 
+        # ===== Rodape com botoes =====
+        # Empacotado no fundo ANTES da tabela para garantir que os botoes de
+        # filtro/busca fiquem SEMPRE visiveis, mesmo com a janela pequena.
+        btn_f = tk.Frame(dialog, bg=COR_FUNDO)
+        btn_f.pack(side="bottom", fill="x", padx=20, pady=8)
+
+        lbl_status = tk.Label(dialog, text="", bg=COR_FUNDO, fg=COR_TEXTO2,
+                              font=("Segoe UI", 9))
+        lbl_status.pack(side="bottom", anchor="w", padx=20)
+
         # ===== Tabela =====
         cols = ("data_hora", "usuario", "categoria", "acao", "detalhes")
         tree_f = tk.Frame(dialog, bg=COR_FUNDO)
-        tree_f.pack(fill="both", expand=True, padx=20, pady=4)
+        tree_f.pack(side="top", fill="both", expand=True, padx=20, pady=4)
         tree = ttk.Treeview(tree_f, columns=cols, show="headings", height=16)
         for c, h, w, a in [("data_hora", "Data/Hora", 145, "center"),
                             ("usuario", "Usuario", 120, "center"),
@@ -10626,10 +10637,6 @@ class PDVApp:
         hsb.grid(row=1, column=0, sticky="ew")
         tree_f.rowconfigure(0, weight=1)
         tree_f.columnconfigure(0, weight=1)
-
-        lbl_status = tk.Label(dialog, text="", bg=COR_FUNDO, fg=COR_TEXTO2,
-                              font=("Segoe UI", 9))
-        lbl_status.pack(anchor="w", padx=20)
 
         rows_cache = [[]]
 
@@ -10701,6 +10708,12 @@ class PDVApp:
                 return rows
             self.run_async(_carregar, _preencher)
 
+        # Atalhos: pressionar Enter nos campos ou escolher usuario/acao ja busca
+        for _campo in (et_data_ini, et_data_fim, et_texto):
+            _campo.bind("<Return>", lambda e: _aplicar())
+        cb_usuario.bind("<<ComboboxSelected>>", lambda e: _aplicar())
+        cb_acao.bind("<<ComboboxSelected>>", lambda e: _aplicar())
+
         # Carregar valores dos comboboxes (usuarios e acoes distintas)
         def _carregar_combos():
             return (AuditLogger.get_usuarios_db(), AuditLogger.get_acoes_db())
@@ -10712,12 +10725,9 @@ class PDVApp:
 
         _aplicar()
 
-        # ===== Botoes =====
-        btn_f = tk.Frame(dialog, bg=COR_FUNDO)
-        btn_f.pack(fill="x", padx=20, pady=8)
-
-        StyledButton(btn_f, text=f"{Icons.SEARCH} Aplicar filtros", command=_aplicar,
-                     color=COR_BOTAO_VERDE, width=16).pack(side="left", padx=4)
+        # ===== Botoes (o frame btn_f ja foi criado e ancorado no rodape) =====
+        StyledButton(btn_f, text=f"{Icons.SEARCH} Buscar", command=_aplicar,
+                     color=COR_BOTAO_VERDE, width=14).pack(side="left", padx=4)
 
         def _limpar():
             cb_usuario.current(0)
