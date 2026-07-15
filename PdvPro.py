@@ -15368,8 +15368,19 @@ class PDVApp:
             fg=COR_PRIMARIA, font=("Segoe UI", 9, "bold"))
         self._lbl_mesas_info.pack(side="right", padx=12)
 
-        scroll_mesas = ScrollableFrame(content)
-        scroll_mesas.pack(fill="both", expand=True)
+        # Area dividida: painel de detalhe (esquerda, oculto) + grade de mesas (direita)
+        split = tk.Frame(content, bg=COR_FUNDO)
+        split.pack(fill="both", expand=True)
+
+        # Painel de detalhe da mesa embutido a esquerda.
+        # Fica oculto ate uma mesa ser clicada; quando exibido, encaixa-se
+        # no espaco vazio a esquerda preenchendo toda a altura disponivel.
+        self._mesa_detalhe_panel = tk.Frame(split, bg=COR_FUNDO, width=520)
+        self._mesa_detalhe_panel.pack_propagate(False)
+        # (nao empacotar agora - exibido sob demanda em _show_mesa_detalhe)
+
+        scroll_mesas = ScrollableFrame(split)
+        scroll_mesas.pack(side="right", fill="both", expand=True)
         self.mesas_frame = scroll_mesas.scrollable_frame
 
         self.carregar_mesas()
@@ -15606,13 +15617,47 @@ class PDVApp:
         self._show_mesa_detalhe(mesa_id, mesa["numero"], ocupacao_id, status, mesa)
 
     def _show_mesa_detalhe(self, mesa_id, numero, ocupacao_id, status_atual, mesa_data):
-        """Dialog de detalhe da mesa - alinhado com Android GerenciarMesasActivity."""
-        dialog = tk.Toplevel(self.root)
-        dialog.title(f"Mesa {numero}")
-        dialog.geometry("700x600")
-        dialog.configure(bg=COR_FUNDO)
-        dialog.transient(self.root)
-        dialog.grab_set()
+        """Detalhe da mesa embutido no painel esquerdo (encaixa no espaco vazio).
+
+        Antes abria uma janela flutuante (Toplevel). Agora renderiza dentro do
+        painel `self._mesa_detalhe_panel`, que se encaixa a esquerda da grade de
+        mesas, ocupando exatamente o espaco vertical disponivel.
+        """
+        container = getattr(self, "_mesa_detalhe_panel", None)
+
+        # Fallback: se a tela de mesas nao esta montada, volta ao Toplevel
+        if container is None or not container.winfo_exists():
+            dialog = tk.Toplevel(self.root)
+            dialog.title(f"Mesa {numero}")
+            dialog.geometry("700x600")
+            dialog.configure(bg=COR_FUNDO)
+            dialog.transient(self.root)
+            dialog.grab_set()
+        else:
+            # Limpa conteudo anterior do painel
+            for _w in container.winfo_children():
+                _w.destroy()
+            # Conteudo do detalhe vai dentro de um frame interno.
+            # Assim, dialog.destroy() (usado em varios pontos) remove apenas
+            # o conteudo e o painel volta a se ocultar automaticamente.
+            container.configure(bg=COR_FUNDO)
+            dialog = tk.Frame(container, bg=COR_FUNDO)
+            dialog.pack(fill="both", expand=True)
+
+            def _ocultar_painel_no_destroy(e, _c=container, _d=dialog):
+                # Quando o frame interno e destruido, esconde o painel se ficou vazio
+                if e.widget is _d:
+                    try:
+                        if _c.winfo_exists() and not _c.winfo_children():
+                            _c.pack_forget()
+                    except Exception:
+                        pass
+            dialog.bind("<Destroy>", _ocultar_painel_no_destroy)
+
+            # Exibe o painel encaixado a esquerda (apos criar o conteudo).
+            # Pack incondicional: e idempotente e evita que o painel fique
+            # oculto ao alternar rapidamente entre mesas.
+            container.pack(side="left", fill="y", padx=(0, 8))
 
         # Dados de reserva
         reservado_por_id = int(mesa_data.get("reservado_por_usuario_id", 0))
@@ -15621,9 +15666,14 @@ class PDVApp:
         usuario_eh_dono = (reservado_por_id == Session.user_id) if hasattr(Session, 'user_id') else True
         pode_editar = not mesa_reservada or usuario_eh_dono
 
-        # Header
-        tk.Label(dialog, text=f"Mesa {numero}", bg=COR_FUNDO, fg=COR_PRIMARIA,
-                 font=("Segoe UI", 16, "bold")).pack(pady=5)
+        # Header com botao de fechar (painel embutido)
+        header = tk.Frame(dialog, bg=COR_FUNDO)
+        header.pack(fill="x", pady=5)
+        tk.Label(header, text=f"Mesa {numero}", bg=COR_FUNDO, fg=COR_PRIMARIA,
+                 font=("Segoe UI", 16, "bold")).pack(side="left", padx=10)
+        StyledButton(header, text=f"{Icons.SAIR} Fechar",
+                     command=lambda: dialog.destroy(),
+                     color=COR_FUNDO3, width=9).pack(side="right", padx=10)
 
         # Info de reserva/pronta (alinhado com Android)
         if mesa_reservada:
@@ -15681,11 +15731,11 @@ class PDVApp:
         # Tabela de itens
         cols = ("id", "produto", "qtd", "preco", "total", "adicionais")
         tree = ttk.Treeview(dialog, columns=cols, show="headings", height=10)
-        for c, h, w in [("id","ID",50),("produto","Produto",220),("qtd","Qtd",60),
-                         ("preco","Preco",80),("total","Total",80),("adicionais","Adicionais",120)]:
+        for c, h, w in [("id","ID",40),("produto","Produto",150),("qtd","Qtd",45),
+                         ("preco","Preco",75),("total","Total",75),("adicionais","Adicionais",95)]:
             tree.heading(c, text=h)
             tree.column(c, width=w, anchor="center" if c in ("id","qtd") else "e" if c in ("preco","total") else "w")
-        tree.pack(fill="both", expand=True, padx=15, pady=5)
+        tree.pack(fill="both", expand=True, padx=8, pady=5)
 
         lbl_total = tk.Label(dialog, text="Total: R$ 0,00", bg=COR_FUNDO, fg=COR_SUCESSO,
                               font=("Segoe UI", 14, "bold"))
