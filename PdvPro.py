@@ -16293,9 +16293,8 @@ class PDVApp:
                 itens = self._buscar_itens_cozinha_mesa(oc_id)
                 if not itens:
                     return (False, "Nenhum item na mesa para imprimir.")
-                texto = self._gerar_ticket_cozinha_mesa(numero, itens, completo=True)
-                ok, msg = self._imprimir_texto(
-                    texto, config=self._config_impressora_cozinha_efetiva())
+                ok, msg = self._imprimir_cozinha_mesa_roteado(
+                    numero, itens, completo=True)
                 if ok:
                     try:
                         DatabaseHelper.get_instance().execute_update(
@@ -16336,9 +16335,8 @@ class PDVApp:
                     # Sinaliza (None) que o ultimo item ja foi impresso
                     return (None, "O ultimo item ja foi impresso. "
                                   "Inclua um novo item para imprimir novamente.")
-                texto = self._gerar_ticket_cozinha_mesa(numero, [ultimo], completo=False)
-                ok, msg = self._imprimir_texto(
-                    texto, config=self._config_impressora_cozinha_efetiva())
+                ok, msg = self._imprimir_cozinha_mesa_roteado(
+                    numero, [ultimo], completo=False)
                 if ok:
                     try:
                         DatabaseHelper.get_instance().execute_update(
@@ -16416,21 +16414,26 @@ class PDVApp:
         carregar()
 
     def _buscar_itens_cozinha_mesa(self, oc_id):
-        """Retorna todos os itens de uma ocupacao de mesa para impressao na cozinha."""
+        """Retorna todos os itens de uma ocupacao de mesa para impressao na cozinha.
+        Inclui o tipo_produto_id (categoria) para roteamento por impressora."""
         if not oc_id or oc_id <= 0:
             return []
         db = DatabaseHelper.get_instance()
         try:
             return db.execute_query(
-                "SELECT id, descricao_produto, quantidade, adicionais_descricao, "
-                "COALESCE(observacao, '') as observacao, COALESCE(impresso, 0) as impresso "
-                "FROM itens_mesa WHERE ocupacao_id = %s ORDER BY id ASC", (oc_id,)) or []
+                "SELECT im.id, im.descricao_produto, im.quantidade, im.adicionais_descricao, "
+                "COALESCE(im.observacao, '') as observacao, COALESCE(im.impresso, 0) as impresso, "
+                "COALESCE(p.tipo_produto_id, 0) as tipo_produto_id "
+                "FROM itens_mesa im LEFT JOIN produtos p ON p.id = im.produto_id "
+                "WHERE im.ocupacao_id = %s ORDER BY im.id ASC", (oc_id,)) or []
         except Exception:
             # Compatibilidade: banco sem a coluna observacao
             return db.execute_query(
-                "SELECT id, descricao_produto, quantidade, adicionais_descricao, "
-                "COALESCE(impresso, 0) as impresso "
-                "FROM itens_mesa WHERE ocupacao_id = %s ORDER BY id ASC", (oc_id,)) or []
+                "SELECT im.id, im.descricao_produto, im.quantidade, im.adicionais_descricao, "
+                "COALESCE(im.impresso, 0) as impresso, "
+                "COALESCE(p.tipo_produto_id, 0) as tipo_produto_id "
+                "FROM itens_mesa im LEFT JOIN produtos p ON p.id = im.produto_id "
+                "WHERE im.ocupacao_id = %s ORDER BY im.id ASC", (oc_id,)) or []
 
     def _buscar_ultimo_item_cozinha_mesa(self, oc_id):
         """Retorna o ultimo item incluido na mesa (maior id) ou None."""
@@ -16439,15 +16442,111 @@ class PDVApp:
         db = DatabaseHelper.get_instance()
         try:
             rows = db.execute_query(
-                "SELECT id, descricao_produto, quantidade, adicionais_descricao, "
-                "COALESCE(observacao, '') as observacao, COALESCE(impresso, 0) as impresso "
-                "FROM itens_mesa WHERE ocupacao_id = %s ORDER BY id DESC LIMIT 1", (oc_id,))
+                "SELECT im.id, im.descricao_produto, im.quantidade, im.adicionais_descricao, "
+                "COALESCE(im.observacao, '') as observacao, COALESCE(im.impresso, 0) as impresso, "
+                "COALESCE(p.tipo_produto_id, 0) as tipo_produto_id "
+                "FROM itens_mesa im LEFT JOIN produtos p ON p.id = im.produto_id "
+                "WHERE im.ocupacao_id = %s ORDER BY im.id DESC LIMIT 1", (oc_id,))
         except Exception:
             rows = db.execute_query(
-                "SELECT id, descricao_produto, quantidade, adicionais_descricao, "
-                "COALESCE(impresso, 0) as impresso "
-                "FROM itens_mesa WHERE ocupacao_id = %s ORDER BY id DESC LIMIT 1", (oc_id,))
+                "SELECT im.id, im.descricao_produto, im.quantidade, im.adicionais_descricao, "
+                "COALESCE(im.impresso, 0) as impresso, "
+                "COALESCE(p.tipo_produto_id, 0) as tipo_produto_id "
+                "FROM itens_mesa im LEFT JOIN produtos p ON p.id = im.produto_id "
+                "WHERE im.ocupacao_id = %s ORDER BY im.id DESC LIMIT 1", (oc_id,))
         return rows[0] if rows else None
+
+    def _imprimir_cozinha_mesa_roteado(self, numero, itens, completo=False):
+        """Imprime o ticket da cozinha roteando por categoria de produto.
+
+        Se a configuracao de MULTIPLAS IMPRESSORAS POR CATEGORIA estiver ativa,
+        cada categoria e enviada para a impressora mapeada. Os itens sem
+        categoria mapeada vao para a impressora da cozinha. Se a multi-impressora
+        estiver desativada, imprime tudo na impressora da cozinha (comportamento
+        padrao). Retorna (sucesso: bool, mensagem: str).
+        """
+        try:
+            multi_cfg = self._load_multi_printer_config()
+        except Exception:
+            multi_cfg = {}
+
+        base_cfg = self._config_impressora_cozinha_efetiva()
+
+        # Sem multi-impressora ativa -> tudo na impressora da cozinha
+        if not multi_cfg.get("ativo", False) or not multi_cfg.get("impressoras"):
+            texto = self._gerar_ticket_cozinha_mesa(numero, itens, completo=completo)
+            return self._imprimir_texto(texto, config=base_cfg)
+
+        modo = multi_cfg.get("modo_impressao", "local")
+
+        # Agrupa itens por categoria (tipo_produto_id), normalizando para int
+        def _to_int(v):
+            try:
+                return int(v)
+            except Exception:
+                return 0
+        itens_por_tipo = {}
+        for it in itens:
+            tid = _to_int(it.get("tipo_produto_id", 0))
+            itens_por_tipo.setdefault(tid, []).append(it)
+
+        algum_ok = False
+        tipos_roteados = set()
+        ultimo_res = (True, "")
+
+        for imp in multi_cfg.get("impressoras", []):
+            if not imp.get("ativa", True):
+                continue
+            cats = [_to_int(c) for c in imp.get("categorias", [])]
+            if not cats:
+                continue
+            itens_imp = []
+            for cid in cats:
+                if cid in itens_por_tipo:
+                    itens_imp.extend(itens_por_tipo[cid])
+                    tipos_roteados.add(cid)
+            if not itens_imp:
+                continue
+            texto = self._gerar_ticket_cozinha_mesa(numero, itens_imp, completo=completo)
+            if modo == "servidor":
+                try:
+                    self._enviar_para_servidor_impressao(texto, imp, multi_cfg)
+                    algum_ok = True
+                except Exception as e:
+                    ultimo_res = (False, str(e))
+            else:
+                cfg_imp = dict(base_cfg)
+                cfg_imp["nome_impressora"] = imp.get("nome_sistema", "")
+                cfg_imp["porta_impressora"] = imp.get("porta", "")
+                cfg_imp["tipo_impressora"] = imp.get("tipo_impressora", "Termica")
+                cfg_imp["codepage"] = imp.get("codepage", "UTF-8")
+                cfg_imp["largura_papel"] = imp.get(
+                    "largura_papel", base_cfg.get("largura_papel", 48))
+                cfg_imp["corte_automatico"] = imp.get("corte_automatico", True)
+                cfg_imp["abrir_gaveta"] = imp.get("abrir_gaveta", False)
+                cfg_imp["modo_fonte"] = imp.get(
+                    "modo_fonte", base_cfg.get("modo_fonte", "Grande"))
+                cfg_imp["num_copias"] = imp.get("num_copias", 1)
+                ok, msg = self._imprimir_texto(texto, config=cfg_imp)
+                ultimo_res = (ok, msg)
+                if ok:
+                    algum_ok = True
+
+        # Itens sem categoria mapeada -> impressora da cozinha (fallback)
+        itens_restantes = []
+        for tid, lst in itens_por_tipo.items():
+            if tid not in tipos_roteados:
+                itens_restantes.extend(lst)
+        if itens_restantes:
+            texto = self._gerar_ticket_cozinha_mesa(numero, itens_restantes, completo=completo)
+            ok, msg = self._imprimir_texto(texto, config=base_cfg)
+            ultimo_res = (ok, msg)
+            if ok:
+                algum_ok = True
+
+        if algum_ok:
+            return (True, "Enviado para as impressoras por categoria.")
+        return ultimo_res
 
     def _config_impressora_cozinha_efetiva(self):
         """Retorna a config da impressora da cozinha.
