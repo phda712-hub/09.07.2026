@@ -16334,6 +16334,84 @@ class PDVApp:
                 self.carregar_mesas()
             self.run_async(do_cancelar, on_cancelada)
 
+        def imprimir_todos_cozinha():
+            """Imprime TODOS os itens da mesa para a cozinha (impressao completa)."""
+            oc_id = _ocupacao["id"]
+            if oc_id <= 0:
+                ToastManager.warning("Nenhum item para imprimir.")
+                return
+
+            def tarefa():
+                itens = self._buscar_itens_cozinha_mesa(oc_id)
+                if not itens:
+                    return (False, "Nenhum item na mesa para imprimir.")
+                texto = self._gerar_ticket_cozinha_mesa(numero, itens, completo=True)
+                ok, msg = self._imprimir_texto(texto)
+                if ok:
+                    try:
+                        DatabaseHelper.get_instance().execute_update(
+                            "UPDATE itens_mesa SET impresso = 1 WHERE ocupacao_id = %s", (oc_id,))
+                    except Exception:
+                        pass
+                return (ok, msg)
+
+            def on_done(res):
+                ok, msg = res if res else (False, "Falha ao imprimir.")
+                if ok:
+                    ToastManager.success("Impressao COMPLETA enviada para a cozinha.")
+                    AuditLogger.log(
+                        "MESA_IMPRESSAO_COZINHA_TODOS",
+                        f"Mesa {numero} - impressao completa de todos os itens para a cozinha",
+                        usuario=Session.user_login, categoria="MESA")
+                    carregar()
+                else:
+                    self.show_error(msg)
+            self.run_async(tarefa, on_done)
+
+        def imprimir_ultimo_cozinha():
+            """Imprime SOMENTE o ultimo item da mesa, uma unica vez.
+
+            Se o ultimo item ja foi impresso, avisa e nao imprime de novo -
+            so volta a imprimir quando um novo ultimo item for incluido.
+            """
+            oc_id = _ocupacao["id"]
+            if oc_id <= 0:
+                ToastManager.warning("Nenhum item para imprimir.")
+                return
+
+            def tarefa():
+                ultimo = self._buscar_ultimo_item_cozinha_mesa(oc_id)
+                if not ultimo:
+                    return (False, "Nenhum item na mesa para imprimir.")
+                if int(ultimo.get("impresso", 0) or 0) == 1:
+                    # Sinaliza (None) que o ultimo item ja foi impresso
+                    return (None, "O ultimo item ja foi impresso. "
+                                  "Inclua um novo item para imprimir novamente.")
+                texto = self._gerar_ticket_cozinha_mesa(numero, [ultimo], completo=False)
+                ok, msg = self._imprimir_texto(texto)
+                if ok:
+                    try:
+                        DatabaseHelper.get_instance().execute_update(
+                            "UPDATE itens_mesa SET impresso = 1 WHERE id = %s", (ultimo["id"],))
+                    except Exception:
+                        pass
+                return (ok, msg)
+
+            def on_done(res):
+                estado, msg = res if res else (False, "Falha ao imprimir.")
+                if estado is None:
+                    ToastManager.warning(msg)
+                elif estado:
+                    ToastManager.success("Ultimo item enviado para a cozinha.")
+                    AuditLogger.log(
+                        "MESA_IMPRESSAO_COZINHA_ULTIMO",
+                        f"Mesa {numero} - impressao do ultimo item para a cozinha",
+                        usuario=Session.user_login, categoria="MESA")
+                    carregar()
+                else:
+                    self.show_error(msg)
+            self.run_async(tarefa, on_done)
+
         # Botoes de acao (alinhado com Android)
         btn_frame = tk.Frame(dialog, bg=COR_FUNDO)
         btn_frame.pack(fill="x", padx=15, pady=5)
@@ -16343,6 +16421,19 @@ class PDVApp:
                          color=COR_BOTAO_VERDE, width=12).pack(side="left", padx=3)
             StyledButton(btn_frame, text=f"{Icons.DELETE} Remover", command=remover_item,
                          color=COR_ERRO, width=12).pack(side="left", padx=3)
+
+        # Botoes de impressao para a COZINHA
+        if status_atual != "livre":
+            btn_frame_cozinha = tk.Frame(dialog, bg=COR_FUNDO)
+            btn_frame_cozinha.pack(fill="x", padx=15, pady=(0, 5))
+            StyledButton(btn_frame_cozinha,
+                         text=f"{Icons.PRINT} IMPRIMIR TODOS P/ COZINHA",
+                         command=imprimir_todos_cozinha,
+                         color=COR_BOTAO_LARANJA, width=24).pack(side="left", padx=3)
+            StyledButton(btn_frame_cozinha,
+                         text=f"{Icons.PRINT} Imprimir ultimo item",
+                         command=imprimir_ultimo_cozinha,
+                         color="#26A69A", width=18).pack(side="left", padx=3)
 
         btn_frame2 = tk.Frame(dialog, bg=COR_FUNDO)
         btn_frame2.pack(fill="x", padx=15, pady=5)
@@ -16373,6 +16464,116 @@ class PDVApp:
                          color=COR_ERRO, width=12).pack(side="right", padx=3)
 
         carregar()
+
+    def _buscar_itens_cozinha_mesa(self, oc_id):
+        """Retorna todos os itens de uma ocupacao de mesa para impressao na cozinha."""
+        if not oc_id or oc_id <= 0:
+            return []
+        db = DatabaseHelper.get_instance()
+        try:
+            return db.execute_query(
+                "SELECT id, descricao_produto, quantidade, adicionais_descricao, "
+                "COALESCE(observacao, '') as observacao, COALESCE(impresso, 0) as impresso "
+                "FROM itens_mesa WHERE ocupacao_id = %s ORDER BY id ASC", (oc_id,)) or []
+        except Exception:
+            # Compatibilidade: banco sem a coluna observacao
+            return db.execute_query(
+                "SELECT id, descricao_produto, quantidade, adicionais_descricao, "
+                "COALESCE(impresso, 0) as impresso "
+                "FROM itens_mesa WHERE ocupacao_id = %s ORDER BY id ASC", (oc_id,)) or []
+
+    def _buscar_ultimo_item_cozinha_mesa(self, oc_id):
+        """Retorna o ultimo item incluido na mesa (maior id) ou None."""
+        if not oc_id or oc_id <= 0:
+            return None
+        db = DatabaseHelper.get_instance()
+        try:
+            rows = db.execute_query(
+                "SELECT id, descricao_produto, quantidade, adicionais_descricao, "
+                "COALESCE(observacao, '') as observacao, COALESCE(impresso, 0) as impresso "
+                "FROM itens_mesa WHERE ocupacao_id = %s ORDER BY id DESC LIMIT 1", (oc_id,))
+        except Exception:
+            rows = db.execute_query(
+                "SELECT id, descricao_produto, quantidade, adicionais_descricao, "
+                "COALESCE(impresso, 0) as impresso "
+                "FROM itens_mesa WHERE ocupacao_id = %s ORDER BY id DESC LIMIT 1", (oc_id,))
+        return rows[0] if rows else None
+
+    def _gerar_ticket_cozinha_mesa(self, numero, itens, completo=False):
+        """Gera o texto do ticket da cozinha para uma mesa.
+
+        Quando completo=True, o cabecalho vem destacado e em NEGRITO avisando
+        que e a impressao completa de todos os itens. O negrito e feito via
+        ESC/POS (ESC E) quando a impressora e termica e nao esta em modo
+        grafico; caso contrario, mantem apenas o destaque textual.
+        """
+        cfg = self._load_printer_config()
+        try:
+            largura = int(cfg.get("largura_papel", 48) or 48)
+        except Exception:
+            largura = 48
+        largura = max(24, min(largura, 64))
+
+        metodo = str(cfg.get("metodo_impressao", "")).lower()
+        tipo = cfg.get("tipo_impressora", "Termica")
+        usar_escpos = (tipo == "Termica") and (not metodo.startswith("graf"))
+        BOLD_ON = "\x1b\x45\x01" if usar_escpos else ""
+        BOLD_OFF = "\x1b\x45\x00" if usar_escpos else ""
+
+        linha = "=" * largura
+        tracos = "-" * largura
+
+        def centro(t):
+            return str(t)[:largura].center(largura)
+
+        L = []
+        L.append(linha)
+        if completo:
+            # Cabecalho destacado + negrito: impressao completa de todos os itens
+            L.append(BOLD_ON + centro("*** C O Z I N H A ***") + BOLD_OFF)
+            L.append(BOLD_ON + centro("IMPRESSAO COMPLETA") + BOLD_OFF)
+            L.append(BOLD_ON + centro(">>> TODOS OS ITENS DA MESA <<<") + BOLD_OFF)
+        else:
+            L.append(BOLD_ON + centro("*** C O Z I N H A ***") + BOLD_OFF)
+            L.append(BOLD_ON + centro("ULTIMO ITEM INCLUIDO") + BOLD_OFF)
+        L.append(linha)
+        L.append(BOLD_ON + f"MESA: {numero}" + BOLD_OFF)
+        L.append("Data: " + datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
+        oper = ""
+        try:
+            oper = Session.user_nome or Session.user_login or ""
+        except Exception:
+            oper = ""
+        if oper:
+            L.append(f"Operador: {oper}")
+        L.append(tracos)
+
+        for it in itens:
+            qtd = it.get("quantidade", 0)
+            try:
+                qf = float(qtd)
+                qtd_str = f"{qf:.0f}" if qf == int(qf) else f"{qf:.3f}"
+            except Exception:
+                qtd_str = str(qtd)
+            desc = str(it.get("descricao_produto", "") or "")
+            L.append(BOLD_ON + f"{qtd_str} x {desc}" + BOLD_OFF)
+            ad = (it.get("adicionais_descricao") or "").strip()
+            if ad:
+                for parte in ad.split(","):
+                    p = parte.strip()
+                    if p:
+                        L.append(f"   + {p}")
+            obs = (it.get("observacao") or "").strip()
+            if obs:
+                L.append(f"   >> OBS: {obs}")
+            L.append(tracos)
+
+        L.append(f"Total de itens: {len(itens)}")
+        if completo:
+            L.append(BOLD_ON + centro(">> IMPRESSAO COMPLETA <<") + BOLD_OFF)
+        L.append(linha)
+        # Espaco para o corte do papel
+        return "\n".join(L) + "\n\n\n"
 
     def _buscar_adicionais_produto(self, produto_id):
         """Retorna os adicionais disponiveis para um produto.
