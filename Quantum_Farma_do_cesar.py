@@ -5029,7 +5029,7 @@ def _rf_load_all():
     dados = {
         'produtos': _rf_load_json(g('PRODUCTS_FILE'), {}),
         'clientes': _rf_load_json(g('CUSTOMERS_FILE'), {}),
-        'vendas': _rf_load_json(g('SALES_FILE'), []),
+        'vendas': _rf_dedup_vendas(_rf_load_json(g('SALES_FILE'), [])),
         'tratamentos': _rf_load_json(g('TRATAMENTOS_FILE'), {}),
         'prontuarios': _rf_load_json(g('PRONTUARIO_AMBULATORIO_FILE'), {}),
         'farmacia_pro': _rf_load_json(g('FARMACIA_PRO_FILE'), {'receitas':{}, 'pbm':{}, 'campanhas':{}, 'servicos':{}, 'posvenda':{}}),
@@ -5055,6 +5055,35 @@ def _rf_get(item, *keys):
         if k in item and item.get(k) not in (None, ''):
             return item.get(k)
     return ''
+
+
+def _rf_coupon_key(v):
+    """Retorna a chave unica (numero do cupom) de um registro de venda, ou ''."""
+    if not isinstance(v, dict):
+        return ''
+    return str(_rf_get(v, 'coupon_number', 'numero_venda', 'numero',
+                       'cupom', 'numero_cupom', 'id') or '').strip()
+
+
+def _rf_dedup_vendas(vendas):
+    """Remove registros de venda duplicados pelo numero do cupom.
+
+    Mantem a PRIMEIRA ocorrencia de cada cupom. Registros sem numero de cupom
+    identificavel sao preservados como estao (nao sao agrupados). Isso garante
+    que o relatorio de PRODUTOS VENDIDOS e o de VENDAS reflitam fielmente cada
+    venda uma unica vez, mesmo que o arquivo de vendas contenha cupons repetidos.
+    """
+    seq = _rf_iter_values(vendas)
+    vistos = set()
+    saida = []
+    for v in seq:
+        chave = _rf_coupon_key(v)
+        if chave:
+            if chave in vistos:
+                continue
+            vistos.add(chave)
+        saida.append(v)
+    return saida
 
 
 def _rf_empresa_nome(dados=None):
@@ -32858,6 +32887,137 @@ def save_fechamentos_caixa(caixa_id, data):
     return save_data(file_path, data)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# FILA DE LANCAMENTOS PENDENTES DE CAIXA (Write-Ahead Log)
+# ---------------------------------------------------------------------------
+# Garante que TODA venda entre fielmente no caixa. Ao finalizar uma venda, o
+# credito correspondente e gravado ANTES nesta fila (de forma sincrona). Se o
+# lancamento no caixa falhar (caixa fechado, concorrencia, ou o app for
+# encerrado antes da thread daemon concluir), o registro permanece pendente e
+# e reprocessado automaticamente no proximo flush (na abertura do caixa ou na
+# proxima finalizacao de venda). O flush e idempotente: nunca duplica um cupom
+# ja presente no caixa.
+# ═══════════════════════════════════════════════════════════════════════════
+PENDING_CAIXA_FILE = os.path.join(LOGIN_DATA_DIR, "caixa_lancamentos_pendentes.json")
+
+
+def _load_caixa_pendentes():
+    """Carrega a lista de lancamentos de caixa pendentes."""
+    try:
+        dados = load_data(PENDING_CAIXA_FILE, [])
+        return dados if isinstance(dados, list) else []
+    except Exception:
+        return []
+
+
+def _save_caixa_pendentes(lst):
+    """Salva a lista de lancamentos de caixa pendentes."""
+    try:
+        return save_data(PENDING_CAIXA_FILE, lst if isinstance(lst, list) else [])
+    except Exception as e:
+        logging.error(f"Erro ao salvar lancamentos pendentes de caixa: {e}")
+        return False
+
+
+def _enfileirar_caixa_pendente(entry):
+    """Adiciona um lancamento a fila de pendentes (idempotente por descricao/cupom).
+
+    entry: dict com chaves 'coupon', 'descricao', 'tipo', 'valor', 'pagamento',
+    'cliente'. Se ja houver um pendente com a mesma descricao, atualiza-o em vez
+    de duplicar.
+    """
+    try:
+        with _caixa_lock:
+            pend = _load_caixa_pendentes()
+            desc = str(entry.get('descricao', '') or '')
+            substituido = False
+            for i, e in enumerate(pend):
+                if isinstance(e, dict) and str(e.get('descricao', '') or '') == desc and desc:
+                    pend[i] = entry
+                    substituido = True
+                    break
+            if not substituido:
+                pend.append(entry)
+            _save_caixa_pendentes(pend)
+        return True
+    except Exception as e:
+        logging.error(f"Erro ao enfileirar lancamento pendente de caixa: {e}")
+        return False
+
+
+def flush_caixa_pendentes(caixa_id=None):
+    """Reprocessa os lancamentos pendentes, gravando-os no caixa aberto.
+
+    - Idempotente: pula qualquer pendente cuja descricao ja exista no caixa
+      (evita contar o mesmo cupom duas vezes).
+    - Faz o ciclo load->modify->save diretamente sob _caixa_lock (nao chama
+      registrar_transacao_caixa para evitar deadlock, pois o lock nao e
+      reentrante).
+    Retorna a quantidade de lancamentos efetivamente gravados.
+    """
+    try:
+        if caixa_id is None:
+            caixa_id = get_caixa_aberto()
+        if caixa_id is None:
+            return 0
+        with _caixa_lock:
+            pend = _load_caixa_pendentes()
+            if not pend:
+                return 0
+            caixa_data = load_caixa_data(caixa_id)
+            if caixa_data.get('status') != 'aberto':
+                # Nao ha caixa aberto para receber: mantem os pendentes.
+                return 0
+            if not isinstance(caixa_data.get('transacoes'), list):
+                caixa_data['transacoes'] = []
+            existentes = {
+                str(t.get('descricao', '') or '')
+                for t in caixa_data['transacoes'] if isinstance(t, dict)
+            }
+            registrados = 0
+            for e in pend:
+                if not isinstance(e, dict):
+                    continue
+                desc = str(e.get('descricao', '') or '')
+                if desc and desc in existentes:
+                    # Ja esta no caixa -> considerado resolvido, nao regrava.
+                    continue
+                tipo_norm = str(e.get('tipo', 'CREDITO') or 'CREDITO').upper().strip()
+                if tipo_norm in ('DÉBITO',):
+                    tipo_norm = 'DEBITO'
+                elif tipo_norm in ('CRÉDITO',):
+                    tipo_norm = 'CREDITO'
+                if tipo_norm not in ('CREDITO', 'DEBITO'):
+                    tipo_norm = 'CREDITO'
+                try:
+                    valor = abs(float(e.get('valor', 0.0) or 0.0))
+                except (ValueError, TypeError):
+                    valor = 0.0
+                caixa_data['transacoes'].append({
+                    "hora": datetime.datetime.now().strftime('%H:%M:%S'),
+                    "tipo": tipo_norm,
+                    "descricao": desc or "Venda",
+                    "valor": valor,
+                    "pagamento": str(e.get('pagamento', '') or ''),
+                    "cliente": str(e.get('cliente', '') or ''),
+                })
+                if desc:
+                    existentes.add(desc)
+                registrados += 1
+            if registrados:
+                save_caixa_data(caixa_id, caixa_data)
+            # Todos os pendentes foram resolvidos (gravados agora ou ja existentes).
+            _save_caixa_pendentes([])
+            if registrados:
+                logging.info(f"[CAIXA] {registrados} lancamento(s) pendente(s) reprocessado(s) no Caixa {caixa_id}.")
+            return registrados
+    except Exception as e:
+        logging.error(f"Erro ao reprocessar lancamentos pendentes de caixa: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
+        return 0
+
+
 # 📝 Funções Auxiliares para Ordens de Serviço (SQL)
 def load_ordens_servico():
     """Carrega todas as ordens de serviço do banco de dados SQL."""
@@ -52830,6 +52990,15 @@ class CaixaWindow(tk.Toplevel):
                     })
                     save_caixa_data(self.caixa_selecionado, self.caixa_data)
                     log_user_action("Caixa", f"Caixa {self.caixa_selecionado} aberto por {usuario_selecionado} com saldo inicial de {format_br_currency(valor)} - Turno: {turno_nome}")
+                    # Reprocessa lançamentos de venda que ficaram pendentes enquanto
+                    # o caixa estava fechado, garantindo que TODA venda entre no caixa.
+                    try:
+                        _reproc = flush_caixa_pendentes(self.caixa_selecionado)
+                        if _reproc:
+                            self.caixa_data = load_caixa_data(self.caixa_selecionado)
+                            logging.info(f"[CAIXA] {_reproc} venda(s) pendente(s) lançada(s) na abertura do Caixa {self.caixa_selecionado}.")
+                    except Exception as _e_flush:
+                        logging.error(f"Erro ao reprocessar pendentes na abertura do caixa: {_e_flush}")
                     input_win.destroy()
                     self._update_display()
                     messagebox.showinfo("Sucesso", f"Caixa aberto com sucesso!\n\nUsuário: {usuario_selecionado}\nTurno: {turno_nome}\nSaldo Inicial: {format_br_currency(valor)}")
@@ -58123,7 +58292,51 @@ class PDVSuperApp:
                             todos_fechamentos.append(f)
                 except Exception as e:
                     print(f"[RELATORIO] Erro ao carregar fechamentos antigos: {e}")
-                
+
+                # =============================================================
+                # DEDUPLICAÇÃO ROBUSTA DE FECHAMENTOS
+                # O mesmo fechamento pode existir tanto no arquivo do caixa
+                # (ex.: "Caixa Principal") quanto no arquivo legado genérico
+                # (ex.: "Caixa Geral"). Quando o registro legado não possui 'id',
+                # a checagem antiga não detectava a duplicata e o fechamento
+                # aparecia DUAS vezes, inflando o Totalizador Geral. Aqui usamos
+                # uma assinatura de conteúdo (datas + saldos + nº de transações)
+                # para manter cada fechamento uma única vez.
+                # =============================================================
+                def _assinatura_fechamento(f):
+                    def _num(*chaves):
+                        for c in chaves:
+                            v = f.get(c)
+                            if v not in (None, ''):
+                                try:
+                                    return round(float(v), 2)
+                                except (ValueError, TypeError):
+                                    pass
+                        return 0.0
+                    try:
+                        n_trans = len(f.get('transacoes', []) or [])
+                    except Exception:
+                        n_trans = 0
+                    return (
+                        str(f.get('data_abertura', '') or ''),
+                        str(f.get('data_fechamento', '') or ''),
+                        _num('saldo_inicial'),
+                        _num('total_creditos', 'total_entradas'),
+                        _num('total_debitos', 'total_saidas'),
+                        _num('saldo_final'),
+                        n_trans,
+                    )
+
+                _vistos_fech = set()
+                _fech_unicos = []
+                for _f in todos_fechamentos:
+                    _sig = _assinatura_fechamento(_f)
+                    if _sig in _vistos_fech:
+                        continue
+                    _vistos_fech.add(_sig)
+                    _fech_unicos.append(_f)
+                todos_fechamentos = _fech_unicos
+
                 if not todos_fechamentos:
                     messagebox.showinfo("Relatório", 
                                       "Nenhum fechamento de caixa registrado.", 
@@ -73419,8 +73632,16 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
                 logging.error(f"[BG] Erro ao salvar clientes: {e}")
 
             try:
-                # 4.4 Salva log de vendas
-                save_data(SALES_FILE, sales_log_snapshot)
+                # 4.4 Salva log de vendas (deduplicado por cupom para manter o
+                # arquivo fiel: cada venda aparece uma única vez, evitando itens
+                # inflados no relatório de produtos vendidos).
+                _sales_para_salvar = sales_log_snapshot
+                try:
+                    _sales_para_salvar = _rf_dedup_vendas(sales_log_snapshot)
+                except Exception as _e_dedup:
+                    logging.error(f"[BG] Falha ao deduplicar vendas (salvando original): {_e_dedup}")
+                    _sales_para_salvar = sales_log_snapshot
+                save_data(SALES_FILE, _sales_para_salvar)
             except Exception as e:
                 logging.error(f"[BG] Erro ao salvar vendas: {e}")
 
@@ -73473,20 +73694,16 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
                 logging.error(f"[BG] Erro ao processar voucher: {e}")
 
             try:
-                # 4.8 Registra transação no caixa
-                if valor_real_caixa > 0:
-                    registrar_transacao_caixa("CRÉDITO", f"Venda Cupom {current_coupon_number}",
-                                             valor_real_caixa, pag_str_caixa, cliente_nome_caixa)
-                else:
-                    registrar_transacao_caixa("CRÉDITO", f"Venda Cupom {current_coupon_number}",
-                                             total_venda_snapshot, "N/A", cliente_nome_caixa)
+                # 4.8 Registra transação no caixa.
+                # O crédito já foi gravado de forma síncrona na FILA DE PENDENTES
+                # (write-ahead log) antes desta thread iniciar. Aqui apenas
+                # disparamos o flush, que grava no caixa aberto de forma
+                # idempotente (nunca duplica o mesmo cupom). Se o caixa estiver
+                # fechado, o lançamento permanece pendente e será reprocessado
+                # na próxima abertura de caixa ou finalização de venda.
+                flush_caixa_pendentes()
             except Exception as e:
                 logging.error(f"[BG] Erro ao registrar no caixa: {e}")
-                try:
-                    registrar_transacao_caixa("CRÉDITO", f"Venda Cupom {current_coupon_number}",
-                                             total_venda_snapshot, "Erro", "Consumidor")
-                except Exception:
-                    pass
 
             try:
                 # 4.9 Atualiza status da OS vinculada
@@ -73517,6 +73734,30 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
                     self.root.after(100, self._filtrar_produtos)
                 except Exception:
                     pass
+
+        # ── WRITE-AHEAD LOG DO CAIXA ─────────────────────────────────────────
+        # Grava o crédito da venda na fila de pendentes de forma SÍNCRONA, antes
+        # de iniciar a thread daemon. Assim, mesmo que o app seja encerrado antes
+        # da thread concluir, a venda NUNCA se perde do caixa: será reprocessada
+        # no próximo flush. O flush é idempotente (não duplica o cupom).
+        try:
+            if valor_real_caixa > 0:
+                _valor_caixa_wal = valor_real_caixa
+                _pag_caixa_wal = pag_str_caixa
+            else:
+                _valor_caixa_wal = total_venda_snapshot
+                _pag_caixa_wal = "N/A"
+            _enfileirar_caixa_pendente({
+                "coupon": current_coupon_number,
+                "descricao": f"Venda Cupom {current_coupon_number}",
+                "tipo": "CREDITO",
+                "valor": _valor_caixa_wal,
+                "pagamento": _pag_caixa_wal,
+                "cliente": cliente_nome_caixa,
+                "data": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            })
+        except Exception as _e_wal:
+            logging.error(f"Erro ao enfileirar crédito de caixa (WAL): {_e_wal}")
 
         import threading as _threading
         _t = _threading.Thread(target=_background_io, daemon=True, name="pdv-io-finalizar-venda")
