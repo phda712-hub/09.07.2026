@@ -52258,7 +52258,7 @@ class CaixaWindow(tk.Toplevel):
         except Exception:
             pass
         try:
-            self._auto_refresh_job = self.after(2500, self._tick_auto_refresh_caixa)
+            self._auto_refresh_job = self.after(1200, self._tick_auto_refresh_caixa)
         except Exception:
             self._auto_refresh_job = None
 
@@ -73637,6 +73637,42 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
         # ── FASE 4: Dispara I/O em background (não bloqueia a UI) ────────────
         def _background_io():
             """Executa todas as gravações em banco/disco em thread separada."""
+            # ===== 4.0 CAIXA (PRIORITARIO) =====
+            # Registrar a venda no caixa e a PRIMEIRA operacao da thread,
+            # para a venda aparecer no caixa quase instantaneamente, sem
+            # esperar os salvamentos pesados (produtos, clientes, vendas).
+            try:
+                # 4.8 Registra transação no caixa (GARANTIDO).
+                # Primeiro relança eventuais vendas que ficaram pendentes por
+                # terem sido feitas com o caixa fechado; depois registra ESTA
+                # venda. Se nao houver caixa aberto, a venda vai para a fila de
+                # pendencias em vez de sumir do caixa (era o motivo do
+                # fechamento "dar a menos").
+                try:
+                    flush_transacoes_caixa_pendentes()
+                except Exception as _e_flush:
+                    logging.error(f"[BG] Erro ao relancar pendencias de caixa: {_e_flush}")
+                # Diagnostico: qual caixa vai receber a venda (visivel no _debug.exe)
+                _cx_alvo = get_caixa_aberto()
+                if _cx_alvo is None:
+                    logging.warning(f"[BG][CAIXA] Cupom {current_coupon_number}: NENHUM caixa ABERTO encontrado -> venda vai para PENDENCIAS.")
+                else:
+                    logging.info(f"[BG][CAIXA] Cupom {current_coupon_number}: registrando no caixa id={_cx_alvo} (valor_real={valor_real_caixa}).")
+                if valor_real_caixa > 0:
+                    _ok_cx = registrar_transacao_caixa_garantida("CRÉDITO", f"Venda Cupom {current_coupon_number}",
+                                             valor_real_caixa, pag_str_caixa, cliente_nome_caixa)
+                else:
+                    _ok_cx = registrar_transacao_caixa_garantida("CRÉDITO", f"Venda Cupom {current_coupon_number}",
+                                             total_venda_snapshot, "N/A", cliente_nome_caixa)
+                logging.info(f"[BG][CAIXA] Cupom {current_coupon_number}: resultado no caixa id={_cx_alvo} -> {'REGISTRADO' if _ok_cx else 'PENDENTE (sera lancado ao abrir o caixa)'}.")
+            except Exception as e:
+                logging.error(f"[BG] Erro ao registrar no caixa: {e}")
+                try:
+                    registrar_transacao_caixa_garantida("CRÉDITO", f"Venda Cupom {current_coupon_number}",
+                                             total_venda_snapshot, "Erro", "Consumidor")
+                except Exception:
+                    pass
+
             try:
                 # 4.1 Salva config (número do cupom)
                 save_data(CONFIG_FILE, config_snapshot)
@@ -73716,38 +73752,6 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
                             f"Voucher {voucher_params['codigo']} utilizado: Valor: {format_br_currency(voucher_params['valor_usado'])} - Cupom: {voucher_params['cupom']}{obs_extra}")
             except Exception as e:
                 logging.error(f"[BG] Erro ao processar voucher: {e}")
-
-            try:
-                # 4.8 Registra transação no caixa (GARANTIDO).
-                # Primeiro relança eventuais vendas que ficaram pendentes por
-                # terem sido feitas com o caixa fechado; depois registra ESTA
-                # venda. Se nao houver caixa aberto, a venda vai para a fila de
-                # pendencias em vez de sumir do caixa (era o motivo do
-                # fechamento "dar a menos").
-                try:
-                    flush_transacoes_caixa_pendentes()
-                except Exception as _e_flush:
-                    logging.error(f"[BG] Erro ao relancar pendencias de caixa: {_e_flush}")
-                # Diagnostico: qual caixa vai receber a venda (visivel no _debug.exe)
-                _cx_alvo = get_caixa_aberto()
-                if _cx_alvo is None:
-                    logging.warning(f"[BG][CAIXA] Cupom {current_coupon_number}: NENHUM caixa ABERTO encontrado -> venda vai para PENDENCIAS.")
-                else:
-                    logging.info(f"[BG][CAIXA] Cupom {current_coupon_number}: registrando no caixa id={_cx_alvo} (valor_real={valor_real_caixa}).")
-                if valor_real_caixa > 0:
-                    _ok_cx = registrar_transacao_caixa_garantida("CRÉDITO", f"Venda Cupom {current_coupon_number}",
-                                             valor_real_caixa, pag_str_caixa, cliente_nome_caixa)
-                else:
-                    _ok_cx = registrar_transacao_caixa_garantida("CRÉDITO", f"Venda Cupom {current_coupon_number}",
-                                             total_venda_snapshot, "N/A", cliente_nome_caixa)
-                logging.info(f"[BG][CAIXA] Cupom {current_coupon_number}: resultado no caixa id={_cx_alvo} -> {'REGISTRADO' if _ok_cx else 'PENDENTE (sera lancado ao abrir o caixa)'}.")
-            except Exception as e:
-                logging.error(f"[BG] Erro ao registrar no caixa: {e}")
-                try:
-                    registrar_transacao_caixa_garantida("CRÉDITO", f"Venda Cupom {current_coupon_number}",
-                                             total_venda_snapshot, "Erro", "Consumidor")
-                except Exception:
-                    pass
 
             try:
                 # 4.9 Atualiza status da OS vinculada
