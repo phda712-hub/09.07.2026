@@ -27927,7 +27927,7 @@ def verificar_integridade_banco():
                 cliente_id INTEGER DEFAULT 1,
                 cliente_nome VARCHAR(500) DEFAULT 'Consumidor Final',
                 total DOUBLE DEFAULT 0.0,
-                formas_pagamento VARCHAR(500) DEFAULT '{}',
+                formas_pagamento LONGTEXT,
                 troco DOUBLE DEFAULT 0.0,
                 usuario VARCHAR(500) DEFAULT '',
                 is_delivery INTEGER DEFAULT 0,
@@ -29177,7 +29177,7 @@ def init_database():
             cliente_id INTEGER DEFAULT 1,
             cliente_nome VARCHAR(500) DEFAULT 'Consumidor Final',
             total DOUBLE DEFAULT 0.0,
-            formas_pagamento VARCHAR(500) DEFAULT '{}',
+            formas_pagamento LONGTEXT,
             troco DOUBLE DEFAULT 0.0,
             usuario VARCHAR(500) DEFAULT '',
             is_delivery INTEGER DEFAULT 0,
@@ -29934,34 +29934,77 @@ def _mysql_load_sales():
             db.execute("ALTER TABLE vendas ADD COLUMN vendedor_id VARCHAR(500) DEFAULT ''")
         if 'vendedor_nome' not in column_names:
             db.execute("ALTER TABLE vendas ADD COLUMN vendedor_nome VARCHAR(500) DEFAULT ''")
+
+        # CORRECAO CRITICA DE PERSISTENCIA:
+        # A coluna formas_pagamento era VARCHAR(500), o que TRUNCAVA o JSON da
+        # forma de pagamento (erro "Unterminated string starting at ...") e fazia
+        # TODAS as vendas nao carregarem ao reabrir o sistema. Ampliamos para
+        # LONGTEXT se ainda estiver como VARCHAR/TEXT pequeno.
+        try:
+            _col_types = {
+                (r.get('Field', r.get('COLUMN_NAME', '')) or ''):
+                str(r.get('Type', r.get('COLUMN_TYPE', '')) or '').lower()
+                for r in (rows or [])
+            }
+            _fp_tipo = _col_types.get('formas_pagamento', '')
+            if _fp_tipo and ('longtext' not in _fp_tipo and 'mediumtext' not in _fp_tipo):
+                db.execute("ALTER TABLE vendas MODIFY COLUMN formas_pagamento LONGTEXT")
+                print("[MIGRAÇÃO] vendas.formas_pagamento ampliada para LONGTEXT (evita truncamento/JSON corrompido)")
+        except Exception as _e_fp:
+            print(f"[MIGRAÇÃO] Nao foi possivel ampliar formas_pagamento: {_e_fp}")
     except Exception as e:
         print(f"[DEBUG] Erro ao migrar colunas: {e}")
     
     
     db = get_db()
     rows = db.fetchall("SELECT * FROM vendas ORDER BY id")
+
+    def _json_seguro(_raw, _default):
+        # Nunca deixa um JSON corrompido/truncado de UMA venda derrubar o
+        # carregamento de TODAS as vendas (era o que apagava o historico).
+        if _raw in (None, ''):
+            return _default
+        if isinstance(_raw, (dict, list)):
+            return _raw
+        try:
+            return json.loads(_raw)
+        except Exception:
+            try:
+                _s = str(_raw)
+                _corte = _s.rfind('}')
+                if _corte > 0:
+                    return json.loads(_s[:_corte + 1])
+            except Exception:
+                pass
+            logging.warning("Venda com JSON corrompido/truncado: recuperada sem esse campo.")
+            return _default
+
     result = []
     for row in rows:
-        venda = {
-            'coupon_number': row['coupon_number'],
-            'timestamp': row['timestamp'],
-            'data': row['data'],
-            'cliente_id': str(row['cliente_id']) if row['cliente_id'] else '1',
-            'cliente_nome': row['cliente_nome'] or 'Consumidor Final',
-            'total': row['total'] or 0.0,
-            'formas_pagamento': json.loads(row['formas_pagamento']) if row['formas_pagamento'] else {},
-            'troco': row['troco'] or 0.0,
-            'usuario': row['usuario'] or '',
-            'is_delivery': bool(row['is_delivery']),
-            'itens': json.loads(row['itens']) if row['itens'] else {},
-            'entregador_id': row.get('entregador_id', '') or '',
-            'entregador_nome': row.get('entregador_nome', '') or '',
-            'entrega_concluida': bool(row.get('entrega_concluida', 0)),
-            'data_entrega_concluida': row.get('data_entrega_concluida', '') or '',
-            'vendedor_id': row.get('vendedor_id', '') or '',
-            'vendedor_nome': row.get('vendedor_nome', '') or ''
-        }
-        result.append(venda)
+        try:
+            venda = {
+                'coupon_number': row['coupon_number'],
+                'timestamp': row['timestamp'],
+                'data': row['data'],
+                'cliente_id': str(row['cliente_id']) if row['cliente_id'] else '1',
+                'cliente_nome': row['cliente_nome'] or 'Consumidor Final',
+                'total': row['total'] or 0.0,
+                'formas_pagamento': _json_seguro(row['formas_pagamento'], {}),
+                'troco': row['troco'] or 0.0,
+                'usuario': row['usuario'] or '',
+                'is_delivery': bool(row['is_delivery']),
+                'itens': _json_seguro(row['itens'], {}),
+                'entregador_id': row.get('entregador_id', '') or '',
+                'entregador_nome': row.get('entregador_nome', '') or '',
+                'entrega_concluida': bool(row.get('entrega_concluida', 0)),
+                'data_entrega_concluida': row.get('data_entrega_concluida', '') or '',
+                'vendedor_id': row.get('vendedor_id', '') or '',
+                'vendedor_nome': row.get('vendedor_nome', '') or ''
+            }
+            result.append(venda)
+        except Exception as _e_row:
+            logging.error(f"Erro ao carregar venda (cupom {row.get('coupon_number')}): {_e_row}")
+            continue
     return result
 
 def _mysql_load_contas_pagar():
