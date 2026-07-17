@@ -52208,7 +52208,7 @@ class CaixaWindow(tk.Toplevel):
         self.bind("<F7>", lambda e: self._estornar_transferencia())
         self.bind("<Delete>", lambda e: self._excluir_transacao())
         self.bind("<space>", lambda e: self._toggle_conferido())
-        self.bind("<Escape>", lambda e: self.destroy())
+        self.bind("<Escape>", lambda e: self._quantum_caixa_close())
 
         # ⚛️ Quantum Sync - Atualização em tempo real do Caixa
         self._quantum_sync = get_quantum_sync()
@@ -52217,17 +52217,59 @@ class CaixaWindow(tk.Toplevel):
             self._quantum_sync.subscribe("sales", self._quantum_refresh_caixa)
             self._quantum_sync.subscribe("fechamentos_caixa", self._quantum_refresh_caixa)
         self.protocol("WM_DELETE_WINDOW", self._quantum_caixa_close)
-    
-    def _quantum_refresh_caixa(self):
-        """Atualização quântica do caixa em tempo real."""
+
+        # Auto-atualizacao periodica da tela do caixa. Garante que TODA venda
+        # apareca aqui assim que gravada, mesmo que o evento de sync nao dispare
+        # (as transacoes ficam em caixas/caixa_{id}.json, que o monitor de sync
+        # pode nao observar). So recarrega quando o arquivo do caixa muda, para
+        # nao atrapalhar a selecao/marcacao do usuario.
+        self._auto_refresh_job = None
+        self._caixa_file_mtime = None
         try:
-            if self.winfo_exists() and hasattr(self, '_atualizar_resumo'):
-                self._atualizar_resumo()
+            self._caixa_file_mtime = os.path.getmtime(get_caixa_file_path(self.caixa_selecionado))
+        except Exception:
+            self._caixa_file_mtime = None
+        self._tick_auto_refresh_caixa()
+
+    def _quantum_refresh_caixa(self):
+        """Atualização em tempo real do caixa (chamada pelo Quantum Sync)."""
+        try:
+            # CORRECAO: o metodo correto e _update_display. O antigo
+            # _atualizar_resumo NUNCA existiu, entao o refresh em tempo real
+            # falhava em silencio e a venda recem-feita nao aparecia no caixa.
+            if self.winfo_exists():
+                self.after(0, self._update_display)
         except Exception:
             pass
-    
+
+    def _tick_auto_refresh_caixa(self):
+        """Recarrega a tela do caixa quando o arquivo do caixa muda e reagenda."""
+        try:
+            if not self.winfo_exists():
+                return
+        except Exception:
+            return
+        try:
+            fp = get_caixa_file_path(self.caixa_selecionado)
+            mt = os.path.getmtime(fp) if os.path.exists(fp) else 0
+            if getattr(self, '_caixa_file_mtime', None) != mt:
+                self._caixa_file_mtime = mt
+                self._update_display()
+        except Exception:
+            pass
+        try:
+            self._auto_refresh_job = self.after(2500, self._tick_auto_refresh_caixa)
+        except Exception:
+            self._auto_refresh_job = None
+
     def _quantum_caixa_close(self):
-        """Limpa subscribers ao fechar o caixa."""
+        """Limpa subscribers e o timer de auto-atualizacao ao fechar o caixa."""
+        try:
+            if getattr(self, '_auto_refresh_job', None):
+                self.after_cancel(self._auto_refresh_job)
+                self._auto_refresh_job = None
+        except Exception:
+            pass
         try:
             sync = get_quantum_sync()
             if sync:
