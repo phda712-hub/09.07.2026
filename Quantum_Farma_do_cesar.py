@@ -5029,7 +5029,7 @@ def _rf_load_all():
     dados = {
         'produtos': _rf_load_json(g('PRODUCTS_FILE'), {}),
         'clientes': _rf_load_json(g('CUSTOMERS_FILE'), {}),
-        'vendas': _rf_load_json(g('SALES_FILE'), []),
+        'vendas': _dedup_vendas_por_cupom(_rf_load_json(g('SALES_FILE'), [])),
         'tratamentos': _rf_load_json(g('TRATAMENTOS_FILE'), {}),
         'prontuarios': _rf_load_json(g('PRONTUARIO_AMBULATORIO_FILE'), {}),
         'farmacia_pro': _rf_load_json(g('FARMACIA_PRO_FILE'), {'receitas':{}, 'pbm':{}, 'campanhas':{}, 'servicos':{}, 'posvenda':{}}),
@@ -5046,6 +5046,39 @@ def _rf_iter_values(obj):
     if isinstance(obj, list):
         return obj
     return []
+
+
+def _dedup_vendas_por_cupom(vendas):
+    """Remove registros de venda duplicados que tenham o mesmo numero de cupom.
+
+    Registros duplicados (mesmo coupon_number) inflavam o relatorio de PRODUTOS
+    VENDIDOS e o de VENDAS, pois cada item da venda era contado varias vezes.
+    Como cada venda finalizada recebe um numero de cupom unico e crescente, a
+    presenca do mesmo cupom mais de uma vez significa duplicidade: mantemos
+    apenas a ultima ocorrencia (a mais completa/recente) preservando a ordem.
+    Registros sem numero de cupom sao mantidos como estao (nao ha como
+    deduplicar com seguranca)."""
+    if not isinstance(vendas, list):
+        return vendas
+    vistos = {}
+    ordem = []
+    sem_cupom = []
+    for v in vendas:
+        if not isinstance(v, dict):
+            sem_cupom.append(v)
+            continue
+        cup = v.get('coupon_number', v.get('numero_venda',
+              v.get('cupom', v.get('numero_cupom', v.get('numero')))))
+        if cup in (None, ''):
+            sem_cupom.append(v)
+            continue
+        chave = str(cup).strip()
+        if chave not in vistos:
+            ordem.append(chave)
+        vistos[chave] = v  # mantem a ultima ocorrencia do cupom
+    resultado = [vistos[c] for c in ordem]
+    resultado.extend(sem_cupom)
+    return resultado
 
 
 def _rf_get(item, *keys):
@@ -32817,6 +32850,10 @@ NOTAS_ENTRADA_FILE = os.path.join(LOGIN_DATA_DIR, "notas_entrada.json")
 NOTA_ENTRADA_SEQUENCE_FILE = os.path.join(LOGIN_DATA_DIR, "nota_entrada_sequence.json")
 CAIXA_FILE = os.path.join(LOGIN_DATA_DIR, "caixa.json")
 FECHAMENTOS_CAIXA_FILE = os.path.join(LOGIN_DATA_DIR, "fechamentos_caixa.json")
+# Fila de transacoes de caixa que nao puderam ser lancadas na hora (ex.: venda
+# finalizada sem caixa aberto). Sao relancadas assim que um caixa for aberto,
+# garantindo que NENHUMA venda fique de fora do caixa.
+CAIXA_PENDENTES_FILE = os.path.join(LOGIN_DATA_DIR, "caixa_pendentes.json")
 ORDENS_SERVICO_FILE = os.path.join(LOGIN_DATA_DIR, "ordens_servico.json")  # Arquivo de ordens de serviço
 ORDENS_SERVICO_SEQUENCE_FILE = os.path.join(LOGIN_DATA_DIR, "ordens_servico_sequence.json")  # Sequência de numeração de OS
 SERVICES_FILE = os.path.join(LOGIN_DATA_DIR, "servicos.json")  # Arquivo de serviços
@@ -52830,6 +52867,16 @@ class CaixaWindow(tk.Toplevel):
                     })
                     save_caixa_data(self.caixa_selecionado, self.caixa_data)
                     log_user_action("Caixa", f"Caixa {self.caixa_selecionado} aberto por {usuario_selecionado} com saldo inicial de {format_br_currency(valor)} - Turno: {turno_nome}")
+                    # Relanca no caixa recem-aberto qualquer venda que tenha
+                    # ficado pendente (feita com o caixa fechado), garantindo
+                    # que toda venda entre no caixa e apareca nos relatorios.
+                    try:
+                        _qtd_pend = flush_transacoes_caixa_pendentes()
+                        if _qtd_pend:
+                            self.caixa_data = load_caixa_data(self.caixa_selecionado)
+                            log_user_action("Caixa", f"{_qtd_pend} venda(s) pendente(s) lancada(s) no caixa {self.caixa_selecionado} ao abrir.")
+                    except Exception as _e_pend:
+                        logging.error(f"Erro ao relancar vendas pendentes ao abrir caixa: {_e_pend}")
                     input_win.destroy()
                     self._update_display()
                     messagebox.showinfo("Sucesso", f"Caixa aberto com sucesso!\n\nUsuário: {usuario_selecionado}\nTurno: {turno_nome}\nSaldo Inicial: {format_br_currency(valor)}")
@@ -54407,7 +54454,7 @@ def _obter_devolucoes_por_cupom_cache():
     return devolucoes
 
 
-def registrar_transacao_caixa(tipo, descricao, valor, pagamento="", cliente="", caixa_id=None):
+def registrar_transacao_caixa(tipo, descricao, valor, pagamento="", cliente="", caixa_id=None, hora=None):
     """
     Funcao auxiliar para registrar transacoes no caixa se estiver aberto.
     
@@ -54464,7 +54511,7 @@ def registrar_transacao_caixa(tipo, descricao, valor, pagamento="", cliente="", 
                 
                 # Criar nova transacao com todos os campos
                 nova_trans = {
-                    "hora": datetime.datetime.now().strftime('%H:%M:%S'),
+                    "hora": hora if hora else datetime.datetime.now().strftime('%H:%M:%S'),
                     "tipo": tipo_normalizado,
                     "descricao": str(descricao) if descricao else "Transacao",
                     "valor": abs(float(valor)) if valor else 0.0,  # Sempre valor positivo
@@ -54491,6 +54538,105 @@ def registrar_transacao_caixa(tipo, descricao, valor, pagamento="", cliente="", 
         import traceback
         logging.error(traceback.format_exc())
     return False
+
+
+def _enfileirar_transacao_caixa_pendente(tipo, descricao, valor, pagamento="", cliente="", hora=None, data=None):
+    """Guarda uma transacao de caixa que NAO pode ser registrada agora (nenhum
+    caixa aberto ou falha) para relancar assim que um caixa for aberto.
+
+    Garante que uma venda finalizada nunca desapareca do caixa (era o motivo do
+    fechamento 'dar a menos' quando a venda ocorria com o caixa fechado)."""
+    try:
+        with _caixa_lock:
+            pendentes = load_data(CAIXA_PENDENTES_FILE, [])
+            if not isinstance(pendentes, list):
+                pendentes = []
+            pendentes.append({
+                "tipo": tipo,
+                "descricao": str(descricao) if descricao else "Transacao",
+                "valor": abs(float(valor)) if valor else 0.0,
+                "pagamento": str(pagamento) if pagamento else "",
+                "cliente": str(cliente) if cliente else "",
+                "hora": hora if hora else datetime.datetime.now().strftime('%H:%M:%S'),
+                "data": data if data else datetime.datetime.now().strftime('%d/%m/%Y'),
+            })
+            save_data(CAIXA_PENDENTES_FILE, pendentes)
+        logging.warning(f"Transacao de caixa PENDENTE (sem caixa aberto no momento): {descricao}")
+        return True
+    except Exception as e:
+        logging.error(f"Erro ao enfileirar transacao de caixa pendente: {e}")
+        return False
+
+
+def flush_transacoes_caixa_pendentes():
+    """Relanca no caixa aberto todas as transacoes que ficaram pendentes.
+
+    Deve ser chamada ao abrir um caixa e antes de registrar novas vendas.
+    Preserva o horario original de cada transacao. Retorna a quantidade
+    efetivamente lancada."""
+    try:
+        # So processa se houver caixa aberto.
+        if get_caixa_aberto() is None:
+            return 0
+        # Retira a fila inteira sob lock para evitar processamento duplicado.
+        with _caixa_lock:
+            pendentes = load_data(CAIXA_PENDENTES_FILE, [])
+            if not isinstance(pendentes, list) or not pendentes:
+                if pendentes:  # arquivo invalido -> normaliza
+                    save_data(CAIXA_PENDENTES_FILE, [])
+                return 0
+            save_data(CAIXA_PENDENTES_FILE, [])
+        registradas = 0
+        nao_registradas = []
+        for p in pendentes:
+            if not isinstance(p, dict):
+                continue
+            try:
+                ok = registrar_transacao_caixa(
+                    p.get('tipo', 'CREDITO'),
+                    p.get('descricao', 'Venda'),
+                    p.get('valor', 0.0),
+                    p.get('pagamento', ''),
+                    p.get('cliente', ''),
+                    hora=p.get('hora'),
+                )
+                if ok:
+                    registradas += 1
+                else:
+                    nao_registradas.append(p)
+            except Exception:
+                nao_registradas.append(p)
+        # Reenfileira o que nao coube (ex.: caixa fechou no meio do processo).
+        if nao_registradas:
+            with _caixa_lock:
+                atuais = load_data(CAIXA_PENDENTES_FILE, [])
+                if not isinstance(atuais, list):
+                    atuais = []
+                atuais.extend(nao_registradas)
+                save_data(CAIXA_PENDENTES_FILE, atuais)
+        if registradas:
+            logging.info(f"{registradas} transacao(oes) de caixa pendente(s) lancada(s) no caixa aberto.")
+        return registradas
+    except Exception as e:
+        logging.error(f"Erro ao processar transacoes de caixa pendentes: {e}")
+        return 0
+
+
+def registrar_transacao_caixa_garantida(tipo, descricao, valor, pagamento="", cliente="", caixa_id=None, hora=None):
+    """Registra a transacao no caixa e, se nao houver caixa aberto ou ocorrer
+    falha, guarda numa fila de pendencias para relancar depois.
+
+    Assim NENHUMA venda fica de fora do caixa. Retorna True se lancada de
+    imediato, False se ficou pendente."""
+    ok = False
+    try:
+        ok = registrar_transacao_caixa(tipo, descricao, valor, pagamento, cliente, caixa_id, hora=hora)
+    except Exception as e:
+        logging.error(f"Erro ao registrar transacao no caixa (garantida): {e}")
+        ok = False
+    if not ok:
+        _enfileirar_transacao_caixa_pendente(tipo, descricao, valor, pagamento, cliente, hora=hora)
+    return ok
 
 
 def dias_sem_venda(vendas, dias=30):
@@ -58105,16 +58251,34 @@ class PDVSuperApp:
                     print(f"[RELATORIO] Erro ao carregar caixas cadastrados: {e}")
                 
                 # 2) Também carrega do arquivo genérico antigo (compatibilidade)
+                #    Deduplicação robusta: o MESMO fechamento costuma existir tanto
+                #    no arquivo do caixa (ex.: "Caixa Principal") quanto no arquivo
+                #    genérico legado. Antes só evitávamos duplicata quando havia um
+                #    'id' preenchido; sem id, o fechamento aparecia DUAS vezes
+                #    ("Caixa Principal" e "Caixa Geral"), dobrando o Totalizador.
+                #    Agora comparamos por uma assinatura estável (abertura +
+                #    fechamento + saldo final + nº de transações), com ou sem id.
+                def _assinatura_fechamento(ff):
+                    return (
+                        str(ff.get('id', '') or ''),
+                        str(ff.get('data_abertura', '') or ''),
+                        str(ff.get('data_fechamento', '') or ''),
+                        round(float(ff.get('saldo_final', 0.0) or 0.0), 2),
+                        len(ff.get('transacoes', []) or []),
+                    )
+
+                def _mesmo_fechamento(a, b):
+                    sa, sb = _assinatura_fechamento(a), _assinatura_fechamento(b)
+                    # Se ambos têm id não-vazio, o id decide.
+                    if sa[0] and sb[0]:
+                        return sa[0] == sb[0]
+                    # Caso contrário, compara abertura+fechamento+saldo+transações.
+                    return sa[1:] == sb[1:]
+
                 try:
                     fechamentos_antigos = load_data(FECHAMENTOS_CAIXA_FILE, [])
                     for f in fechamentos_antigos:
-                        # Evita duplicatas: só adiciona se não tiver o mesmo id/data_fechamento
-                        f_id = f.get('id', '')
-                        f_data = f.get('data_fechamento', '')
-                        ja_existe = any(
-                            ef.get('id', '') == f_id and ef.get('data_fechamento', '') == f_data 
-                            for ef in todos_fechamentos
-                        ) if f_id else False
+                        ja_existe = any(_mesmo_fechamento(f, ef) for ef in todos_fechamentos)
                         if not ja_existe:
                             if '_caixa_nome' not in f:
                                 f['_caixa_nome'] = 'Caixa Geral'
@@ -73419,8 +73583,14 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
                 logging.error(f"[BG] Erro ao salvar clientes: {e}")
 
             try:
-                # 4.4 Salva log de vendas
-                save_data(SALES_FILE, sales_log_snapshot)
+                # 4.4 Salva log de vendas (deduplicado por cupom = registro fiel)
+                # Evita que o mesmo cupom fique gravado mais de uma vez no arquivo,
+                # o que inflava o relatorio de Produtos Vendidos.
+                try:
+                    sales_para_salvar = _dedup_vendas_por_cupom(sales_log_snapshot)
+                except Exception:
+                    sales_para_salvar = sales_log_snapshot
+                save_data(SALES_FILE, sales_para_salvar)
             except Exception as e:
                 logging.error(f"[BG] Erro ao salvar vendas: {e}")
 
@@ -73473,17 +73643,26 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
                 logging.error(f"[BG] Erro ao processar voucher: {e}")
 
             try:
-                # 4.8 Registra transação no caixa
+                # 4.8 Registra transação no caixa (GARANTIDO).
+                # Primeiro relança eventuais vendas que ficaram pendentes por
+                # terem sido feitas com o caixa fechado; depois registra ESTA
+                # venda. Se nao houver caixa aberto, a venda vai para a fila de
+                # pendencias em vez de sumir do caixa (era o motivo do
+                # fechamento "dar a menos").
+                try:
+                    flush_transacoes_caixa_pendentes()
+                except Exception as _e_flush:
+                    logging.error(f"[BG] Erro ao relancar pendencias de caixa: {_e_flush}")
                 if valor_real_caixa > 0:
-                    registrar_transacao_caixa("CRÉDITO", f"Venda Cupom {current_coupon_number}",
+                    registrar_transacao_caixa_garantida("CRÉDITO", f"Venda Cupom {current_coupon_number}",
                                              valor_real_caixa, pag_str_caixa, cliente_nome_caixa)
                 else:
-                    registrar_transacao_caixa("CRÉDITO", f"Venda Cupom {current_coupon_number}",
+                    registrar_transacao_caixa_garantida("CRÉDITO", f"Venda Cupom {current_coupon_number}",
                                              total_venda_snapshot, "N/A", cliente_nome_caixa)
             except Exception as e:
                 logging.error(f"[BG] Erro ao registrar no caixa: {e}")
                 try:
-                    registrar_transacao_caixa("CRÉDITO", f"Venda Cupom {current_coupon_number}",
+                    registrar_transacao_caixa_garantida("CRÉDITO", f"Venda Cupom {current_coupon_number}",
                                              total_venda_snapshot, "Erro", "Consumidor")
                 except Exception:
                     pass
