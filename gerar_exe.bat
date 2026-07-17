@@ -17,9 +17,9 @@ REM ---- Configuracoes (pode ajustar) ----
 set "PYFILE=Quantum_Farma_do_cesar.py"
 set "APPNAME=Quantum_Farma"
 set "ICON=ico.ico"
-REM CONSOLE=0 -> aplicativo grafico sem janela preta
+REM CONSOLE=0 -> aplicativo grafico SEM janela de console (esconde o console)
 REM CONSOLE=1 -> mostra o console (util para ver erros/depurar)
-set "CONSOLE=1"
+set "CONSOLE=0"
 
 cd /d "%~dp0"
 
