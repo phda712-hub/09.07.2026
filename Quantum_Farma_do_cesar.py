@@ -75145,16 +75145,17 @@ STATUS: {status.upper()}
             return
         reprint_win = tk.Toplevel(self.root)
         reprint_win.title("📄 Reimpressão de Cupom - Histórico de Vendas")
-        responsive_geometry(reprint_win, 1000, 700)  # tamanho de restauracao (ao sair do maximizado)
-        reprint_win.resizable(True, True)
-        # Abrir a tela de reimpressao MAXIMIZADA
+        # Abrir MAXIMIZADA usando o MESMO padrao das telas de Caixa/Quantum AI:
+        # state('zoomed') logo apos o titulo e SEM geometry explicita antes.
+        # (A geometry explicita antes do zoomed estava deixando a janela em branco.)
         try:
             reprint_win.state('zoomed')
         except Exception:
             try:
                 reprint_win.attributes('-zoomed', True)
             except Exception:
-                pass
+                responsive_geometry(reprint_win, 1000, 700)
+        reprint_win.resizable(True, True)
         reprint_win.transient(self.root)
         reprint_win.grab_set()
 
