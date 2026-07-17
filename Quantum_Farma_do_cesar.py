@@ -54458,19 +54458,52 @@ def is_caixa_aberto(caixa_id=1):
 
 def get_caixa_aberto():
     """
-    Retorna o ID do primeiro caixa aberto encontrado.
-    Retorna None se nenhum caixa estiver aberto.
+    Retorna o ID de um caixa aberto. Robusto a falhas de banco.
+
+    Ordem de preferencia:
+      1) Caixa Principal (id 1) se estiver aberto  -> alinha a venda com o
+         caixa que a tela normalmente exibe, evitando que a venda seja lancada
+         em outro caixa e "suma" da tela;
+      2) demais caixas cadastrados (get_caixas_pdv);
+      3) varredura direta da tabela 'caixa' (independe do cadastro/DB do
+         cadastro estar disponivel).
+    Antes, se get_caixas_pdv() lancasse excecao (banco de cadastro indisponivel),
+    a funcao caia no except e retornava None ANTES de testar o caixa 1 -> a
+    venda nao era registrada mesmo com o caixa aberto.
     """
+    # 1) Preferir o Caixa Principal (id 1) quando aberto.
     try:
-        caixas = get_caixas_pdv()
-        for caixa in caixas:
-            if is_caixa_aberto(caixa['id']):
-                return caixa['id']
-        # Se nenhum caixa cadastrado, verificar caixa padrao (1)
         if is_caixa_aberto(1):
             return 1
     except Exception:
         pass
+
+    # 2) Demais caixas cadastrados.
+    try:
+        for caixa in get_caixas_pdv():
+            try:
+                if is_caixa_aberto(caixa['id']):
+                    return caixa['id']
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # 3) Fallback: varrer a tabela 'caixa' diretamente (independe do cadastro).
+    try:
+        db = get_db()
+        rows = db.fetchall("SELECT DISTINCT caixa_id FROM caixa")
+        ids = sorted(int(r.get('caixa_id')) for r in (rows or [])
+                     if r.get('caixa_id') is not None)
+        for cid in ids:
+            try:
+                if is_caixa_aberto(cid):
+                    return cid
+            except Exception:
+                continue
+    except Exception:
+        pass
+
     return None
 
 def _obter_devolucoes_por_cupom_cache():
@@ -73695,12 +73728,19 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
                     flush_transacoes_caixa_pendentes()
                 except Exception as _e_flush:
                     logging.error(f"[BG] Erro ao relancar pendencias de caixa: {_e_flush}")
+                # Diagnostico: qual caixa vai receber a venda (visivel no _debug.exe)
+                _cx_alvo = get_caixa_aberto()
+                if _cx_alvo is None:
+                    logging.warning(f"[BG][CAIXA] Cupom {current_coupon_number}: NENHUM caixa ABERTO encontrado -> venda vai para PENDENCIAS.")
+                else:
+                    logging.info(f"[BG][CAIXA] Cupom {current_coupon_number}: registrando no caixa id={_cx_alvo} (valor_real={valor_real_caixa}).")
                 if valor_real_caixa > 0:
-                    registrar_transacao_caixa_garantida("CRÉDITO", f"Venda Cupom {current_coupon_number}",
+                    _ok_cx = registrar_transacao_caixa_garantida("CRÉDITO", f"Venda Cupom {current_coupon_number}",
                                              valor_real_caixa, pag_str_caixa, cliente_nome_caixa)
                 else:
-                    registrar_transacao_caixa_garantida("CRÉDITO", f"Venda Cupom {current_coupon_number}",
+                    _ok_cx = registrar_transacao_caixa_garantida("CRÉDITO", f"Venda Cupom {current_coupon_number}",
                                              total_venda_snapshot, "N/A", cliente_nome_caixa)
+                logging.info(f"[BG][CAIXA] Cupom {current_coupon_number}: resultado no caixa id={_cx_alvo} -> {'REGISTRADO' if _ok_cx else 'PENDENTE (sera lancado ao abrir o caixa)'}.")
             except Exception as e:
                 logging.error(f"[BG] Erro ao registrar no caixa: {e}")
                 try:
