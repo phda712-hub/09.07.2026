@@ -19655,7 +19655,7 @@ class ThermalPrinterManagerPDV:
                         tipo_raw = str(t.get('tipo', 'N/A')).upper()
                         tipo = tipo_raw[:8]
                         desc = t.get('descricao', 'N/A')[:20]
-                        valor = float(t.get('valor', 0.0) or 0.0)
+                        valor = _valor_monetario_seguro(t.get('valor', 0.0), 'transacao_caixa')
                         sinal = '+' if tipo_raw in ('CRÉDITO', 'CREDITO') else '-'
                         try:
                             valor_fmt = f"{sinal}{format_br_currency(valor).replace('R$ ', '')}"
@@ -38807,6 +38807,32 @@ def parse_br_float(value_str):
     except Exception:
         return 0.0
 
+# Acima deste limite (1 bilhao) um valor monetario e considerado corrompido /
+# erro de digitacao / leitura indevida de codigo de barras no campo de valor.
+_LIMITE_VALOR_MONETARIO = 1_000_000_000.0
+
+def _valor_monetario_seguro(valor, contexto=''):
+    """Converte para float protegendo contra valores absurdos/corrompidos.
+
+    Retorna 0.0 (com log) quando o valor nao e finito (NaN/inf) ou ultrapassa
+    1 bilhao. Isso impede que UMA transacao corrompida estoure os totais do
+    caixa/fechamento (ex.: fechamento exibindo R$ 189.111.886.478.840,19)."""
+    try:
+        v = float(valor) if valor not in (None, '') else 0.0
+    except (ValueError, TypeError):
+        try:
+            v = parse_br_float(valor) or 0.0
+        except Exception:
+            v = 0.0
+    # NaN ou infinito
+    if v != v or v == float('inf') or v == float('-inf'):
+        logging.error(f"[VALOR] Valor nao-finito ignorado ({contexto}): {valor!r} -> 0,00")
+        return 0.0
+    if abs(v) > _LIMITE_VALOR_MONETARIO:
+        logging.error(f"[VALOR] Valor absurdo ignorado ({contexto}): {valor!r} -> 0,00 (acima do limite de seguranca)")
+        return 0.0
+    return v
+
 def calcular_preco_efetivo(produto, quantidade=1, config_data=None):
     """
     Calcula o preço efetivo de um produto considerando:
@@ -52652,7 +52678,7 @@ class CaixaWindow(tk.Toplevel):
                         if 'DEVOLU' in descricao_t or 'DEVOLU' in pagamento_t:
                             continue
                         
-                        valor = float(t.get('valor', 0.0) or 0.0)
+                        valor = _valor_monetario_seguro(t.get('valor', 0.0), 'transacao_caixa')
                         tipo = str(t.get('tipo', '')).upper()
                         
                         # Verificar se é uma venda com cupom que teve devolução
@@ -53007,7 +53033,7 @@ class CaixaWindow(tk.Toplevel):
                     try:
                         if isinstance(t, dict):
                             tipo = str(t.get('tipo', '')).upper()
-                            valor = float(t.get('valor', 0.0) or 0.0)
+                            valor = _valor_monetario_seguro(t.get('valor', 0.0), 'transacao_caixa')
                             if tipo in ('CRÉDITO', 'CREDITO'):
                                 total_creditos += valor
                             elif tipo in ('DÉBITO', 'DEBITO'):
@@ -53957,7 +53983,7 @@ class CaixaWindow(tk.Toplevel):
             
             for t in transacoes:
                 desc = t.get('descricao', '').upper()
-                valor = t.get('valor', 0.0)
+                valor = _valor_monetario_seguro(t.get('valor', 0.0), 'fechamento')
                 pagamento = t.get('pagamento', 'N/A')
                 tipo = t.get('tipo', '')
                 
@@ -54087,7 +54113,7 @@ class CaixaWindow(tk.Toplevel):
                 tipo_raw = str(t.get('tipo', 'N/A')).upper()
                 tipo = tipo_raw[:8]
                 desc = t.get('descricao', 'N/A')[:20]
-                valor = float(t.get('valor', 0.0) or 0.0)
+                valor = _valor_monetario_seguro(t.get('valor', 0.0), 'transacao_caixa')
                 # Verificar se é crédito (entrada) ou débito (saída)
                 sinal = '+' if tipo_raw in ('CRÉDITO', 'CREDITO') else '-'
                 valor_fmt = f"{sinal}{format_br_currency(valor).replace('R$ ', '')}"
@@ -54632,7 +54658,8 @@ def registrar_transacao_caixa(tipo, descricao, valor, pagamento="", cliente="", 
                     "hora": hora if hora else datetime.datetime.now().strftime('%H:%M:%S'),
                     "tipo": tipo_normalizado,
                     "descricao": str(descricao) if descricao else "Transacao",
-                    "valor": abs(float(valor)) if valor else 0.0,  # Sempre valor positivo
+                    # Sempre positivo e protegido contra valores absurdos/corrompidos
+                    "valor": abs(_valor_monetario_seguro(valor, f"caixa:{descricao}")),
                     "pagamento": str(pagamento) if pagamento else "",
                     "cliente": str(cliente) if cliente else ""
                 }
@@ -57960,7 +57987,7 @@ class PDVSuperApp:
             
             for t in transacoes:
                 desc = t.get('descricao', '').upper()
-                valor = float(t.get('valor', 0.0) or 0.0)
+                valor = _valor_monetario_seguro(t.get('valor', 0.0), 'transacao_caixa')
                 pagamento = t.get('pagamento', 'N/A')
                 
                 if 'VENDA CUPOM' in desc:
@@ -58087,7 +58114,7 @@ class PDVSuperApp:
                 tipo_raw = str(t.get('tipo', 'N/A')).upper()
                 tipo = tipo_raw[:8]
                 desc = t.get('descricao', 'N/A')[:20]
-                valor = float(t.get('valor', 0.0) or 0.0)
+                valor = _valor_monetario_seguro(t.get('valor', 0.0), 'transacao_caixa')
                 sinal = '+' if tipo_raw in ('CRÉDITO', 'CREDITO') else '-'
                 valor_fmt = f"{sinal}{format_br_currency(valor).replace('R$ ', '')}"
                 relatorio.append(f"{hora:<8} {tipo:<8} {desc:<20} {valor_fmt:>10}")
@@ -73003,7 +73030,19 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
                 if not valores:
                     messagebox.showerror("Erro", "Selecione uma forma de pagamento!", parent=pagamento_win)
                     return
-                
+
+                # Protecao contra valor absurdo (erro de digitacao ou leitura de
+                # codigo de barras no campo de valor) que corrompia o caixa/fechamento.
+                _valor_abusivo = next((str(k) for k, _v in valores.items()
+                                       if isinstance(_v, (int, float)) and abs(_v) > _LIMITE_VALOR_MONETARIO), None)
+                if _valor_abusivo or soma > _LIMITE_VALOR_MONETARIO:
+                    messagebox.showerror("Valor inválido",
+                        "O valor informado é altíssimo e parece ser um erro de digitação "
+                        "ou leitura de código de barras no campo de valor.\n\n"
+                        "Confira os valores de pagamento e tente novamente.",
+                        parent=pagamento_win)
+                    return
+
                 if soma < self.total_venda - 0.01:
                     messagebox.showerror("Erro", "Valor insuficiente!", parent=pagamento_win)
                     return
