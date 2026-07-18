@@ -5029,7 +5029,7 @@ def _rf_load_all():
     dados = {
         'produtos': _rf_load_json(g('PRODUCTS_FILE'), {}),
         'clientes': _rf_load_json(g('CUSTOMERS_FILE'), {}),
-        'vendas': _rf_load_json(g('SALES_FILE'), []),
+        'vendas': _dedup_vendas_por_cupom(_rf_load_json(g('SALES_FILE'), [])),
         'tratamentos': _rf_load_json(g('TRATAMENTOS_FILE'), {}),
         'prontuarios': _rf_load_json(g('PRONTUARIO_AMBULATORIO_FILE'), {}),
         'farmacia_pro': _rf_load_json(g('FARMACIA_PRO_FILE'), {'receitas':{}, 'pbm':{}, 'campanhas':{}, 'servicos':{}, 'posvenda':{}}),
@@ -5046,6 +5046,39 @@ def _rf_iter_values(obj):
     if isinstance(obj, list):
         return obj
     return []
+
+
+def _dedup_vendas_por_cupom(vendas):
+    """Remove registros de venda duplicados que tenham o mesmo numero de cupom.
+
+    Registros duplicados (mesmo coupon_number) inflavam o relatorio de PRODUTOS
+    VENDIDOS e o de VENDAS, pois cada item da venda era contado varias vezes.
+    Como cada venda finalizada recebe um numero de cupom unico e crescente, a
+    presenca do mesmo cupom mais de uma vez significa duplicidade: mantemos
+    apenas a ultima ocorrencia (a mais completa/recente) preservando a ordem.
+    Registros sem numero de cupom sao mantidos como estao (nao ha como
+    deduplicar com seguranca)."""
+    if not isinstance(vendas, list):
+        return vendas
+    vistos = {}
+    ordem = []
+    sem_cupom = []
+    for v in vendas:
+        if not isinstance(v, dict):
+            sem_cupom.append(v)
+            continue
+        cup = v.get('coupon_number', v.get('numero_venda',
+              v.get('cupom', v.get('numero_cupom', v.get('numero')))))
+        if cup in (None, ''):
+            sem_cupom.append(v)
+            continue
+        chave = str(cup).strip()
+        if chave not in vistos:
+            ordem.append(chave)
+        vistos[chave] = v  # mantem a ultima ocorrencia do cupom
+    resultado = [vistos[c] for c in ordem]
+    resultado.extend(sem_cupom)
+    return resultado
 
 
 def _rf_get(item, *keys):
@@ -19551,11 +19584,11 @@ class ThermalPrinterManagerPDV:
                     p.double_line()
                     
                     def fmt_valor(v):
-                        """Formata valor monetário."""
+                        """Formata valor monetário (protegido contra valores absurdos/corrompidos)."""
                         try:
-                            return format_br_currency(v).replace('R$ ', '')
+                            return format_br_currency(_valor_monetario_seguro(v, 'fech.escp')).replace('R$ ', '')
                         except Exception:
-                            return f"{float(v):,.2f}"
+                            return "0,00"
                     
                     p.row("Saldo Inicial:", f"R$ {fmt_valor(fechamento_data.get('saldo_inicial', 0))}")
                     p.line()
@@ -19622,7 +19655,7 @@ class ThermalPrinterManagerPDV:
                         tipo_raw = str(t.get('tipo', 'N/A')).upper()
                         tipo = tipo_raw[:8]
                         desc = t.get('descricao', 'N/A')[:20]
-                        valor = float(t.get('valor', 0.0) or 0.0)
+                        valor = _valor_monetario_seguro(t.get('valor', 0.0), 'transacao_caixa')
                         sinal = '+' if tipo_raw in ('CRÉDITO', 'CREDITO') else '-'
                         try:
                             valor_fmt = f"{sinal}{format_br_currency(valor).replace('R$ ', '')}"
@@ -27894,7 +27927,7 @@ def verificar_integridade_banco():
                 cliente_id INTEGER DEFAULT 1,
                 cliente_nome VARCHAR(500) DEFAULT 'Consumidor Final',
                 total DOUBLE DEFAULT 0.0,
-                formas_pagamento VARCHAR(500) DEFAULT '{}',
+                formas_pagamento LONGTEXT,
                 troco DOUBLE DEFAULT 0.0,
                 usuario VARCHAR(500) DEFAULT '',
                 is_delivery INTEGER DEFAULT 0,
@@ -29144,7 +29177,7 @@ def init_database():
             cliente_id INTEGER DEFAULT 1,
             cliente_nome VARCHAR(500) DEFAULT 'Consumidor Final',
             total DOUBLE DEFAULT 0.0,
-            formas_pagamento VARCHAR(500) DEFAULT '{}',
+            formas_pagamento LONGTEXT,
             troco DOUBLE DEFAULT 0.0,
             usuario VARCHAR(500) DEFAULT '',
             is_delivery INTEGER DEFAULT 0,
@@ -29901,34 +29934,77 @@ def _mysql_load_sales():
             db.execute("ALTER TABLE vendas ADD COLUMN vendedor_id VARCHAR(500) DEFAULT ''")
         if 'vendedor_nome' not in column_names:
             db.execute("ALTER TABLE vendas ADD COLUMN vendedor_nome VARCHAR(500) DEFAULT ''")
+
+        # CORRECAO CRITICA DE PERSISTENCIA:
+        # A coluna formas_pagamento era VARCHAR(500), o que TRUNCAVA o JSON da
+        # forma de pagamento (erro "Unterminated string starting at ...") e fazia
+        # TODAS as vendas nao carregarem ao reabrir o sistema. Ampliamos para
+        # LONGTEXT se ainda estiver como VARCHAR/TEXT pequeno.
+        try:
+            _col_types = {
+                (r.get('Field', r.get('COLUMN_NAME', '')) or ''):
+                str(r.get('Type', r.get('COLUMN_TYPE', '')) or '').lower()
+                for r in (rows or [])
+            }
+            _fp_tipo = _col_types.get('formas_pagamento', '')
+            if _fp_tipo and ('longtext' not in _fp_tipo and 'mediumtext' not in _fp_tipo):
+                db.execute("ALTER TABLE vendas MODIFY COLUMN formas_pagamento LONGTEXT")
+                print("[MIGRAÇÃO] vendas.formas_pagamento ampliada para LONGTEXT (evita truncamento/JSON corrompido)")
+        except Exception as _e_fp:
+            print(f"[MIGRAÇÃO] Nao foi possivel ampliar formas_pagamento: {_e_fp}")
     except Exception as e:
         print(f"[DEBUG] Erro ao migrar colunas: {e}")
     
     
     db = get_db()
     rows = db.fetchall("SELECT * FROM vendas ORDER BY id")
+
+    def _json_seguro(_raw, _default):
+        # Nunca deixa um JSON corrompido/truncado de UMA venda derrubar o
+        # carregamento de TODAS as vendas (era o que apagava o historico).
+        if _raw in (None, ''):
+            return _default
+        if isinstance(_raw, (dict, list)):
+            return _raw
+        try:
+            return json.loads(_raw)
+        except Exception:
+            try:
+                _s = str(_raw)
+                _corte = _s.rfind('}')
+                if _corte > 0:
+                    return json.loads(_s[:_corte + 1])
+            except Exception:
+                pass
+            logging.warning("Venda com JSON corrompido/truncado: recuperada sem esse campo.")
+            return _default
+
     result = []
     for row in rows:
-        venda = {
-            'coupon_number': row['coupon_number'],
-            'timestamp': row['timestamp'],
-            'data': row['data'],
-            'cliente_id': str(row['cliente_id']) if row['cliente_id'] else '1',
-            'cliente_nome': row['cliente_nome'] or 'Consumidor Final',
-            'total': row['total'] or 0.0,
-            'formas_pagamento': json.loads(row['formas_pagamento']) if row['formas_pagamento'] else {},
-            'troco': row['troco'] or 0.0,
-            'usuario': row['usuario'] or '',
-            'is_delivery': bool(row['is_delivery']),
-            'itens': json.loads(row['itens']) if row['itens'] else {},
-            'entregador_id': row.get('entregador_id', '') or '',
-            'entregador_nome': row.get('entregador_nome', '') or '',
-            'entrega_concluida': bool(row.get('entrega_concluida', 0)),
-            'data_entrega_concluida': row.get('data_entrega_concluida', '') or '',
-            'vendedor_id': row.get('vendedor_id', '') or '',
-            'vendedor_nome': row.get('vendedor_nome', '') or ''
-        }
-        result.append(venda)
+        try:
+            venda = {
+                'coupon_number': row['coupon_number'],
+                'timestamp': row['timestamp'],
+                'data': row['data'],
+                'cliente_id': str(row['cliente_id']) if row['cliente_id'] else '1',
+                'cliente_nome': row['cliente_nome'] or 'Consumidor Final',
+                'total': row['total'] or 0.0,
+                'formas_pagamento': _json_seguro(row['formas_pagamento'], {}),
+                'troco': row['troco'] or 0.0,
+                'usuario': row['usuario'] or '',
+                'is_delivery': bool(row['is_delivery']),
+                'itens': _json_seguro(row['itens'], {}),
+                'entregador_id': row.get('entregador_id', '') or '',
+                'entregador_nome': row.get('entregador_nome', '') or '',
+                'entrega_concluida': bool(row.get('entrega_concluida', 0)),
+                'data_entrega_concluida': row.get('data_entrega_concluida', '') or '',
+                'vendedor_id': row.get('vendedor_id', '') or '',
+                'vendedor_nome': row.get('vendedor_nome', '') or ''
+            }
+            result.append(venda)
+        except Exception as _e_row:
+            logging.error(f"Erro ao carregar venda (cupom {row.get('coupon_number')}): {_e_row}")
+            continue
     return result
 
 def _mysql_load_contas_pagar():
@@ -32817,6 +32893,10 @@ NOTAS_ENTRADA_FILE = os.path.join(LOGIN_DATA_DIR, "notas_entrada.json")
 NOTA_ENTRADA_SEQUENCE_FILE = os.path.join(LOGIN_DATA_DIR, "nota_entrada_sequence.json")
 CAIXA_FILE = os.path.join(LOGIN_DATA_DIR, "caixa.json")
 FECHAMENTOS_CAIXA_FILE = os.path.join(LOGIN_DATA_DIR, "fechamentos_caixa.json")
+# Fila de transacoes de caixa que nao puderam ser lancadas na hora (ex.: venda
+# finalizada sem caixa aberto). Sao relancadas assim que um caixa for aberto,
+# garantindo que NENHUMA venda fique de fora do caixa.
+CAIXA_PENDENTES_FILE = os.path.join(LOGIN_DATA_DIR, "caixa_pendentes.json")
 ORDENS_SERVICO_FILE = os.path.join(LOGIN_DATA_DIR, "ordens_servico.json")  # Arquivo de ordens de serviço
 ORDENS_SERVICO_SEQUENCE_FILE = os.path.join(LOGIN_DATA_DIR, "ordens_servico_sequence.json")  # Sequência de numeração de OS
 SERVICES_FILE = os.path.join(LOGIN_DATA_DIR, "servicos.json")  # Arquivo de serviços
@@ -38726,6 +38806,32 @@ def parse_br_float(value_str):
         return float(s)
     except Exception:
         return 0.0
+
+# Acima deste limite (1 bilhao) um valor monetario e considerado corrompido /
+# erro de digitacao / leitura indevida de codigo de barras no campo de valor.
+_LIMITE_VALOR_MONETARIO = 1_000_000_000.0
+
+def _valor_monetario_seguro(valor, contexto=''):
+    """Converte para float protegendo contra valores absurdos/corrompidos.
+
+    Retorna 0.0 (com log) quando o valor nao e finito (NaN/inf) ou ultrapassa
+    1 bilhao. Isso impede que UMA transacao corrompida estoure os totais do
+    caixa/fechamento (ex.: fechamento exibindo R$ 189.111.886.478.840,19)."""
+    try:
+        v = float(valor) if valor not in (None, '') else 0.0
+    except (ValueError, TypeError):
+        try:
+            v = parse_br_float(valor) or 0.0
+        except Exception:
+            v = 0.0
+    # NaN ou infinito
+    if v != v or v == float('inf') or v == float('-inf'):
+        logging.error(f"[VALOR] Valor nao-finito ignorado ({contexto}): {valor!r} -> 0,00")
+        return 0.0
+    if abs(v) > _LIMITE_VALOR_MONETARIO:
+        logging.error(f"[VALOR] Valor absurdo ignorado ({contexto}): {valor!r} -> 0,00 (acima do limite de seguranca)")
+        return 0.0
+    return v
 
 def calcular_preco_efetivo(produto, quantidade=1, config_data=None):
     """
@@ -52171,7 +52277,7 @@ class CaixaWindow(tk.Toplevel):
         self.bind("<F7>", lambda e: self._estornar_transferencia())
         self.bind("<Delete>", lambda e: self._excluir_transacao())
         self.bind("<space>", lambda e: self._toggle_conferido())
-        self.bind("<Escape>", lambda e: self.destroy())
+        self.bind("<Escape>", lambda e: self._quantum_caixa_close())
 
         # ⚛️ Quantum Sync - Atualização em tempo real do Caixa
         self._quantum_sync = get_quantum_sync()
@@ -52180,17 +52286,59 @@ class CaixaWindow(tk.Toplevel):
             self._quantum_sync.subscribe("sales", self._quantum_refresh_caixa)
             self._quantum_sync.subscribe("fechamentos_caixa", self._quantum_refresh_caixa)
         self.protocol("WM_DELETE_WINDOW", self._quantum_caixa_close)
-    
-    def _quantum_refresh_caixa(self):
-        """Atualização quântica do caixa em tempo real."""
+
+        # Auto-atualizacao periodica da tela do caixa. Garante que TODA venda
+        # apareca aqui assim que gravada, mesmo que o evento de sync nao dispare
+        # (as transacoes ficam em caixas/caixa_{id}.json, que o monitor de sync
+        # pode nao observar). So recarrega quando o arquivo do caixa muda, para
+        # nao atrapalhar a selecao/marcacao do usuario.
+        self._auto_refresh_job = None
+        self._caixa_file_mtime = None
         try:
-            if self.winfo_exists() and hasattr(self, '_atualizar_resumo'):
-                self._atualizar_resumo()
+            self._caixa_file_mtime = os.path.getmtime(get_caixa_file_path(self.caixa_selecionado))
+        except Exception:
+            self._caixa_file_mtime = None
+        self._tick_auto_refresh_caixa()
+
+    def _quantum_refresh_caixa(self):
+        """Atualização em tempo real do caixa (chamada pelo Quantum Sync)."""
+        try:
+            # CORRECAO: o metodo correto e _update_display. O antigo
+            # _atualizar_resumo NUNCA existiu, entao o refresh em tempo real
+            # falhava em silencio e a venda recem-feita nao aparecia no caixa.
+            if self.winfo_exists():
+                self.after(0, self._update_display)
         except Exception:
             pass
-    
+
+    def _tick_auto_refresh_caixa(self):
+        """Recarrega a tela do caixa quando o arquivo do caixa muda e reagenda."""
+        try:
+            if not self.winfo_exists():
+                return
+        except Exception:
+            return
+        try:
+            fp = get_caixa_file_path(self.caixa_selecionado)
+            mt = os.path.getmtime(fp) if os.path.exists(fp) else 0
+            if getattr(self, '_caixa_file_mtime', None) != mt:
+                self._caixa_file_mtime = mt
+                self._update_display()
+        except Exception:
+            pass
+        try:
+            self._auto_refresh_job = self.after(1200, self._tick_auto_refresh_caixa)
+        except Exception:
+            self._auto_refresh_job = None
+
     def _quantum_caixa_close(self):
-        """Limpa subscribers ao fechar o caixa."""
+        """Limpa subscribers e o timer de auto-atualizacao ao fechar o caixa."""
+        try:
+            if getattr(self, '_auto_refresh_job', None):
+                self.after_cancel(self._auto_refresh_job)
+                self._auto_refresh_job = None
+        except Exception:
+            pass
         try:
             sync = get_quantum_sync()
             if sync:
@@ -52530,7 +52678,7 @@ class CaixaWindow(tk.Toplevel):
                         if 'DEVOLU' in descricao_t or 'DEVOLU' in pagamento_t:
                             continue
                         
-                        valor = float(t.get('valor', 0.0) or 0.0)
+                        valor = _valor_monetario_seguro(t.get('valor', 0.0), 'transacao_caixa')
                         tipo = str(t.get('tipo', '')).upper()
                         
                         # Verificar se é uma venda com cupom que teve devolução
@@ -52830,6 +52978,16 @@ class CaixaWindow(tk.Toplevel):
                     })
                     save_caixa_data(self.caixa_selecionado, self.caixa_data)
                     log_user_action("Caixa", f"Caixa {self.caixa_selecionado} aberto por {usuario_selecionado} com saldo inicial de {format_br_currency(valor)} - Turno: {turno_nome}")
+                    # Relanca no caixa recem-aberto qualquer venda que tenha
+                    # ficado pendente (feita com o caixa fechado), garantindo
+                    # que toda venda entre no caixa e apareca nos relatorios.
+                    try:
+                        _qtd_pend = flush_transacoes_caixa_pendentes()
+                        if _qtd_pend:
+                            self.caixa_data = load_caixa_data(self.caixa_selecionado)
+                            log_user_action("Caixa", f"{_qtd_pend} venda(s) pendente(s) lancada(s) no caixa {self.caixa_selecionado} ao abrir.")
+                    except Exception as _e_pend:
+                        logging.error(f"Erro ao relancar vendas pendentes ao abrir caixa: {_e_pend}")
                     input_win.destroy()
                     self._update_display()
                     messagebox.showinfo("Sucesso", f"Caixa aberto com sucesso!\n\nUsuário: {usuario_selecionado}\nTurno: {turno_nome}\nSaldo Inicial: {format_br_currency(valor)}")
@@ -52875,7 +53033,7 @@ class CaixaWindow(tk.Toplevel):
                     try:
                         if isinstance(t, dict):
                             tipo = str(t.get('tipo', '')).upper()
-                            valor = float(t.get('valor', 0.0) or 0.0)
+                            valor = _valor_monetario_seguro(t.get('valor', 0.0), 'transacao_caixa')
                             if tipo in ('CRÉDITO', 'CREDITO'):
                                 total_creditos += valor
                             elif tipo in ('DÉBITO', 'DEBITO'):
@@ -53825,7 +53983,7 @@ class CaixaWindow(tk.Toplevel):
             
             for t in transacoes:
                 desc = t.get('descricao', '').upper()
-                valor = t.get('valor', 0.0)
+                valor = _valor_monetario_seguro(t.get('valor', 0.0), 'fechamento')
                 pagamento = t.get('pagamento', 'N/A')
                 tipo = t.get('tipo', '')
                 
@@ -53955,7 +54113,7 @@ class CaixaWindow(tk.Toplevel):
                 tipo_raw = str(t.get('tipo', 'N/A')).upper()
                 tipo = tipo_raw[:8]
                 desc = t.get('descricao', 'N/A')[:20]
-                valor = float(t.get('valor', 0.0) or 0.0)
+                valor = _valor_monetario_seguro(t.get('valor', 0.0), 'transacao_caixa')
                 # Verificar se é crédito (entrada) ou débito (saída)
                 sinal = '+' if tipo_raw in ('CRÉDITO', 'CREDITO') else '-'
                 valor_fmt = f"{sinal}{format_br_currency(valor).replace('R$ ', '')}"
@@ -54369,19 +54527,52 @@ def is_caixa_aberto(caixa_id=1):
 
 def get_caixa_aberto():
     """
-    Retorna o ID do primeiro caixa aberto encontrado.
-    Retorna None se nenhum caixa estiver aberto.
+    Retorna o ID de um caixa aberto. Robusto a falhas de banco.
+
+    Ordem de preferencia:
+      1) Caixa Principal (id 1) se estiver aberto  -> alinha a venda com o
+         caixa que a tela normalmente exibe, evitando que a venda seja lancada
+         em outro caixa e "suma" da tela;
+      2) demais caixas cadastrados (get_caixas_pdv);
+      3) varredura direta da tabela 'caixa' (independe do cadastro/DB do
+         cadastro estar disponivel).
+    Antes, se get_caixas_pdv() lancasse excecao (banco de cadastro indisponivel),
+    a funcao caia no except e retornava None ANTES de testar o caixa 1 -> a
+    venda nao era registrada mesmo com o caixa aberto.
     """
+    # 1) Preferir o Caixa Principal (id 1) quando aberto.
     try:
-        caixas = get_caixas_pdv()
-        for caixa in caixas:
-            if is_caixa_aberto(caixa['id']):
-                return caixa['id']
-        # Se nenhum caixa cadastrado, verificar caixa padrao (1)
         if is_caixa_aberto(1):
             return 1
     except Exception:
         pass
+
+    # 2) Demais caixas cadastrados.
+    try:
+        for caixa in get_caixas_pdv():
+            try:
+                if is_caixa_aberto(caixa['id']):
+                    return caixa['id']
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # 3) Fallback: varrer a tabela 'caixa' diretamente (independe do cadastro).
+    try:
+        db = get_db()
+        rows = db.fetchall("SELECT DISTINCT caixa_id FROM caixa")
+        ids = sorted(int(r.get('caixa_id')) for r in (rows or [])
+                     if r.get('caixa_id') is not None)
+        for cid in ids:
+            try:
+                if is_caixa_aberto(cid):
+                    return cid
+            except Exception:
+                continue
+    except Exception:
+        pass
+
     return None
 
 def _obter_devolucoes_por_cupom_cache():
@@ -54407,7 +54598,7 @@ def _obter_devolucoes_por_cupom_cache():
     return devolucoes
 
 
-def registrar_transacao_caixa(tipo, descricao, valor, pagamento="", cliente="", caixa_id=None):
+def registrar_transacao_caixa(tipo, descricao, valor, pagamento="", cliente="", caixa_id=None, hora=None):
     """
     Funcao auxiliar para registrar transacoes no caixa se estiver aberto.
     
@@ -54464,10 +54655,11 @@ def registrar_transacao_caixa(tipo, descricao, valor, pagamento="", cliente="", 
                 
                 # Criar nova transacao com todos os campos
                 nova_trans = {
-                    "hora": datetime.datetime.now().strftime('%H:%M:%S'),
+                    "hora": hora if hora else datetime.datetime.now().strftime('%H:%M:%S'),
                     "tipo": tipo_normalizado,
                     "descricao": str(descricao) if descricao else "Transacao",
-                    "valor": abs(float(valor)) if valor else 0.0,  # Sempre valor positivo
+                    # Sempre positivo e protegido contra valores absurdos/corrompidos
+                    "valor": abs(_valor_monetario_seguro(valor, f"caixa:{descricao}")),
                     "pagamento": str(pagamento) if pagamento else "",
                     "cliente": str(cliente) if cliente else ""
                 }
@@ -54491,6 +54683,105 @@ def registrar_transacao_caixa(tipo, descricao, valor, pagamento="", cliente="", 
         import traceback
         logging.error(traceback.format_exc())
     return False
+
+
+def _enfileirar_transacao_caixa_pendente(tipo, descricao, valor, pagamento="", cliente="", hora=None, data=None):
+    """Guarda uma transacao de caixa que NAO pode ser registrada agora (nenhum
+    caixa aberto ou falha) para relancar assim que um caixa for aberto.
+
+    Garante que uma venda finalizada nunca desapareca do caixa (era o motivo do
+    fechamento 'dar a menos' quando a venda ocorria com o caixa fechado)."""
+    try:
+        with _caixa_lock:
+            pendentes = load_data(CAIXA_PENDENTES_FILE, [])
+            if not isinstance(pendentes, list):
+                pendentes = []
+            pendentes.append({
+                "tipo": tipo,
+                "descricao": str(descricao) if descricao else "Transacao",
+                "valor": abs(float(valor)) if valor else 0.0,
+                "pagamento": str(pagamento) if pagamento else "",
+                "cliente": str(cliente) if cliente else "",
+                "hora": hora if hora else datetime.datetime.now().strftime('%H:%M:%S'),
+                "data": data if data else datetime.datetime.now().strftime('%d/%m/%Y'),
+            })
+            save_data(CAIXA_PENDENTES_FILE, pendentes)
+        logging.warning(f"Transacao de caixa PENDENTE (sem caixa aberto no momento): {descricao}")
+        return True
+    except Exception as e:
+        logging.error(f"Erro ao enfileirar transacao de caixa pendente: {e}")
+        return False
+
+
+def flush_transacoes_caixa_pendentes():
+    """Relanca no caixa aberto todas as transacoes que ficaram pendentes.
+
+    Deve ser chamada ao abrir um caixa e antes de registrar novas vendas.
+    Preserva o horario original de cada transacao. Retorna a quantidade
+    efetivamente lancada."""
+    try:
+        # So processa se houver caixa aberto.
+        if get_caixa_aberto() is None:
+            return 0
+        # Retira a fila inteira sob lock para evitar processamento duplicado.
+        with _caixa_lock:
+            pendentes = load_data(CAIXA_PENDENTES_FILE, [])
+            if not isinstance(pendentes, list) or not pendentes:
+                if pendentes:  # arquivo invalido -> normaliza
+                    save_data(CAIXA_PENDENTES_FILE, [])
+                return 0
+            save_data(CAIXA_PENDENTES_FILE, [])
+        registradas = 0
+        nao_registradas = []
+        for p in pendentes:
+            if not isinstance(p, dict):
+                continue
+            try:
+                ok = registrar_transacao_caixa(
+                    p.get('tipo', 'CREDITO'),
+                    p.get('descricao', 'Venda'),
+                    p.get('valor', 0.0),
+                    p.get('pagamento', ''),
+                    p.get('cliente', ''),
+                    hora=p.get('hora'),
+                )
+                if ok:
+                    registradas += 1
+                else:
+                    nao_registradas.append(p)
+            except Exception:
+                nao_registradas.append(p)
+        # Reenfileira o que nao coube (ex.: caixa fechou no meio do processo).
+        if nao_registradas:
+            with _caixa_lock:
+                atuais = load_data(CAIXA_PENDENTES_FILE, [])
+                if not isinstance(atuais, list):
+                    atuais = []
+                atuais.extend(nao_registradas)
+                save_data(CAIXA_PENDENTES_FILE, atuais)
+        if registradas:
+            logging.info(f"{registradas} transacao(oes) de caixa pendente(s) lancada(s) no caixa aberto.")
+        return registradas
+    except Exception as e:
+        logging.error(f"Erro ao processar transacoes de caixa pendentes: {e}")
+        return 0
+
+
+def registrar_transacao_caixa_garantida(tipo, descricao, valor, pagamento="", cliente="", caixa_id=None, hora=None):
+    """Registra a transacao no caixa e, se nao houver caixa aberto ou ocorrer
+    falha, guarda numa fila de pendencias para relancar depois.
+
+    Assim NENHUMA venda fica de fora do caixa. Retorna True se lancada de
+    imediato, False se ficou pendente."""
+    ok = False
+    try:
+        ok = registrar_transacao_caixa(tipo, descricao, valor, pagamento, cliente, caixa_id, hora=hora)
+    except Exception as e:
+        logging.error(f"Erro ao registrar transacao no caixa (garantida): {e}")
+        ok = False
+    if not ok:
+        _enfileirar_transacao_caixa_pendente(tipo, descricao, valor, pagamento, cliente, hora=hora)
+    return ok
 
 
 def dias_sem_venda(vendas, dias=30):
@@ -57696,7 +57987,7 @@ class PDVSuperApp:
             
             for t in transacoes:
                 desc = t.get('descricao', '').upper()
-                valor = float(t.get('valor', 0.0) or 0.0)
+                valor = _valor_monetario_seguro(t.get('valor', 0.0), 'transacao_caixa')
                 pagamento = t.get('pagamento', 'N/A')
                 
                 if 'VENDA CUPOM' in desc:
@@ -57823,7 +58114,7 @@ class PDVSuperApp:
                 tipo_raw = str(t.get('tipo', 'N/A')).upper()
                 tipo = tipo_raw[:8]
                 desc = t.get('descricao', 'N/A')[:20]
-                valor = float(t.get('valor', 0.0) or 0.0)
+                valor = _valor_monetario_seguro(t.get('valor', 0.0), 'transacao_caixa')
                 sinal = '+' if tipo_raw in ('CRÉDITO', 'CREDITO') else '-'
                 valor_fmt = f"{sinal}{format_br_currency(valor).replace('R$ ', '')}"
                 relatorio.append(f"{hora:<8} {tipo:<8} {desc:<20} {valor_fmt:>10}")
@@ -58105,16 +58396,34 @@ class PDVSuperApp:
                     print(f"[RELATORIO] Erro ao carregar caixas cadastrados: {e}")
                 
                 # 2) Também carrega do arquivo genérico antigo (compatibilidade)
+                #    Deduplicação robusta: o MESMO fechamento costuma existir tanto
+                #    no arquivo do caixa (ex.: "Caixa Principal") quanto no arquivo
+                #    genérico legado. Antes só evitávamos duplicata quando havia um
+                #    'id' preenchido; sem id, o fechamento aparecia DUAS vezes
+                #    ("Caixa Principal" e "Caixa Geral"), dobrando o Totalizador.
+                #    Agora comparamos por uma assinatura estável (abertura +
+                #    fechamento + saldo final + nº de transações), com ou sem id.
+                def _assinatura_fechamento(ff):
+                    return (
+                        str(ff.get('id', '') or ''),
+                        str(ff.get('data_abertura', '') or ''),
+                        str(ff.get('data_fechamento', '') or ''),
+                        round(float(ff.get('saldo_final', 0.0) or 0.0), 2),
+                        len(ff.get('transacoes', []) or []),
+                    )
+
+                def _mesmo_fechamento(a, b):
+                    sa, sb = _assinatura_fechamento(a), _assinatura_fechamento(b)
+                    # Se ambos têm id não-vazio, o id decide.
+                    if sa[0] and sb[0]:
+                        return sa[0] == sb[0]
+                    # Caso contrário, compara abertura+fechamento+saldo+transações.
+                    return sa[1:] == sb[1:]
+
                 try:
                     fechamentos_antigos = load_data(FECHAMENTOS_CAIXA_FILE, [])
                     for f in fechamentos_antigos:
-                        # Evita duplicatas: só adiciona se não tiver o mesmo id/data_fechamento
-                        f_id = f.get('id', '')
-                        f_data = f.get('data_fechamento', '')
-                        ja_existe = any(
-                            ef.get('id', '') == f_id and ef.get('data_fechamento', '') == f_data 
-                            for ef in todos_fechamentos
-                        ) if f_id else False
+                        ja_existe = any(_mesmo_fechamento(f, ef) for ef in todos_fechamentos)
                         if not ja_existe:
                             if '_caixa_nome' not in f:
                                 f['_caixa_nome'] = 'Caixa Geral'
@@ -58208,12 +58517,33 @@ class PDVSuperApp:
                     report += f"Usr Fe: {fechamento.get('usuario_fechamento', fechamento.get('usuario', 'N/A'))}\n"
                     report += f"{'-'*48}\n"
                     
-                    saldo_inicial = float(fechamento.get('saldo_inicial', 0.0) or 0.0)
-                    # Compatibilidade: aceita tanto total_creditos quanto total_entradas
-                    total_creditos = float(fechamento.get('total_creditos', fechamento.get('total_entradas', 0.0)) or 0.0)
-                    total_debitos = float(fechamento.get('total_debitos', fechamento.get('total_saidas', 0.0)) or 0.0)
-                    saldo_final = float(fechamento.get('saldo_final', 0.0) or 0.0)
-                    
+                    saldo_inicial = _valor_monetario_seguro(fechamento.get('saldo_inicial', 0.0), 'fech.saldo_inicial')
+
+                    # RECALCULA os totais a partir das transacoes SANITIZADAS,
+                    # em vez de confiar nos campos gravados (total_creditos /
+                    # saldo_final). Um valor corrompido antigo deixava o Saldo
+                    # Final absurdo (ex.: R$ 189.111.886.478.840,19), mesmo com
+                    # as transacoes reais sendo pequenas. Assim o relatorio
+                    # sempre reflete a soma real das transacoes validas.
+                    transacoes = fechamento.get('transacoes', []) or []
+                    total_creditos = 0.0
+                    total_debitos = 0.0
+                    for _t in transacoes:
+                        if not isinstance(_t, dict):
+                            continue
+                        _desc = str(_t.get('descricao', '') or '').upper()
+                        if 'SALDO INICIAL' in _desc:
+                            continue  # abertura ja contabilizada em saldo_inicial
+                        _v = _valor_monetario_seguro(_t.get('valor', 0.0), 'fech.trans')
+                        _tp = str(_t.get('tipo', '')).upper()
+                        if _tp in ('CREDITO', 'CRÉDITO'):
+                            total_creditos += _v
+                        elif _tp in ('DEBITO', 'DÉBITO'):
+                            total_debitos += _v
+                        else:
+                            total_creditos += _v  # default credito
+                    saldo_final = saldo_inicial + total_creditos - total_debitos
+
                     report += f"Saldo Inicial: {format_br_currency(saldo_inicial)}\n"
                     report += f"Total Créditos: {format_br_currency(total_creditos)}\n"
                     report += f"Total Débitos: {format_br_currency(total_debitos)}\n"
@@ -58224,8 +58554,7 @@ class PDVSuperApp:
                     total_geral_debitos += total_debitos
                     total_geral_final += saldo_final
                     
-                    # Listar transações
-                    transacoes = fechamento.get('transacoes', [])
+                    # Listar transações (com valores sanitizados)
                     if transacoes:
                         report += f"\n{'-'*48}\n"
                         report += f"TRANSACOES ({len(transacoes)} reg):\n"
@@ -58234,10 +58563,10 @@ class PDVSuperApp:
                         report += f"{'-'*48}\n"
                         
                         for trans in transacoes:
-                            hora = trans.get('hora', 'N/A')[:8]
-                            tipo = trans.get('tipo', 'N/A')[:8]
+                            hora = str(trans.get('hora', 'N/A'))[:8]
+                            tipo = str(trans.get('tipo', 'N/A'))[:8]
                             descricao = trans.get('descricao', 'N/A')
-                            valor = trans.get('valor', 0.0)
+                            valor = _valor_monetario_seguro(trans.get('valor', 0.0), 'fech.trans')
                             report += f"{hora:<8} {tipo:<8} {format_br_currency(valor):>12}\n"
                             if descricao and descricao != 'N/A':
                                 report += f"  {descricao[:44]}\n"
@@ -72721,7 +73050,19 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
                 if not valores:
                     messagebox.showerror("Erro", "Selecione uma forma de pagamento!", parent=pagamento_win)
                     return
-                
+
+                # Protecao contra valor absurdo (erro de digitacao ou leitura de
+                # codigo de barras no campo de valor) que corrompia o caixa/fechamento.
+                _valor_abusivo = next((str(k) for k, _v in valores.items()
+                                       if isinstance(_v, (int, float)) and abs(_v) > _LIMITE_VALOR_MONETARIO), None)
+                if _valor_abusivo or soma > _LIMITE_VALOR_MONETARIO:
+                    messagebox.showerror("Valor inválido",
+                        "O valor informado é altíssimo e parece ser um erro de digitação "
+                        "ou leitura de código de barras no campo de valor.\n\n"
+                        "Confira os valores de pagamento e tente novamente.",
+                        parent=pagamento_win)
+                    return
+
                 if soma < self.total_venda - 0.01:
                     messagebox.showerror("Erro", "Valor insuficiente!", parent=pagamento_win)
                     return
@@ -73398,6 +73739,42 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
         # ── FASE 4: Dispara I/O em background (não bloqueia a UI) ────────────
         def _background_io():
             """Executa todas as gravações em banco/disco em thread separada."""
+            # ===== 4.0 CAIXA (PRIORITARIO) =====
+            # Registrar a venda no caixa e a PRIMEIRA operacao da thread,
+            # para a venda aparecer no caixa quase instantaneamente, sem
+            # esperar os salvamentos pesados (produtos, clientes, vendas).
+            try:
+                # 4.8 Registra transação no caixa (GARANTIDO).
+                # Primeiro relança eventuais vendas que ficaram pendentes por
+                # terem sido feitas com o caixa fechado; depois registra ESTA
+                # venda. Se nao houver caixa aberto, a venda vai para a fila de
+                # pendencias em vez de sumir do caixa (era o motivo do
+                # fechamento "dar a menos").
+                try:
+                    flush_transacoes_caixa_pendentes()
+                except Exception as _e_flush:
+                    logging.error(f"[BG] Erro ao relancar pendencias de caixa: {_e_flush}")
+                # Diagnostico: qual caixa vai receber a venda (visivel no _debug.exe)
+                _cx_alvo = get_caixa_aberto()
+                if _cx_alvo is None:
+                    logging.warning(f"[BG][CAIXA] Cupom {current_coupon_number}: NENHUM caixa ABERTO encontrado -> venda vai para PENDENCIAS.")
+                else:
+                    logging.info(f"[BG][CAIXA] Cupom {current_coupon_number}: registrando no caixa id={_cx_alvo} (valor_real={valor_real_caixa}).")
+                if valor_real_caixa > 0:
+                    _ok_cx = registrar_transacao_caixa_garantida("CRÉDITO", f"Venda Cupom {current_coupon_number}",
+                                             valor_real_caixa, pag_str_caixa, cliente_nome_caixa)
+                else:
+                    _ok_cx = registrar_transacao_caixa_garantida("CRÉDITO", f"Venda Cupom {current_coupon_number}",
+                                             total_venda_snapshot, "N/A", cliente_nome_caixa)
+                logging.info(f"[BG][CAIXA] Cupom {current_coupon_number}: resultado no caixa id={_cx_alvo} -> {'REGISTRADO' if _ok_cx else 'PENDENTE (sera lancado ao abrir o caixa)'}.")
+            except Exception as e:
+                logging.error(f"[BG] Erro ao registrar no caixa: {e}")
+                try:
+                    registrar_transacao_caixa_garantida("CRÉDITO", f"Venda Cupom {current_coupon_number}",
+                                             total_venda_snapshot, "Erro", "Consumidor")
+                except Exception:
+                    pass
+
             try:
                 # 4.1 Salva config (número do cupom)
                 save_data(CONFIG_FILE, config_snapshot)
@@ -73419,8 +73796,14 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
                 logging.error(f"[BG] Erro ao salvar clientes: {e}")
 
             try:
-                # 4.4 Salva log de vendas
-                save_data(SALES_FILE, sales_log_snapshot)
+                # 4.4 Salva log de vendas (deduplicado por cupom = registro fiel)
+                # Evita que o mesmo cupom fique gravado mais de uma vez no arquivo,
+                # o que inflava o relatorio de Produtos Vendidos.
+                try:
+                    sales_para_salvar = _dedup_vendas_por_cupom(sales_log_snapshot)
+                except Exception:
+                    sales_para_salvar = sales_log_snapshot
+                save_data(SALES_FILE, sales_para_salvar)
             except Exception as e:
                 logging.error(f"[BG] Erro ao salvar vendas: {e}")
 
@@ -73471,22 +73854,6 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
                             f"Voucher {voucher_params['codigo']} utilizado: Valor: {format_br_currency(voucher_params['valor_usado'])} - Cupom: {voucher_params['cupom']}{obs_extra}")
             except Exception as e:
                 logging.error(f"[BG] Erro ao processar voucher: {e}")
-
-            try:
-                # 4.8 Registra transação no caixa
-                if valor_real_caixa > 0:
-                    registrar_transacao_caixa("CRÉDITO", f"Venda Cupom {current_coupon_number}",
-                                             valor_real_caixa, pag_str_caixa, cliente_nome_caixa)
-                else:
-                    registrar_transacao_caixa("CRÉDITO", f"Venda Cupom {current_coupon_number}",
-                                             total_venda_snapshot, "N/A", cliente_nome_caixa)
-            except Exception as e:
-                logging.error(f"[BG] Erro ao registrar no caixa: {e}")
-                try:
-                    registrar_transacao_caixa("CRÉDITO", f"Venda Cupom {current_coupon_number}",
-                                             total_venda_snapshot, "Erro", "Consumidor")
-                except Exception:
-                    pass
 
             try:
                 # 4.9 Atualiza status da OS vinculada
@@ -74880,7 +75247,16 @@ STATUS: {status.upper()}
             return
         reprint_win = tk.Toplevel(self.root)
         reprint_win.title("📄 Reimpressão de Cupom - Histórico de Vendas")
-        responsive_geometry(reprint_win, 800, 600)  # Tamanho normal ao invés de maximizado
+        # Abrir MAXIMIZADA usando o MESMO padrao das telas de Caixa/Quantum AI:
+        # state('zoomed') logo apos o titulo e SEM geometry explicita antes.
+        # (A geometry explicita antes do zoomed estava deixando a janela em branco.)
+        try:
+            reprint_win.state('zoomed')
+        except Exception:
+            try:
+                reprint_win.attributes('-zoomed', True)
+            except Exception:
+                responsive_geometry(reprint_win, 1000, 700)
         reprint_win.resizable(True, True)
         reprint_win.transient(self.root)
         reprint_win.grab_set()
