@@ -19584,11 +19584,11 @@ class ThermalPrinterManagerPDV:
                     p.double_line()
                     
                     def fmt_valor(v):
-                        """Formata valor monetário."""
+                        """Formata valor monetário (protegido contra valores absurdos/corrompidos)."""
                         try:
-                            return format_br_currency(v).replace('R$ ', '')
+                            return format_br_currency(_valor_monetario_seguro(v, 'fech.escp')).replace('R$ ', '')
                         except Exception:
-                            return f"{float(v):,.2f}"
+                            return "0,00"
                     
                     p.row("Saldo Inicial:", f"R$ {fmt_valor(fechamento_data.get('saldo_inicial', 0))}")
                     p.line()
@@ -58517,12 +58517,33 @@ class PDVSuperApp:
                     report += f"Usr Fe: {fechamento.get('usuario_fechamento', fechamento.get('usuario', 'N/A'))}\n"
                     report += f"{'-'*48}\n"
                     
-                    saldo_inicial = float(fechamento.get('saldo_inicial', 0.0) or 0.0)
-                    # Compatibilidade: aceita tanto total_creditos quanto total_entradas
-                    total_creditos = float(fechamento.get('total_creditos', fechamento.get('total_entradas', 0.0)) or 0.0)
-                    total_debitos = float(fechamento.get('total_debitos', fechamento.get('total_saidas', 0.0)) or 0.0)
-                    saldo_final = float(fechamento.get('saldo_final', 0.0) or 0.0)
-                    
+                    saldo_inicial = _valor_monetario_seguro(fechamento.get('saldo_inicial', 0.0), 'fech.saldo_inicial')
+
+                    # RECALCULA os totais a partir das transacoes SANITIZADAS,
+                    # em vez de confiar nos campos gravados (total_creditos /
+                    # saldo_final). Um valor corrompido antigo deixava o Saldo
+                    # Final absurdo (ex.: R$ 189.111.886.478.840,19), mesmo com
+                    # as transacoes reais sendo pequenas. Assim o relatorio
+                    # sempre reflete a soma real das transacoes validas.
+                    transacoes = fechamento.get('transacoes', []) or []
+                    total_creditos = 0.0
+                    total_debitos = 0.0
+                    for _t in transacoes:
+                        if not isinstance(_t, dict):
+                            continue
+                        _desc = str(_t.get('descricao', '') or '').upper()
+                        if 'SALDO INICIAL' in _desc:
+                            continue  # abertura ja contabilizada em saldo_inicial
+                        _v = _valor_monetario_seguro(_t.get('valor', 0.0), 'fech.trans')
+                        _tp = str(_t.get('tipo', '')).upper()
+                        if _tp in ('CREDITO', 'CRÉDITO'):
+                            total_creditos += _v
+                        elif _tp in ('DEBITO', 'DÉBITO'):
+                            total_debitos += _v
+                        else:
+                            total_creditos += _v  # default credito
+                    saldo_final = saldo_inicial + total_creditos - total_debitos
+
                     report += f"Saldo Inicial: {format_br_currency(saldo_inicial)}\n"
                     report += f"Total Créditos: {format_br_currency(total_creditos)}\n"
                     report += f"Total Débitos: {format_br_currency(total_debitos)}\n"
@@ -58533,8 +58554,7 @@ class PDVSuperApp:
                     total_geral_debitos += total_debitos
                     total_geral_final += saldo_final
                     
-                    # Listar transações
-                    transacoes = fechamento.get('transacoes', [])
+                    # Listar transações (com valores sanitizados)
                     if transacoes:
                         report += f"\n{'-'*48}\n"
                         report += f"TRANSACOES ({len(transacoes)} reg):\n"
@@ -58543,10 +58563,10 @@ class PDVSuperApp:
                         report += f"{'-'*48}\n"
                         
                         for trans in transacoes:
-                            hora = trans.get('hora', 'N/A')[:8]
-                            tipo = trans.get('tipo', 'N/A')[:8]
+                            hora = str(trans.get('hora', 'N/A'))[:8]
+                            tipo = str(trans.get('tipo', 'N/A'))[:8]
                             descricao = trans.get('descricao', 'N/A')
-                            valor = trans.get('valor', 0.0)
+                            valor = _valor_monetario_seguro(trans.get('valor', 0.0), 'fech.trans')
                             report += f"{hora:<8} {tipo:<8} {format_br_currency(valor):>12}\n"
                             if descricao and descricao != 'N/A':
                                 report += f"  {descricao[:44]}\n"
