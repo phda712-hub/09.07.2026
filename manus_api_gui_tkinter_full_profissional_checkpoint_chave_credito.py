@@ -1526,6 +1526,145 @@ class ManusAPI:
             },
         )
 
+    # ===================================================================
+    # ===== Cobertura COMPLETA da API v2 (todos os endpoints) ===========
+    # ===================================================================
+    # Métodos abaixo cobrem leitura e escrita de todos os recursos da API
+    # oficial do Manus: uso/créditos, tarefas, agentes, conectores, projetos,
+    # arquivos, navegadores, webhooks e sites.
+
+    # ---- Uso / créditos (somente leitura) ----
+    def usage_list(self, limit: int = 20, cursor: str = "") -> Dict[str, Any]:
+        params: Dict[str, Any] = {"limit": max(1, min(int(limit or 20), 100))}
+        if cursor:
+            params["cursor"] = cursor
+        return self.request("GET", "/v2/usage.list", params=params)
+
+    def usage_team_log(self, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self.request("GET", "/v2/usage.teamLog", params=params or {})
+
+    def usage_team_statistic(self, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self.request("GET", "/v2/usage.teamStatistic", params=params or {})
+
+    # ---- Agentes personalizados ----
+    def agent_list(self) -> Dict[str, Any]:
+        return self.request("GET", "/v2/agent.list")
+
+    def agent_detail(self, agent_id: str) -> Dict[str, Any]:
+        return self.request("GET", "/v2/agent.detail", params={"agent_id": agent_id})
+
+    def agent_update(self, agent_id: str, nickname: str = "", about: str = "") -> Dict[str, Any]:
+        body: Dict[str, Any] = {"agent_id": agent_id}
+        if nickname:
+            body["nickname"] = nickname
+        if about:
+            body["about"] = about
+        return self.request("POST", "/v2/agent.update", body=body)
+
+    # ---- Conectores / projetos / navegadores ----
+    def connector_list(self) -> Dict[str, Any]:
+        return self.request("GET", "/v2/connector.list")
+
+    def project_list(self) -> Dict[str, Any]:
+        return self.request("GET", "/v2/project.list")
+
+    def project_create(self, name: str, instruction: str = "") -> Dict[str, Any]:
+        body: Dict[str, Any] = {"name": name}
+        if instruction:
+            body["instruction"] = instruction
+        return self.request("POST", "/v2/project.create", body=body)
+
+    def browser_online_list(self) -> Dict[str, Any]:
+        return self.request("GET", "/v2/browser.onlineList")
+
+    # ---- Arquivos ----
+    def file_delete(self, file_id: str) -> Dict[str, Any]:
+        return self.request("POST", "/v2/file.delete", body={"file_id": file_id})
+
+    # ---- Tarefas (escrita) ----
+    def task_update(
+        self,
+        task_id: str,
+        title: Optional[str] = None,
+        share_visibility: Optional[str] = None,
+        enable_visible_in_task_list: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {"task_id": task_id}
+        if title is not None:
+            body["title"] = title
+        if share_visibility is not None:
+            body["share_visibility"] = share_visibility
+        if enable_visible_in_task_list is not None:
+            body["enable_visible_in_task_list"] = bool(enable_visible_in_task_list)
+        return self.request("POST", "/v2/task.update", body=body)
+
+    def task_stop(self, task_id: str) -> Dict[str, Any]:
+        return self.request("POST", "/v2/task.stop", body={"task_id": task_id})
+
+    def task_delete(self, task_id: str) -> Dict[str, Any]:
+        return self.request("POST", "/v2/task.delete", body={"task_id": task_id})
+
+    # ---- Webhooks ----
+    def webhook_list(self) -> Dict[str, Any]:
+        return self.request("GET", "/v2/webhook.list")
+
+    def webhook_public_key(self) -> Dict[str, Any]:
+        return self.request("GET", "/v2/webhook.publicKey")
+
+    def webhook_create(self, url: str, events: Optional[List[str]] = None) -> Dict[str, Any]:
+        body: Dict[str, Any] = {"url": url}
+        if events:
+            body["events"] = events
+        return self.request("POST", "/v2/webhook.create", body=body)
+
+    def webhook_delete(self, webhook_id: str) -> Dict[str, Any]:
+        return self.request("POST", "/v2/webhook.delete", body={"webhook_id": webhook_id})
+
+    # ---- Sites gerados pelo Manus ----
+    def website_status(self, task_id: str = "", website_id: str = "") -> Dict[str, Any]:
+        params: Dict[str, Any] = {}
+        if task_id:
+            params["task_id"] = task_id
+        if website_id:
+            params["website_id"] = website_id
+        return self.request("GET", "/v2/website.status", params=params)
+
+    def website_list_checkpoints(self, task_id: str = "", website_id: str = "") -> Dict[str, Any]:
+        params: Dict[str, Any] = {}
+        if task_id:
+            params["task_id"] = task_id
+        if website_id:
+            params["website_id"] = website_id
+        return self.request("GET", "/v2/website.listCheckpoints", params=params)
+
+    def website_publish(self, task_id: str = "", website_id: str = "", visibility: str = "public") -> Dict[str, Any]:
+        body: Dict[str, Any] = {}
+        if task_id:
+            body["task_id"] = task_id
+        if website_id:
+            body["website_id"] = website_id
+        if visibility:
+            body["visibility"] = visibility
+        return self.request("POST", "/v2/website.publish", body=body)
+
+    def website_update(
+        self,
+        task_id: str = "",
+        website_id: str = "",
+        title: Optional[str] = None,
+        visibility: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {}
+        if task_id:
+            body["task_id"] = task_id
+        if website_id:
+            body["website_id"] = website_id
+        if title is not None:
+            body["title"] = title
+        if visibility is not None:
+            body["visibility"] = visibility
+        return self.request("POST", "/v2/website.update", body=body)
+
 
 def get_msg_id(msg: Dict[str, Any]) -> str:
     return str(msg.get("id") or msg.get("timestamp") or hash(json.dumps(msg, sort_keys=True, default=str)))
@@ -2198,6 +2337,87 @@ class ManusAPIFailover(ManusAPI):
         raise RuntimeError("Falha desconhecida no failover de APIKEY.")
 
 
+# ============================================================
+# CATÁLOGO COMPLETO DOS ENDPOINTS DA API v2 DO MANUS
+# Usado pela aba "Central da API Manus" para permitir executar
+# QUALQUER endpoint (leitura GET e escrita POST) direto no servidor.
+# Cada item traz um "template" de parâmetros/corpo em JSON para edição.
+# ============================================================
+MANUS_API_ENDPOINTS: List[Dict[str, Any]] = [
+    # ---------- LEITURA (GET) ----------
+    {"name": "usage.availableCredits", "method": "GET", "path": "/v2/usage.availableCredits", "kind": "params",
+     "template": {}, "desc": "Saldo de créditos e informações de refresh (somente leitura)."},
+    {"name": "usage.list", "method": "GET", "path": "/v2/usage.list", "kind": "params",
+     "template": {"limit": 20}, "desc": "Histórico de mudanças de crédito, mais recente primeiro (somente leitura)."},
+    {"name": "usage.teamLog", "method": "GET", "path": "/v2/usage.teamLog", "kind": "params",
+     "template": {}, "desc": "Contagem de tarefas e consumo de crédito por membro da equipe (somente leitura)."},
+    {"name": "usage.teamStatistic", "method": "GET", "path": "/v2/usage.teamStatistic", "kind": "params",
+     "template": {}, "desc": "Totais diários de consumo de crédito da equipe (somente leitura)."},
+    {"name": "skill.list", "method": "GET", "path": "/v2/skill.list", "kind": "params",
+     "template": {}, "desc": "Lista as skills disponíveis."},
+    {"name": "task.list", "method": "GET", "path": "/v2/task.list", "kind": "params",
+     "template": {"limit": 20, "order": "desc", "scope": "all"}, "desc": "Lista tarefas (filtros: order, scope, agent_id, project_id, cursor)."},
+    {"name": "task.detail", "method": "GET", "path": "/v2/task.detail", "kind": "params",
+     "template": {"task_id": ""}, "desc": "Detalhes de uma tarefa (inclui status e agent_profile/modelo)."},
+    {"name": "task.listMessages", "method": "GET", "path": "/v2/task.listMessages", "kind": "params",
+     "template": {"task_id": "", "order": "desc", "limit": 50}, "desc": "Mensagens/eventos de uma tarefa."},
+    {"name": "agent.list", "method": "GET", "path": "/v2/agent.list", "kind": "params",
+     "template": {}, "desc": "Lista os agentes personalizados da conta."},
+    {"name": "agent.detail", "method": "GET", "path": "/v2/agent.detail", "kind": "params",
+     "template": {"agent_id": ""}, "desc": "Detalhes de um agente."},
+    {"name": "connector.list", "method": "GET", "path": "/v2/connector.list", "kind": "params",
+     "template": {}, "desc": "Lista os connectors instalados na conta."},
+    {"name": "project.list", "method": "GET", "path": "/v2/project.list", "kind": "params",
+     "template": {}, "desc": "Lista os projetos."},
+    {"name": "browser.onlineList", "method": "GET", "path": "/v2/browser.onlineList", "kind": "params",
+     "template": {}, "desc": "Lista os navegadores online do usuário."},
+    {"name": "file.detail", "method": "GET", "path": "/v2/file.detail", "kind": "params",
+     "template": {"file_id": ""}, "desc": "Detalhes de um arquivo enviado (status, tamanho, expiração)."},
+    {"name": "webhook.list", "method": "GET", "path": "/v2/webhook.list", "kind": "params",
+     "template": {}, "desc": "Lista os webhooks cadastrados."},
+    {"name": "webhook.publicKey", "method": "GET", "path": "/v2/webhook.publicKey", "kind": "params",
+     "template": {}, "desc": "Chave pública para verificar assinaturas de webhook."},
+    {"name": "website.status", "method": "GET", "path": "/v2/website.status", "kind": "params",
+     "template": {"task_id": ""}, "desc": "Status de publicação, URL e visibilidade de um site (task_id OU website_id)."},
+    {"name": "website.listCheckpoints", "method": "GET", "path": "/v2/website.listCheckpoints", "kind": "params",
+     "template": {"task_id": ""}, "desc": "Lista os checkpoints/versões de um site (task_id OU website_id)."},
+
+    # ---------- ESCRITA (POST) ----------
+    {"name": "task.create", "method": "POST", "path": "/v2/task.create", "kind": "body",
+     "template": {"message": {"content": [{"type": "text", "text": "Escreva seu prompt aqui"}]},
+                  "agent_profile": "manus-1.6-lite", "title": "", "hide_in_task_list": False, "share_visibility": "private"},
+     "desc": "Cria uma nova tarefa (define modelo, prompt, título, visibilidade)."},
+    {"name": "task.sendMessage", "method": "POST", "path": "/v2/task.sendMessage", "kind": "body",
+     "template": {"task_id": "", "message": {"content": [{"type": "text", "text": "sua mensagem"}]}, "agent_profile": ""},
+     "desc": "Envia mensagem a uma tarefa. agent_profile faz override do MODELO; deixe vazio para manter."},
+    {"name": "task.update", "method": "POST", "path": "/v2/task.update", "kind": "body",
+     "template": {"task_id": "", "title": "", "share_visibility": "private", "enable_visible_in_task_list": True},
+     "desc": "Muda título, visibilidade (private/team/public) e mostrar/ocultar na lista."},
+    {"name": "task.stop", "method": "POST", "path": "/v2/task.stop", "kind": "body",
+     "template": {"task_id": ""}, "desc": "Para uma tarefa em execução."},
+    {"name": "task.delete", "method": "POST", "path": "/v2/task.delete", "kind": "body",
+     "template": {"task_id": ""}, "desc": "Apaga uma tarefa permanentemente."},
+    {"name": "task.confirmAction", "method": "POST", "path": "/v2/task.confirmAction", "kind": "body",
+     "template": {"task_id": "", "event_id": "", "input": {"accept": True}}, "desc": "Confirma uma ação pendente da tarefa."},
+    {"name": "agent.update", "method": "POST", "path": "/v2/agent.update", "kind": "body",
+     "template": {"agent_id": "", "nickname": "", "about": ""}, "desc": "Muda o nome (nickname) e a descrição (about) de um agente."},
+    {"name": "file.upload", "method": "POST", "path": "/v2/file.upload", "kind": "body",
+     "template": {"filename": "arquivo.txt"}, "desc": "Cria o registro do arquivo e retorna upload_url (o envio dos bytes é feito à parte)."},
+    {"name": "file.delete", "method": "POST", "path": "/v2/file.delete", "kind": "body",
+     "template": {"file_id": ""}, "desc": "Apaga um arquivo enviado."},
+    {"name": "project.create", "method": "POST", "path": "/v2/project.create", "kind": "body",
+     "template": {"name": "Meu projeto", "instruction": ""}, "desc": "Cria um projeto (agrupa tarefas + instrução compartilhada)."},
+    {"name": "webhook.create", "method": "POST", "path": "/v2/webhook.create", "kind": "body",
+     "template": {"url": "https://seu-endpoint.exemplo/webhook"}, "desc": "Cria um webhook para notificações de eventos de tarefa."},
+    {"name": "webhook.delete", "method": "POST", "path": "/v2/webhook.delete", "kind": "body",
+     "template": {"webhook_id": ""}, "desc": "Apaga um webhook."},
+    {"name": "website.publish", "method": "POST", "path": "/v2/website.publish", "kind": "body",
+     "template": {"task_id": "", "visibility": "public"}, "desc": "Publica/implanta o último checkpoint de um site."},
+    {"name": "website.update", "method": "POST", "path": "/v2/website.update", "kind": "body",
+     "template": {"task_id": "", "title": "", "visibility": "public"}, "desc": "Muda título/visibilidade do site (sem redeploy)."},
+]
+
+
 class ManusGui(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -2478,6 +2698,11 @@ class ManusGui(tk.Tk):
         self.estudio_tab = ttk.Frame(self.notebook, padding=10)
         self.notebook.add(self.estudio_tab, text="Estúdio Outras IAs")
         self.construir_aba_estudio_ia()
+
+        # Central da API Manus: acesso a TODOS os endpoints (leitura e escrita).
+        self.api_tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(self.api_tab, text="Central da API Manus")
+        self.construir_aba_api_manus()
 
         # ============================================================
         # ABA CONFIGURAÇÃO / IDS
@@ -4129,6 +4354,164 @@ class ManusGui(tk.Tk):
 
         self.executar_thread(worker)
 
+    def construir_aba_api_manus(self):
+        """
+        Central da API Manus: permite executar QUALQUER endpoint da API v2
+        (leitura GET e escrita POST) diretamente no servidor do Manus.
+
+        Fluxo:
+        1) Escolha o endpoint na lista.
+        2) Edite os parâmetros (GET) ou o corpo (POST) em JSON.
+        3) Clique em EXECUTAR. A resposta bruta do servidor aparece abaixo.
+
+        Endpoints POST alteram dados REAIS na conta (criar/alterar/apagar).
+        """
+        self.api_console_status_var = tk.StringVar(value="Pronto. Escolha um endpoint.")
+
+        outer = self.api_tab
+        outer.columnconfigure(0, weight=1)
+        outer.rowconfigure(3, weight=1)
+
+        topo = ttk.LabelFrame(outer, text="Endpoint da API do Manus (GET = leitura, POST = escrita)", padding=10)
+        topo.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        topo.columnconfigure(1, weight=1)
+
+        ttk.Label(topo, text="Endpoint:").grid(row=0, column=0, sticky="w", padx=(0, 6))
+        self.api_endpoint_var = tk.StringVar()
+        valores = [f"{e['method']:4s} {e['path']}" for e in MANUS_API_ENDPOINTS]
+        self.api_endpoint_combo = ttk.Combobox(
+            topo, textvariable=self.api_endpoint_var, values=valores, state="readonly"
+        )
+        self.api_endpoint_combo.grid(row=0, column=1, sticky="ew", padx=(0, 6))
+        self.api_endpoint_combo.bind("<<ComboboxSelected>>", self._api_ao_selecionar_endpoint)
+
+        self.api_desc_var = tk.StringVar(
+            value="Selecione um endpoint. GET apenas lê; POST altera dados reais no servidor."
+        )
+        ttk.Label(topo, textvariable=self.api_desc_var, style="Status.TLabel", wraplength=1150, justify="left").grid(
+            row=1, column=0, columnspan=2, sticky="w", pady=(6, 0)
+        )
+
+        params_box = ttk.LabelFrame(
+            outer, text="Parâmetros (GET) / Corpo (POST) em JSON — edite conforme necessário", padding=10
+        )
+        params_box.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        params_box.columnconfigure(0, weight=1)
+        self.api_params_text = ScrolledText(params_box, height=10, wrap="word")
+        self.api_params_text.grid(row=0, column=0, sticky="ew")
+
+        acoes = ttk.Frame(outer)
+        acoes.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(acoes, text="Carregar modelo de parâmetros", command=self._api_carregar_template).pack(side="left", padx=(0, 6))
+        ttk.Button(acoes, text="EXECUTAR no servidor", command=self._api_executar, style="Accent.TButton").pack(side="left", padx=6)
+        ttk.Button(acoes, text="Copiar resposta", command=self._api_copiar_resposta).pack(side="left", padx=6)
+        ttk.Button(acoes, text="Limpar resposta", command=lambda: self.api_response_text.delete("1.0", "end")).pack(side="left", padx=6)
+        ttk.Label(acoes, textvariable=self.api_console_status_var, style="Status.TLabel").pack(side="left", padx=12)
+
+        resp_box = ttk.LabelFrame(outer, text="Resposta do servidor (JSON)", padding=10)
+        resp_box.grid(row=3, column=0, sticky="nsew")
+        resp_box.columnconfigure(0, weight=1)
+        resp_box.rowconfigure(0, weight=1)
+        self.api_response_text = ScrolledText(resp_box, height=16, wrap="word")
+        self.api_response_text.grid(row=0, column=0, sticky="nsew")
+
+        ttk.Label(
+            outer,
+            text=("Atenção: endpoints POST executam ações REAIS na sua conta (criar/alterar/apagar). "
+                  "GET apenas lê. A chave usada é a ativa (com failover), definida na aba Configuração / IDs."),
+            style="Warn.TLabel",
+            wraplength=1200,
+            justify="left",
+        ).grid(row=4, column=0, sticky="w", pady=(6, 0))
+
+    def _api_endpoint_atual(self) -> Optional[Dict[str, Any]]:
+        try:
+            idx = self.api_endpoint_combo.current()
+        except Exception:
+            idx = -1
+        if idx is None or idx < 0 or idx >= len(MANUS_API_ENDPOINTS):
+            return None
+        return MANUS_API_ENDPOINTS[idx]
+
+    def _api_ao_selecionar_endpoint(self, event=None):
+        e = self._api_endpoint_atual()
+        if not e:
+            return
+        tipo = "LEITURA (GET)" if e["method"] == "GET" else "ESCRITA (POST) — altera dados reais no servidor"
+        self.api_desc_var.set(f"[{tipo}]  {e['path']}  —  {e.get('desc', '')}")
+        self._api_carregar_template()
+
+    def _api_carregar_template(self):
+        e = self._api_endpoint_atual()
+        if not e:
+            messagebox.showinfo("API Manus", "Selecione um endpoint primeiro.")
+            return
+        try:
+            txt = json.dumps(e.get("template", {}), ensure_ascii=False, indent=2)
+        except Exception:
+            txt = "{}"
+        self.api_params_text.delete("1.0", "end")
+        self.api_params_text.insert("1.0", txt)
+
+    def _api_copiar_resposta(self):
+        try:
+            texto = self.api_response_text.get("1.0", "end").strip()
+            if texto:
+                self.clipboard_clear()
+                self.clipboard_append(texto)
+                self.api_console_status_var.set("Resposta copiada.")
+        except Exception:
+            pass
+
+    def _api_executar(self):
+        e = self._api_endpoint_atual()
+        if not e:
+            messagebox.showinfo("API Manus", "Selecione um endpoint primeiro.")
+            return
+
+        raw = self.api_params_text.get("1.0", "end").strip() or "{}"
+        try:
+            dados = json.loads(raw)
+            if not isinstance(dados, dict):
+                raise ValueError("O JSON precisa ser um objeto no formato { ... }.")
+        except Exception as ex:
+            messagebox.showerror("JSON inválido", f"Não foi possível ler os parâmetros JSON:\n\n{ex}")
+            return
+
+        metodo = e["method"]
+        caminho = e["path"]
+
+        if metodo == "POST":
+            if not messagebox.askyesno(
+                "Confirmar ação de ESCRITA no servidor",
+                "Você vai EXECUTAR uma ação de ESCRITA diretamente no servidor do Manus:\n\n"
+                f"{metodo} {caminho}\n\n"
+                "Isso altera dados reais da conta (criar/alterar/apagar). Continuar?",
+            ):
+                return
+
+        self.api_console_status_var.set(f"Executando {metodo} {caminho}...")
+        self.log(f"[API] Executando {metodo} {caminho}\n")
+
+        def worker():
+            try:
+                api = self.pegar_api()
+                if metodo == "GET":
+                    params = {k: v for k, v in dados.items() if v not in (None, "")}
+                    resp = api.request("GET", caminho, params=params)
+                else:
+                    resp = api.request("POST", caminho, body=dados)
+                try:
+                    texto = json.dumps(resp, ensure_ascii=False, indent=2)
+                except Exception:
+                    texto = str(resp)
+                self.definir_servidor_online(f"Última resposta do servidor: {agora_iso()} | {caminho} OK")
+                self.msg("api_console_result", True, f"{metodo} {caminho}", texto)
+            except Exception as ex:
+                self.msg("api_console_result", False, f"{metodo} {caminho}", str(ex))
+
+        self.executar_thread(worker)
+
     def _carregar_creditos_editados(self) -> Dict[str, Any]:
         """
         Lê o arquivo local com as edições dos campos de créditos
@@ -5512,6 +5895,20 @@ class ManusGui(tk.Tk):
                         )
                     else:
                         messagebox.showerror("Erro ao alterar modelo", str(erro))
+
+                elif kind == "api_console_result":
+                    _, ok, titulo, texto = item
+                    try:
+                        cabecalho = ("OK" if ok else "ERRO") + f" | {titulo} | {agora_iso()}"
+                        self.api_response_text.insert("end", f"\n===== {cabecalho} =====\n{texto}\n")
+                        self.api_response_text.see("end")
+                    except Exception:
+                        pass
+                    try:
+                        self.api_console_status_var.set(("OK: " if ok else "ERRO: ") + titulo)
+                    except Exception:
+                        pass
+                    self.log(f"[API] {'OK' if ok else 'ERRO'} {titulo}\n")
 
                 elif kind == "other_ai_result":
                     _, ok, provider_name, text_or_error, raw = item
