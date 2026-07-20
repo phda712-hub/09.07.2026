@@ -52,6 +52,21 @@ except Exception as _e:
 APP_DIR = os.path.dirname(os.path.abspath(__file__)) if "__file__" in dir() else os.getcwd()
 CONFIG_FILE = os.path.join(APP_DIR, "orcamento_config.json")
 
+# Nome do arquivo de icone (carrinho azul)
+ICONE_ICO = "icone_carrinho.ico"
+ICONE_PNG = "icone_carrinho.png"
+
+
+def resource_path(nome):
+    """Retorna o caminho de um recurso, funcionando tanto no script quanto
+    dentro do .exe gerado pelo PyInstaller (pasta temporaria _MEIPASS)."""
+    base = getattr(sys, "_MEIPASS", APP_DIR)
+    caminho = os.path.join(base, nome)
+    if os.path.exists(caminho):
+        return caminho
+    # fallback: ao lado do script/exe
+    return os.path.join(APP_DIR, nome)
+
 # Valores padrao de conexao (podem ser alterados pela engrenagem "Config")
 DEFAULT_CONFIG = {
     "host": "localhost",
@@ -408,11 +423,31 @@ class OrcamentoApp:
         except tk.TclError:
             pass
 
+        self._definir_icone()
         self._setup_style()
         self._build_ui()
 
         # Carrega dados apos montar a UI
         self.root.after(200, self._conectar_e_carregar)
+
+    # ---------------------------------------------------------------- icone
+    def _definir_icone(self):
+        """Define o icone do carrinho na janela (barra de titulo/taskbar)."""
+        # 1) .ico (melhor no Windows)
+        try:
+            ico = resource_path(ICONE_ICO)
+            if os.path.exists(ico):
+                self.root.iconbitmap(default=ico)
+        except Exception:
+            pass
+        # 2) .png via iconphoto (funciona em qualquer plataforma)
+        try:
+            png = resource_path(ICONE_PNG)
+            if os.path.exists(png):
+                self._icon_img = tk.PhotoImage(file=png)
+                self.root.iconphoto(True, self._icon_img)
+        except Exception:
+            pass
 
     # ---------------------------------------------------------------- style
     def _setup_style(self):
