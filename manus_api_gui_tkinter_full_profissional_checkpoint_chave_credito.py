@@ -1211,34 +1211,37 @@ class ManusAPI:
             params["cursor"] = cursor
         return self.request("GET", "/v2/task.list", params=params)
 
+    def most_recent_task(self) -> Dict[str, Any]:
+        """
+        Retorna a tarefa mais recente da conta (dict) consultando o servidor
+        via /v2/task.list, ou {} se a conta não tiver tarefas.
+        """
+        data = self.list_tasks(limit=1, order="desc", scope="all")
+        tasks = []
+        if isinstance(data, dict):
+            tasks = data.get("data") or data.get("tasks") or []
+        if isinstance(tasks, list) and tasks and isinstance(tasks[0], dict):
+            return tasks[0]
+        return {}
+
     def current_model(self) -> str:
         """
         Descobre o MODELO em uso no momento consultando DIRETAMENTE o servidor
         do Manus (endpoint /v2/task.list). Pega a tarefa mais recente da conta e
-        extrai o modelo/agent_profile dela.
+        extrai o campo oficial 'agent_profile' dela (que reflete o último turno,
+        inclusive overrides feitos via task.sendMessage).
 
         Retorna:
         - o nome do modelo (ex.: "manus-1.6-lite") quando disponível;
         - "sem tarefas" quando a conta não possui tarefas;
-        - "--" quando não é possível determinar o modelo.
+        - "--" quando não é possível determinar o modelo (ex.: tarefas antigas).
         """
-        try:
-            data = self.list_tasks(limit=1, order="desc", scope="all")
-        except Exception:
-            raise
-
-        tasks = []
-        if isinstance(data, dict):
-            tasks = data.get("data") or data.get("tasks") or []
-        if not tasks:
+        t = self.most_recent_task()
+        if not t:
             return "sem tarefas"
 
-        t = tasks[0] if isinstance(tasks, list) else {}
-        if not isinstance(t, dict):
-            return "--"
-
-        # O campo do modelo pode variar conforme a versão da API: tenta vários nomes.
-        for campo in ("agent_profile", "model", "agentProfile", "agent", "model_name", "modelName", "profile"):
+        # Campo oficial é 'agent_profile'; mantém alternativas por segurança.
+        for campo in ("agent_profile", "agentProfile", "model", "profile"):
             valor = t.get(campo)
             if valor:
                 return str(valor)
@@ -1427,13 +1430,26 @@ class ManusAPI:
                 return self.request("POST", "/v2/task.create", body=body)
             raise
 
-    def send_message(self, task_id: str, text: str, uploaded_files: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+    def send_message(
+        self,
+        task_id: str,
+        text: str,
+        uploaded_files: Optional[List[Dict[str, str]]] = None,
+        agent_profile: str = "",
+    ) -> Dict[str, Any]:
         """
         Envia uma resposta/continuação para uma tarefa já existente.
 
         Permite anexar arquivos como resposta, do mesmo jeito que task.create:
         os arquivos precisam ter sido enviados antes (upload_local_file) e
         chegam aqui apenas como {"file_id": ..., "filename": ...}.
+
+        Se 'agent_profile' for informado, ele é enviado como override do MODELO
+        para este turno (campo oficial da API /v2/task.sendMessage). Isso faz o
+        servidor passar a usar o modelo escolhido na tarefa existente; o valor
+        aparece depois em task.list/task.detail como 'agent_profile'.
+        Observação da API: contas pessoais gratuitas são rebaixadas para
+        manus-1.6-lite independentemente do valor solicitado.
         """
         uploaded_files = uploaded_files or []
         content: List[Dict[str, Any]] = []
@@ -1446,10 +1462,12 @@ class ManusAPI:
         for item in uploaded_files:
             content.append({"type": "file", "file_id": item["file_id"], "filename": item["filename"]})
 
-        body = {
+        body: Dict[str, Any] = {
             "task_id": task_id,
             "message": {"content": content},
         }
+        if str(agent_profile or "").strip():
+            body["agent_profile"] = str(agent_profile).strip()
 
         try:
             return self.request("POST", "/v2/task.sendMessage", body=body)
@@ -4560,19 +4578,47 @@ class ManusGui(tk.Tk):
             def worker():
                 try:
                     api = ManusAPI(real_key)
-                    titulo = titulo_nova_tarefa()
-                    prompt = (
-                        "Definição do modelo da conta pelo aplicativo. "
-                        "Responda apenas com 'OK' e não execute nenhuma outra ação."
-                    )
-                    data = api.create_task(prompt, novo_modelo, titulo)
-                    novo_id = data.get("task_id") or ""
-                    # Reconsulta o modelo agora vigente no servidor para confirmar.
+
+                    # 1) Tenta aplicar o modelo na TAREFA EXISTENTE mais recente,
+                    #    usando o override oficial de agent_profile em sendMessage.
+                    recente = {}
+                    try:
+                        recente = api.most_recent_task()
+                    except Exception:
+                        recente = {}
+
+                    task_id_alvo = str(recente.get("id") or "").strip()
+
+                    if task_id_alvo:
+                        api.send_message(
+                            task_id_alvo,
+                            "Ajuste de modelo do aplicativo. Responda apenas com 'OK'.",
+                            agent_profile=novo_modelo,
+                        )
+                        novo_id = task_id_alvo
+                    else:
+                        # 2) Sem tarefas na conta: cria uma nova já no modelo pedido.
+                        titulo = titulo_nova_tarefa()
+                        prompt = (
+                            "Definição do modelo da conta pelo aplicativo. "
+                            "Responda apenas com 'OK' e não execute nenhuma outra ação."
+                        )
+                        data = api.create_task(prompt, novo_modelo, titulo)
+                        novo_id = data.get("task_id") or ""
+
+                    # 3) Reconsulta o modelo agora vigente no servidor para confirmar.
                     try:
                         modelo_conf = api.current_model()
                     except Exception:
                         modelo_conf = novo_modelo
-                    self.msg("modelo_alterado_servidor", janela, tree, iid, (modelo_conf or novo_modelo), novo_id)
+
+                    self.msg(
+                        "modelo_alterado_servidor",
+                        janela, tree, iid,
+                        (modelo_conf or novo_modelo),
+                        novo_id,
+                        novo_modelo,
+                    )
                 except Exception as e:
                     self.msg("modelo_alterado_erro", str(e))
 
@@ -5369,7 +5415,7 @@ class ManusGui(tk.Tk):
                     self.abrir_janela_creditos_todas_chaves(linhas)
 
                 elif kind == "modelo_alterado_servidor":
-                    _, janela_ref, tree_ref, iid, modelo_conf, novo_id = item
+                    _, janela_ref, tree_ref, iid, modelo_conf, novo_id, modelo_pedido = item
                     try:
                         if tree_ref.winfo_exists() and tree_ref.exists(iid):
                             vals = list(tree_ref.item(iid, "values"))
@@ -5378,15 +5424,32 @@ class ManusGui(tk.Tk):
                                 tree_ref.item(iid, values=vals)
                     except Exception:
                         pass
-                    self.log(f"[MODELO] Modelo alterado no servidor para '{modelo_conf}' (nova tarefa: {novo_id}).\n")
-                    self.definir_status(f"Modelo alterado no servidor: {modelo_conf}")
+                    self.log(f"[MODELO] Pedido: '{modelo_pedido}' | confirmado no servidor: '{modelo_conf}' (tarefa: {novo_id}).\n")
+                    self.definir_status(f"Modelo no servidor agora: {modelo_conf}")
                     try:
-                        messagebox.showinfo(
-                            "Modelo alterado no servidor",
-                            f"Modelo aplicado no servidor do Manus: {modelo_conf}\n"
-                            f"Nova tarefa criada: {novo_id}\n\n"
-                            "A coluna 'Modelo em uso' foi atualizada.",
+                        rebaixou = (
+                            str(modelo_conf).strip()
+                            and str(modelo_pedido).strip()
+                            and str(modelo_conf).strip() != str(modelo_pedido).strip()
                         )
+                        if rebaixou:
+                            messagebox.showwarning(
+                                "Modelo aplicado, mas o servidor rebaixou",
+                                f"Você pediu: {modelo_pedido}\n"
+                                f"O servidor do Manus aplicou: {modelo_conf}\n\n"
+                                "Isso normalmente acontece em CONTAS PESSOAIS GRATUITAS, que a "
+                                "Manus rebaixa automaticamente para manus-1.6-lite, "
+                                "independentemente do modelo solicitado.\n\n"
+                                "Para usar manus-1.6 ou manus-1.6-max, é necessário um plano pago na Manus. "
+                                "Essa restrição é do servidor e não pode ser contornada pelo aplicativo.",
+                            )
+                        else:
+                            messagebox.showinfo(
+                                "Modelo alterado no servidor",
+                                f"Modelo aplicado no servidor do Manus: {modelo_conf}\n"
+                                f"Tarefa: {novo_id}\n\n"
+                                "A coluna 'Modelo em uso' foi atualizada com o valor real do servidor.",
+                            )
                     except Exception:
                         pass
 
