@@ -4042,17 +4042,33 @@ class ManusGui(tk.Tk):
         self.executar_thread(worker)
 
     def abrir_janela_creditos_todas_chaves(self, linhas: List[Dict[str, Any]]):
-        """Mostra uma janela com o saldo de crédito de todas as chaves consultadas."""
+        """
+        Mostra uma janela com o saldo de crédito de todas as chaves consultadas.
+
+        Os campos da tabela são EDITÁVEIS: dê um duplo clique (ou tecle F2/Enter)
+        sobre qualquer célula da linha para alterar o valor.
+        - Enter confirma a edição.
+        - Esc cancela.
+        - Ao sair do campo (clicar fora), a alteração também é confirmada.
+        A soma dos créditos é recalculada automaticamente após cada edição.
+        """
         janela = tk.Toplevel(self)
         janela.title("Créditos de todas as APIKEYs")
-        janela.geometry("1180x520")
-        janela.minsize(900, 380)
+        janela.geometry("1180x560")
+        janela.minsize(900, 400)
         janela.columnconfigure(0, weight=1)
-        janela.rowconfigure(0, weight=1)
+        janela.rowconfigure(1, weight=1)
+
+        ttk.Label(
+            janela,
+            text=("Dica: dê um duplo clique (ou tecle F2 / Enter) em um campo para editá-lo. "
+                  "Enter confirma, Esc cancela."),
+            style="Status.TLabel",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=10, pady=(10, 0))
 
         cols = ("idx", "key", "ok", "total", "detail")
         tree = ttk.Treeview(janela, columns=cols, show="headings", height=16)
-        tree.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        tree.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
 
         cfg = {
             "idx": ("#", 50),
@@ -4066,7 +4082,7 @@ class ManusGui(tk.Tk):
             tree.column(col, width=width, anchor="w")
 
         scroll_y = ttk.Scrollbar(janela, orient="vertical", command=tree.yview)
-        scroll_y.grid(row=0, column=1, sticky="ns", pady=10)
+        scroll_y.grid(row=1, column=1, sticky="ns", pady=10)
         tree.configure(yscrollcommand=scroll_y.set)
 
         for row in linhas:
@@ -4083,22 +4099,175 @@ class ManusGui(tk.Tk):
             )
 
         rodape = ttk.Frame(janela, padding=(10, 0, 10, 10))
-        rodape.grid(row=1, column=0, columnspan=2, sticky="ew")
+        rodape.grid(row=2, column=0, columnspan=2, sticky="ew")
 
-        total_ok = sum(1 for r in linhas if r.get("ok"))
-        soma = 0
-        for r in linhas:
+        resumo_var = tk.StringVar()
+
+        def recalcular_resumo():
+            filhos = tree.get_children()
+            total_ok = 0
+            soma = 0
+            for iid in filhos:
+                vals = tree.item(iid, "values")
+                try:
+                    if str(vals[2]).strip().upper() in ("SIM", "YES", "OK", "TRUE", "1"):
+                        total_ok += 1
+                except Exception:
+                    pass
+                try:
+                    soma += int(float(str(vals[3]).strip()))
+                except Exception:
+                    pass
+            resumo_var.set(
+                f"Consulta finalizada: {total_ok}/{len(filhos)} chave(s) OK. "
+                f"Soma dos saldos consultados: {soma} crédito(s)."
+            )
+
+        recalcular_resumo()
+
+        # ===== Editor inline: um Entry sobreposto à célula selecionada =====
+        editor: Dict[str, Any] = {"entry": None, "iid": None, "col": None}
+
+        def cancelar_editor(event=None):
+            e = editor.get("entry")
+            if e is not None:
+                try:
+                    e.destroy()
+                except Exception:
+                    pass
+            editor["entry"] = None
+            editor["iid"] = None
+            editor["col"] = None
+
+        def confirmar_editor(event=None):
+            e = editor.get("entry")
+            iid = editor.get("iid")
+            col = editor.get("col")
+            if e is None or not iid or not col:
+                cancelar_editor()
+                return
             try:
-                soma += int(r.get("total") or 0)
+                novo_valor = e.get()
+            except Exception:
+                cancelar_editor()
+                return
+            try:
+                idx_col = int(str(col).replace("#", "")) - 1
+                vals = list(tree.item(iid, "values"))
+                if 0 <= idx_col < len(vals):
+                    vals[idx_col] = novo_valor
+                    tree.item(iid, values=vals)
             except Exception:
                 pass
+            cancelar_editor()
+            recalcular_resumo()
 
-        ttk.Label(
-            rodape,
-            text=f"Consulta finalizada: {total_ok}/{len(linhas)} chave(s) OK. Soma dos saldos consultados: {soma} crédito(s).",
-        ).pack(side="left")
+        def iniciar_edicao(iid, col):
+            cancelar_editor()
+            if not iid or not col:
+                return
+            try:
+                bbox = tree.bbox(iid, col)
+            except Exception:
+                bbox = None
+            if not bbox:
+                return
+            x, y, w, h = bbox
+            if not w:
+                return
+            try:
+                idx_col = int(str(col).replace("#", "")) - 1
+                vals = tree.item(iid, "values")
+                valor_atual = vals[idx_col] if 0 <= idx_col < len(vals) else ""
+            except Exception:
+                valor_atual = ""
+            e = ttk.Entry(tree)
+            e.place(x=x, y=y, width=w, height=h)
+            e.insert(0, str(valor_atual))
+            e.select_range(0, "end")
+            e.focus_set()
+            e.bind("<Return>", confirmar_editor)
+            e.bind("<KP_Enter>", confirmar_editor)
+            e.bind("<Escape>", cancelar_editor)
+            e.bind("<FocusOut>", confirmar_editor)
+            editor["entry"] = e
+            editor["iid"] = iid
+            editor["col"] = col
+
+        def ao_duplo_clique(event):
+            try:
+                if tree.identify_region(event.x, event.y) != "cell":
+                    return
+                iid = tree.identify_row(event.y)
+                col = tree.identify_column(event.x)
+            except Exception:
+                return
+            iniciar_edicao(iid, col)
+
+        def editar_selecionada(event=None):
+            iid = tree.focus()
+            if not iid:
+                sel = tree.selection()
+                iid = sel[0] if sel else ""
+            if iid:
+                # Por padrão edita a coluna "Detalhes" (a mais usada).
+                iniciar_edicao(iid, "#5")
+            return "break"
+
+        tree.bind("<Double-1>", ao_duplo_clique)
+        tree.bind("<F2>", editar_selecionada)
+        tree.bind("<Return>", editar_selecionada)
+
+        # ===== Ações auxiliares de edição da tabela =====
+        def adicionar_linha():
+            cancelar_editor()
+            novo = tree.insert("", "end", values=(len(tree.get_children()) + 1, "", "NÃO", 0, ""))
+            tree.selection_set(novo)
+            tree.focus(novo)
+            tree.see(novo)
+            recalcular_resumo()
+
+        def remover_selecionada():
+            cancelar_editor()
+            selecionados = tree.selection()
+            if not selecionados:
+                messagebox.showinfo("Informação", "Selecione uma linha para remover.", parent=janela)
+                return
+            for iid in selecionados:
+                tree.delete(iid)
+            recalcular_resumo()
+
+        def salvar_alteracoes():
+            confirmar_editor()
+            dados = []
+            for iid in tree.get_children():
+                vals = tree.item(iid, "values")
+                dados.append({
+                    "idx": vals[0] if len(vals) > 0 else "",
+                    "key_mascarada": vals[1] if len(vals) > 1 else "",
+                    "ok": vals[2] if len(vals) > 2 else "",
+                    "total": vals[3] if len(vals) > 3 else "",
+                    "detail": vals[4] if len(vals) > 4 else "",
+                })
+            try:
+                SESSION_EXPORT_DIR.mkdir(exist_ok=True)
+                destino = SESSION_EXPORT_DIR / ("creditos_editados_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".json")
+                escrever_json_atomico(destino, {"salvo_em": agora_iso(), "linhas": dados})
+                try:
+                    self.enfileirar_backup(destino)
+                except Exception:
+                    pass
+                self.log(f"[CRÉDITOS] Alterações da tabela salvas em: {destino}\n")
+                messagebox.showinfo("Salvo", f"Alterações salvas em:\n{destino}", parent=janela)
+            except Exception as e:
+                messagebox.showerror("Erro", str(e), parent=janela)
+
+        ttk.Label(rodape, textvariable=resumo_var).pack(side="left")
 
         ttk.Button(rodape, text="Fechar", command=janela.destroy).pack(side="right")
+        ttk.Button(rodape, text="Salvar alterações", command=salvar_alteracoes).pack(side="right", padx=6)
+        ttk.Button(rodape, text="Remover linha", command=remover_selecionada).pack(side="right", padx=6)
+        ttk.Button(rodape, text="Adicionar linha", command=adicionar_linha).pack(side="right", padx=6)
 
     def estado_atual_para_checkpoint(self, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
