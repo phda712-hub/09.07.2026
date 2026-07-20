@@ -70,6 +70,7 @@ import mimetypes
 import os
 import queue
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -110,6 +111,16 @@ except Exception:
     ImageGrab = None  # type: ignore
     Image = None  # type: ignore
     PIL_DISPONIVEL = False
+
+# pywebview é opcional: usado para abrir páginas do Manus (login, planos, trial,
+# gerar API key) dentro de uma JANELA EMBUTIDA no próprio app, sem abrir o
+# navegador externo. Se não estiver instalado, o app usa o navegador padrão.
+try:
+    import webview  # type: ignore
+    WEBVIEW_DISPONIVEL = True
+except Exception:
+    webview = None  # type: ignore
+    WEBVIEW_DISPONIVEL = False
 
 # Driver MySQL opcional (cache/persistência das conversas e respostas).
 # Tenta PyMySQL (puro Python, ideal para 32 bits/PyInstaller); se não houver,
@@ -2704,6 +2715,12 @@ class ManusGui(tk.Tk):
         self.notebook.add(self.api_tab, text="Central da API Manus")
         self.construir_aba_api_manus()
 
+        # Conta / Planos: abre login, planos, trial e geração de chave em uma
+        # janela EMBUTIDA no próprio app (pywebview), sem navegador externo.
+        self.conta_tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(self.conta_tab, text="Conta / Planos")
+        self.construir_aba_conta_planos()
+
         # ============================================================
         # ABA CONFIGURAÇÃO / IDS
         # ============================================================
@@ -4353,6 +4370,127 @@ class ManusGui(tk.Tk):
             self.msg("credit_all_result", linhas)
 
         self.executar_thread(worker)
+
+    def abrir_janela_manus_embutida(self, url: str = "https://manus.im", titulo: str = "Manus - Conta e Planos"):
+        """
+        Abre uma página do Manus dentro de uma JANELA EMBUTIDA do app (pywebview),
+        em um processo separado (para não conflitar com o mainloop do Tkinter).
+
+        Se o pywebview não estiver instalado, oferece abrir no navegador padrão.
+        """
+        url = (url or "").strip() or "https://manus.im"
+        if not url.lower().startswith(("http://", "https://")):
+            url = "https://" + url
+
+        if not WEBVIEW_DISPONIVEL:
+            if messagebox.askyesno(
+                "Janela embutida indisponível",
+                "A janela embutida precisa da biblioteca 'pywebview'.\n\n"
+                "Instale com:\n"
+                "python -m pip install pywebview\n\n"
+                "(no Windows ela usa o WebView2/Edge, já presente na maioria dos sistemas)\n\n"
+                "Deseja abrir no navegador padrão por enquanto?",
+            ):
+                try:
+                    webbrowser.open(url)
+                except Exception as e:
+                    messagebox.showerror("Erro", str(e))
+            return
+
+        try:
+            if getattr(sys, "frozen", False):
+                # App empacotado (.exe): o próprio executável entende --webview.
+                cmd = [sys.executable, "--webview", url, "--webview-title", titulo]
+            else:
+                cmd = [sys.executable, os.path.abspath(__file__), "--webview", url, "--webview-title", titulo]
+            subprocess.Popen(cmd)
+            self.definir_status(f"Janela embutida aberta: {url}")
+            self.log(f"[WEBVIEW] Janela embutida aberta para {url}\n")
+        except Exception as e:
+            messagebox.showerror("Erro ao abrir janela embutida", str(e))
+            try:
+                webbrowser.open(url)
+            except Exception:
+                pass
+
+    def construir_aba_conta_planos(self):
+        """
+        Aba de Conta / Planos: abre login, planos, trial e geração de API key
+        do Manus dentro de uma janela EMBUTIDA no app (sem navegador externo).
+
+        Observação: cadastro, login e pagamento acontecem na página segura do
+        Manus (não há API pública para isso); aqui apenas embutimos essa página
+        numa janela do próprio aplicativo.
+        """
+        tab = self.conta_tab
+        tab.columnconfigure(0, weight=1)
+
+        # ----- Info de planos -----
+        info = ttk.LabelFrame(tab, text="Planos do Manus (para experimentar / assinar)", padding=12)
+        info.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        info.columnconfigure(0, weight=1)
+        ttk.Label(
+            info,
+            text=(
+                "• FREE ($0): 1.000 créditos iniciais no cadastro + 300 créditos/dia (precisa logar todo dia; "
+                "não acumulam). Só roda o modelo manus-1.6-lite.\n"
+                "• PRO: a partir de ~$20/mês (4.000 créditos), ~$40/mês (8.000, com TRIAL de 7 dias) e ~$200/mês (40.000). "
+                "Libera manus-1.6 e manus-1.6-max.\n"
+                "• Valores podem mudar — confirme sempre na página oficial (aberta aqui na janela embutida)."
+            ),
+            justify="left",
+            wraplength=1150,
+        ).grid(row=0, column=0, sticky="w")
+
+        status = "pywebview: INSTALADO (janela embutida disponível)" if WEBVIEW_DISPONIVEL else \
+            "pywebview: NÃO instalado — os botões vão perguntar se quer abrir no navegador. Instale com: python -m pip install pywebview"
+        ttk.Label(info, text=status, style=("Success.TLabel" if WEBVIEW_DISPONIVEL else "Warn.TLabel")).grid(row=1, column=0, sticky="w", pady=(8, 0))
+
+        # ----- Atalhos rápidos (janela embutida) -----
+        atalhos = ttk.LabelFrame(tab, text="Abrir no app (janela embutida)", padding=12)
+        atalhos.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+
+        ttk.Button(
+            atalhos, text="Entrar / Criar conta",
+            command=lambda: self.abrir_janela_manus_embutida("https://manus.im/login", "Manus - Login / Cadastro"),
+        ).pack(side="left", padx=(0, 6), pady=2)
+        ttk.Button(
+            atalhos, text="Planos / Assinar / Trial",
+            command=lambda: self.abrir_janela_manus_embutida("https://manus.im/subscription", "Manus - Planos e Assinatura"),
+        ).pack(side="left", padx=6, pady=2)
+        ttk.Button(
+            atalhos, text="Configurações de API (gerar chave)",
+            command=lambda: self.abrir_janela_manus_embutida("https://manus.im/settings/api", "Manus - API Keys"),
+        ).pack(side="left", padx=6, pady=2)
+        ttk.Button(
+            atalhos, text="Abrir Manus (início)",
+            command=lambda: self.abrir_janela_manus_embutida("https://manus.im", "Manus"),
+        ).pack(side="left", padx=6, pady=2)
+
+        # ----- URL livre -----
+        livre = ttk.LabelFrame(tab, text="Abrir uma URL específica do Manus na janela embutida", padding=12)
+        livre.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        livre.columnconfigure(0, weight=1)
+        self.conta_url_var = tk.StringVar(value="https://manus.im")
+        ttk.Entry(livre, textvariable=self.conta_url_var).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        ttk.Button(
+            livre, text="Abrir na janela embutida",
+            command=lambda: self.abrir_janela_manus_embutida(self.conta_url_var.get(), "Manus"),
+        ).grid(row=0, column=1)
+
+        # ----- Aviso -----
+        ttk.Label(
+            tab,
+            text=(
+                "Importante: login, cadastro e PAGAMENTO acontecem na página segura do Manus (via Stripe). "
+                "A janela embutida apenas mostra essa página dentro do app — não há API pública para pagar/ativar "
+                "trial por conta própria. Depois de ativar o plano, gere/atualize sua APIKEY e cole na aba "
+                "'Configuração / IDs'. Se alguma URL não abrir direto, use o botão 'Abrir Manus (início)' e navegue."
+            ),
+            style="Warn.TLabel",
+            wraplength=1180,
+            justify="left",
+        ).grid(row=3, column=0, sticky="w", pady=(6, 0))
 
     def construir_aba_api_manus(self):
         """
@@ -9704,6 +9842,31 @@ class ManusGui(tk.Tk):
             self.destroy()
 
 
+def run_webview(url: str, titulo: str = "Manus") -> int:
+    """
+    Abre uma JANELA EMBUTIDA (pywebview) com a URL informada.
+
+    Roda em um PROCESSO separado (chamado com --webview), pois o pywebview
+    precisa da thread principal e não pode coexistir com o mainloop do Tkinter.
+    O login e o pagamento acontecem na própria página segura do Manus, mas
+    exibidos dentro de uma janela do aplicativo (sem navegador externo).
+    """
+    if not WEBVIEW_DISPONIVEL:
+        print(
+            "A janela embutida precisa da biblioteca 'pywebview'.\n"
+            "Instale com: python -m pip install pywebview",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        webview.create_window(titulo or "Manus", url, width=1180, height=820, resizable=True)
+        webview.start()
+        return 0
+    except Exception as e:
+        print(f"[WEBVIEW/ERRO] {e}", file=sys.stderr)
+        return 1
+
+
 def run_gui():
     app = ManusGui()
     app.mainloop()
@@ -9723,11 +9886,17 @@ def parse_args():
     p.add_argument("--no-download", action="store_true", help="Desativa download automático de anexos/links.")
     p.add_argument("--list-completed", action="store_true", help="Lista tarefas concluídas no terminal e sai.")
     p.add_argument("--completed-pages", type=int, default=5, help="Quantidade de páginas da API para varrer ao listar concluídas.")
+    p.add_argument("--webview", default="", help="Abre uma janela embutida (pywebview) com a URL informada e sai.")
+    p.add_argument("--webview-title", default="Manus", help="Título da janela embutida aberta com --webview.")
     return p.parse_args()
 
 
 def main():
     args = parse_args()
+
+    # Modo janela embutida: abre a página do Manus em uma janela pywebview e sai.
+    if args.webview:
+        return run_webview(args.webview, args.webview_title)
 
     if args.list_completed:
         try:
