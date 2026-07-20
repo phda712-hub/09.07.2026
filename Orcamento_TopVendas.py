@@ -77,7 +77,8 @@ DEFAULT_CONFIG = {
     "empresa_nome": "TopVendas",
     "validade_dias": 7,
     "somente_ativos": True,
-    "impressora": ""
+    "impressora": "",
+    "fbclient": ""   # caminho do fbclient.dll (vazio = localizar automaticamente)
 }
 
 CLIENTE_PADRAO = "CLIENTE NAO INFORMADO"
@@ -180,6 +181,73 @@ class Database:
     def __init__(self, config):
         self.config = config
         self.con = None
+        self.fbclient_usado = None   # caminho do fbclient.dll efetivamente usado
+
+    def localizar_fbclient(self):
+        """Procura o fbclient.dll / fbembed.dll (biblioteca cliente do Firebird)
+        em varios locais comuns. Retorna o caminho encontrado ou None."""
+        import glob
+
+        # 1) Caminho informado manualmente na configuracao
+        cfg_path = (self.config.get("fbclient") or "").strip()
+        if cfg_path and os.path.exists(cfg_path):
+            return cfg_path
+
+        candidatos = []
+        database = (self.config.get("database") or "").strip()
+        dbdir = os.path.dirname(database) if database else ""
+
+        # 2) Perto do banco de dados e da raiz do TopVendas
+        if dbdir:
+            candidatos += [
+                os.path.join(dbdir, "fbclient.dll"),
+                os.path.join(dbdir, "fbembed.dll"),
+            ]
+            parent = os.path.dirname(dbdir)  # ex.: C:\Topvendas
+            if parent:
+                candidatos += [
+                    os.path.join(parent, "fbclient.dll"),
+                    os.path.join(parent, "fbembed.dll"),
+                    os.path.join(parent, "bin", "fbclient.dll"),
+                    os.path.join(parent, "Firebird", "fbclient.dll"),
+                    os.path.join(parent, "Firebird", "bin", "fbclient.dll"),
+                ]
+
+        # 3) Ao lado do proprio programa (.py/.exe)
+        candidatos += [
+            os.path.join(APP_DIR, "fbclient.dll"),
+            os.path.join(APP_DIR, "fbembed.dll"),
+        ]
+
+        # 4) Instalacoes padrao do Firebird
+        for base in (r"C:\Program Files\Firebird",
+                     r"C:\Program Files (x86)\Firebird"):
+            candidatos += glob.glob(os.path.join(base, "*", "bin", "fbclient.dll"))
+            candidatos += glob.glob(os.path.join(base, "*", "fbclient.dll"))
+
+        # 5) Diretorios do Windows
+        candidatos += [
+            r"C:\Windows\System32\fbclient.dll",
+            r"C:\Windows\SysWOW64\fbclient.dll",
+            r"C:\Windows\System32\gds32.dll",
+            r"C:\Windows\SysWOW64\gds32.dll",
+        ]
+
+        for c in candidatos:
+            if c and os.path.exists(c):
+                return c
+
+        # 6) Ultimo recurso: busca recursiva na pasta do TopVendas
+        for base in {dbdir and os.path.dirname(dbdir), r"C:\Topvendas"}:
+            if base and os.path.isdir(base):
+                try:
+                    for raiz, _dirs, arquivos in os.walk(base):
+                        for f in arquivos:
+                            if f.lower() in ("fbclient.dll", "fbembed.dll"):
+                                return os.path.join(raiz, f)
+                except Exception:
+                    pass
+        return None
 
     def connect(self):
         if not HAS_FDB:
@@ -194,12 +262,20 @@ class Database:
             dsn = f"{host}:{database}"
         else:
             dsn = database
-        self.con = fdb.connect(
+
+        kwargs = dict(
             dsn=dsn,
             user=self.config.get("user", "SYSDBA"),
             password=self.config.get("password", "masterkey"),
             charset=self.config.get("charset", "WIN1252"),
         )
+        # Localiza o fbclient.dll e informa explicitamente ao fdb, evitando o
+        # erro "The location of Firebird Client Library could not be determined"
+        lib = self.localizar_fbclient()
+        if lib:
+            kwargs["fb_library_name"] = lib
+            self.fbclient_usado = lib
+        self.con = fdb.connect(**kwargs)
         return self.con
 
     def close(self):
@@ -740,16 +816,34 @@ class OrcamentoApp:
             self._render_produtos()
         except Exception as e:
             self.lbl_conn.config(text="Sem conexao", fg="#FF9B9B")
+            import struct
+            bits = struct.calcsize("P") * 8
+            achou = self.db.localizar_fbclient()
+            msg_lib = (f"fbclient.dll encontrado em:\n   {achou}"
+                       if achou else
+                       "fbclient.dll NAO foi localizado automaticamente.")
+            detalhe = str(e)
+            dica_lib = ""
+            if "Client Library" in detalhe or not achou:
+                dica_lib = (
+                    "\n>>> PROBLEMA DA BIBLIOTECA CLIENTE (fbclient.dll) <<<\n"
+                    f"- {msg_lib}\n"
+                    "- Informe o caminho do fbclient.dll na ENGRENAGEM (Config),\n"
+                    "  campo 'fbclient.dll'. Ele costuma estar em C:\\Topvendas\\\n"
+                    "  ou em C:\\Program Files\\Firebird\\...\\bin\\fbclient.dll\n"
+                    f"- ATENCAO: seu Python e de {bits} bits. O fbclient.dll PRECISA\n"
+                    f"  ser tambem de {bits} bits (32 com 32, 64 com 64).\n")
             messagebox.showerror(
                 "Erro de Conexao",
                 "Nao foi possivel conectar ao banco de dados Firebird.\n\n"
-                f"Caminho: {self.config.get('host')}:{self.config.get('database')}\n\n"
-                "VERIFIQUE:\n"
+                f"Caminho: {self.config.get('host')}:{self.config.get('database')}\n"
+                f"{dica_lib}\n"
+                "VERIFIQUE TAMBEM:\n"
                 "1. O servico do Firebird esta em execucao\n"
                 "2. O caminho do banco esta correto\n"
                 "3. Usuario/senha (padrao: SYSDBA/masterkey)\n"
                 "4. A biblioteca 'fdb' esta instalada (pip install fdb)\n\n"
-                f"Detalhe tecnico:\n{e}")
+                f"Detalhe tecnico:\n{detalhe}")
 
     def _render_grupos(self):
         for w in self.frame_grupos.winfo_children():
@@ -1359,7 +1453,7 @@ class OrcamentoApp:
     def _abrir_config(self):
         dlg = tk.Toplevel(self.root)
         dlg.title("Configuracao de Conexao")
-        dlg.geometry("480x430")
+        dlg.geometry("560x520")
         dlg.configure(bg="#FFFFFF")
         dlg.transient(self.root)
         dlg.grab_set()
@@ -1376,6 +1470,7 @@ class OrcamentoApp:
             ("Usuario", "user"),
             ("Senha", "password"),
             ("Charset", "charset"),
+            ("fbclient.dll (opcional)", "fbclient"),
             ("Nome Empresa", "empresa_nome"),
             ("Validade (dias)", "validade_dias"),
             ("Impressora (opcional)", "impressora"),
@@ -1384,12 +1479,49 @@ class OrcamentoApp:
         for i, (label, key) in enumerate(campos):
             tk.Label(frm, text=label + ":", bg="#FFFFFF", fg=COR_TEXTO,
                      font=("Segoe UI", 10)).grid(row=i, column=0, sticky="w", pady=3)
-            e = tk.Entry(frm, font=("Segoe UI", 10), width=34, relief="solid", bd=1)
+            largura = 26 if key == "fbclient" else 34
+            e = tk.Entry(frm, font=("Segoe UI", 10), width=largura,
+                         relief="solid", bd=1)
             e.insert(0, str(self.config.get(key, "")))
             if key == "password":
                 e.config(show="*")
             e.grid(row=i, column=1, sticky="w", padx=6, pady=3, ipady=2)
             entries[key] = e
+
+            if key == "fbclient":
+                def _procurar_dll(ent=e):
+                    cam = filedialog.askopenfilename(
+                        parent=dlg, title="Selecione o fbclient.dll",
+                        filetypes=[("DLL", "*.dll"), ("Todos", "*.*")])
+                    if cam:
+                        ent.delete(0, tk.END)
+                        ent.insert(0, cam)
+
+                def _detectar(ent=e):
+                    cfg = dict(self.config)
+                    cfg["fbclient"] = ""
+                    achou = Database(cfg).localizar_fbclient()
+                    if achou:
+                        ent.delete(0, tk.END)
+                        ent.insert(0, achou)
+                        messagebox.showinfo("fbclient.dll",
+                                            f"Encontrado:\n{achou}", parent=dlg)
+                    else:
+                        messagebox.showwarning(
+                            "fbclient.dll",
+                            "Nao localizei o fbclient.dll automaticamente.\n"
+                            "Use 'Procurar' para apontar o arquivo.", parent=dlg)
+
+                bfrm = tk.Frame(frm, bg="#FFFFFF")
+                bfrm.grid(row=i, column=2, sticky="w")
+                tk.Button(bfrm, text="Procurar", command=_procurar_dll,
+                          bg=COR_CINZA_BTN, fg=COR_NAVY, relief="flat",
+                          font=("Segoe UI", 8, "bold"),
+                          cursor="hand2").pack(side="left", padx=(4, 2))
+                tk.Button(bfrm, text="Detectar", command=_detectar,
+                          bg=COR_CINZA_BTN, fg=COR_NAVY, relief="flat",
+                          font=("Segoe UI", 8, "bold"),
+                          cursor="hand2").pack(side="left")
 
         var_ativos = tk.BooleanVar(value=self.config.get("somente_ativos", True))
         tk.Checkbutton(frm, text="Mostrar somente produtos ativos",

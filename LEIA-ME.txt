@@ -50,4 +50,26 @@ ajuste os dados, use "Testar" e depois "Salvar".
 
 Tabelas usadas: THOSPEDES (clientes), TPRODUTOS (produtos),
 TGRUPOS_PRODUTOS (grupos de produtos).
+
+--------------------------------------------------------------------------------
+5) ERRO: "The location of Firebird Client Library could not be determined"
+--------------------------------------------------------------------------------
+Isso significa que o Python nao encontrou o fbclient.dll (biblioteca cliente
+do Firebird). O programa agora tenta localizar sozinho, mas se ainda falhar:
+
+ a) Abra a ENGRENAGEM (canto superior direito) -> campo "fbclient.dll":
+    - Clique em "Detectar" (procura automatica) ou "Procurar" (aponte o arquivo).
+    - O fbclient.dll geralmente esta em:
+         C:\Topvendas\fbclient.dll   (ou dentro de subpasta do Topvendas)
+         C:\Program Files\Firebird\Firebird_2_5\bin\fbclient.dll
+    - Clique em "Testar" e depois "Salvar".
+
+ b) IMPORTANTE - 32 x 64 BITS:
+    O fbclient.dll PRECISA ter a mesma arquitetura do seu Python.
+    - O TopVendas normalmente e 32 bits, entao o fbclient.dll dele e 32 bits.
+    - Nesse caso, use PYTHON 32 BITS (ou gere o .exe com Python 32 bits).
+    - Python 64 bits + fbclient.dll 32 bits = NAO funciona (e vice-versa).
+
+ c) Verifique se o servico do Firebird esta em execucao (services.msc ->
+    "Firebird Server" / "FirebirdGuardian").
 ================================================================================
