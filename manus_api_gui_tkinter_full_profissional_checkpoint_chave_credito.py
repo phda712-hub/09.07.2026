@@ -1248,6 +1248,28 @@ class ManusAPI:
 
         return "--"
 
+    def task_detail(self, task_id: str) -> Dict[str, Any]:
+        """Detalhes de uma tarefa específica (inclui o campo agent_profile)."""
+        return self.request("GET", "/v2/task.detail", params={"task_id": task_id})
+
+    def model_of_task(self, task_id: str) -> str:
+        """
+        Lê o modelo (agent_profile) de UMA tarefa específica direto do servidor
+        via /v2/task.detail. Retorna '' quando não disponível.
+        """
+        try:
+            data = self.task_detail(task_id)
+        except Exception:
+            return ""
+        t = data.get("task") if isinstance(data, dict) else {}
+        if not isinstance(t, dict):
+            return ""
+        for campo in ("agent_profile", "agentProfile", "model", "profile"):
+            valor = t.get(campo)
+            if valor:
+                return str(valor)
+        return ""
+
     def list_completed_tasks(self, max_pages: int = 5, scope: str = "all") -> List[Dict[str, Any]]:
         concluidas: List[Dict[str, Any]] = []
         cursor = ""
@@ -4606,16 +4628,35 @@ class ManusGui(tk.Tk):
                         data = api.create_task(prompt, novo_modelo, titulo)
                         novo_id = data.get("task_id") or ""
 
-                    # 3) Reconsulta o modelo agora vigente no servidor para confirmar.
-                    try:
-                        modelo_conf = api.current_model()
-                    except Exception:
+                    # 3) POLLING: o servidor aplica o modelo no próximo turno, então
+                    #    o valor não muda instantaneamente. Consultamos a tarefa
+                    #    específica (task.detail) repetidamente até o servidor
+                    #    confirmar o modelo pedido (ou esgotar ~30s).
+                    modelo_conf = ""
+                    alvo = str(novo_modelo).strip()
+                    tentativas = 15  # 15 x 2s = ~30s
+                    for i in range(tentativas):
+                        try:
+                            if novo_id:
+                                m = api.model_of_task(novo_id)
+                            else:
+                                m = api.current_model()
+                        except Exception:
+                            m = ""
+                        if m:
+                            modelo_conf = m
+                            if str(m).strip() == alvo:
+                                break
+                        self.msg("log", f"[MODELO] Aguardando o servidor aplicar '{alvo}'... (leitura atual: '{m or '--'}', tentativa {i + 1}/{tentativas})\n")
+                        time.sleep(2)
+
+                    if not modelo_conf:
                         modelo_conf = novo_modelo
 
                     self.msg(
                         "modelo_alterado_servidor",
                         janela, tree, iid,
-                        (modelo_conf or novo_modelo),
+                        modelo_conf,
                         novo_id,
                         novo_modelo,
                     )
@@ -5434,14 +5475,20 @@ class ManusGui(tk.Tk):
                         )
                         if rebaixou:
                             messagebox.showwarning(
-                                "Modelo aplicado, mas o servidor rebaixou",
+                                "Modelo ainda não confirmado como o pedido",
                                 f"Você pediu: {modelo_pedido}\n"
-                                f"O servidor do Manus aplicou: {modelo_conf}\n\n"
-                                "Isso normalmente acontece em CONTAS PESSOAIS GRATUITAS, que a "
-                                "Manus rebaixa automaticamente para manus-1.6-lite, "
-                                "independentemente do modelo solicitado.\n\n"
-                                "Para usar manus-1.6 ou manus-1.6-max, é necessário um plano pago na Manus. "
-                                "Essa restrição é do servidor e não pode ser contornada pelo aplicativo.",
+                                f"O servidor ainda reporta: {modelo_conf}\n\n"
+                                "Possíveis causas:\n"
+                                "1) PROPAGAÇÃO: o override entra em vigor no próximo turno da tarefa. "
+                                "Pode levar alguns segundos até o servidor refletir. Feche e reabra "
+                                "'Créditos de todas as chaves' (ou clique de novo em 'Aplicar modelo') "
+                                "para reconsultar.\n\n"
+                                "2) PLANO/CHAVE: confirme que ESTA APIKEY pertence à conta com plano pago. "
+                                "Contas gratuitas são rebaixadas para manus-1.6-lite pelo servidor.\n\n"
+                                "3) A tarefa usada como base pode estar finalizada; nesse caso o override "
+                                "só aparece após um novo turno processar.\n\n"
+                                "Se você tem plano pago nesta chave e o valor não muda mesmo após reabrir, "
+                                "me avise que eu ajusto a estratégia (ex.: criar uma tarefa nova já no modelo).",
                             )
                         else:
                             messagebox.showinfo(
