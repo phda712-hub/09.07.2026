@@ -4193,10 +4193,18 @@ class ManusGui(tk.Tk):
         edicoes_por_chave = persistidos.get("por_chave", {}) or {}
         edicoes_extras = persistidos.get("extras", []) or []
         chaves_api_mascaradas = set()
+        # Mapa: APIKEY mascarada (exibida) -> APIKEY real. Necessário para poder
+        # aplicar a troca de modelo no servidor usando a chave correta.
+        mapa_chave_real: Dict[str, str] = {}
 
         for row in linhas:
             mk = mascarar_chave_api(row.get("key"))
             chaves_api_mascaradas.add(mk)
+            try:
+                if row.get("key"):
+                    mapa_chave_real[mk] = str(row.get("key"))
+            except Exception:
+                pass
 
             ok_val = "SIM" if row.get("ok") else "NÃO"
             total_val = row.get("total")
@@ -4240,7 +4248,7 @@ class ManusGui(tk.Tk):
             )
 
         rodape = ttk.Frame(janela, padding=(10, 0, 10, 10))
-        rodape.grid(row=2, column=0, columnspan=2, sticky="ew")
+        rodape.grid(row=3, column=0, columnspan=2, sticky="ew")
 
         resumo_var = tk.StringVar()
 
@@ -4481,6 +4489,101 @@ class ManusGui(tk.Tk):
                 parent=janela,
             )
             janela.destroy()
+
+        # ===== Alterar o MODELO diretamente NO SERVIDOR do Manus =====
+        # Na API oficial, o modelo (agent_profile) é definido por TAREFA em
+        # task.create. Não há endpoint para trocar o modelo de uma tarefa
+        # existente nem um "modelo padrão da conta". Portanto, a forma real de
+        # mudar o modelo no servidor é criar uma nova tarefa com o modelo
+        # escolhido — o que faz a coluna "Modelo em uso" passar a refleti-lo.
+        modelo_frame = ttk.LabelFrame(
+            janela,
+            text="Alterar modelo diretamente no servidor do Manus (aplica na conta da chave selecionada)",
+            padding=(10, 6),
+        )
+        modelo_frame.grid(row=2, column=0, columnspan=2, sticky="ew", padx=10, pady=(0, 6))
+
+        ttk.Label(modelo_frame, text="Modelo:").pack(side="left", padx=(0, 6))
+        modelo_var = tk.StringVar(value="manus-1.6-lite")
+        ttk.Combobox(
+            modelo_frame,
+            textvariable=modelo_var,
+            values=["manus-1.6-lite", "manus-1.6", "manus-1.6-max"],
+            state="readonly",
+            width=18,
+        ).pack(side="left", padx=(0, 10))
+
+        def alterar_modelo_no_servidor():
+            confirmar_editor()
+            sel = tree.selection()
+            if not sel:
+                messagebox.showinfo(
+                    "Informação",
+                    "Selecione a linha da APIKEY cujo modelo você quer alterar no servidor.",
+                    parent=janela,
+                )
+                return
+            iid = sel[0]
+            vals = tree.item(iid, "values")
+            mk = str(vals[1]).strip() if len(vals) > 1 else ""
+            real_key = mapa_chave_real.get(mk, "")
+            if not real_key:
+                messagebox.showerror(
+                    "APIKEY não identificada",
+                    "Não foi possível obter a APIKEY real desta linha.\n\n"
+                    "Só é possível alterar o modelo no servidor de linhas vindas de uma "
+                    "chave consultada (não de linhas adicionadas manualmente).",
+                    parent=janela,
+                )
+                return
+            novo_modelo = (modelo_var.get() or "").strip()
+            if not novo_modelo:
+                messagebox.showinfo("Informação", "Escolha um modelo.", parent=janela)
+                return
+
+            if not messagebox.askyesno(
+                "Alterar modelo no servidor do Manus",
+                "Isto aplica o modelo escolhido DIRETAMENTE no servidor do Manus, "
+                "criando uma nova tarefa na conta dessa APIKEY com o modelo:\n\n"
+                f"    {novo_modelo}\n\n"
+                "Depois disso, a coluna 'Modelo em uso' passará a refletir esse modelo "
+                "(pois ela lê a tarefa mais recente da conta no servidor).\n\n"
+                "OBS.: a API do Manus só permite definir o modelo ao criar uma tarefa; "
+                "criar essa tarefa pode consumir créditos da conta.\n\nContinuar?",
+                parent=janela,
+            ):
+                return
+
+            self.definir_status(f"Alterando modelo no servidor para {novo_modelo}...")
+            self.log(f"[MODELO] Solicitando troca de modelo no servidor para {novo_modelo} (chave {mk}).\n")
+
+            def worker():
+                try:
+                    api = ManusAPI(real_key)
+                    titulo = titulo_nova_tarefa()
+                    prompt = (
+                        "Definição do modelo da conta pelo aplicativo. "
+                        "Responda apenas com 'OK' e não execute nenhuma outra ação."
+                    )
+                    data = api.create_task(prompt, novo_modelo, titulo)
+                    novo_id = data.get("task_id") or ""
+                    # Reconsulta o modelo agora vigente no servidor para confirmar.
+                    try:
+                        modelo_conf = api.current_model()
+                    except Exception:
+                        modelo_conf = novo_modelo
+                    self.msg("modelo_alterado_servidor", janela, tree, iid, (modelo_conf or novo_modelo), novo_id)
+                except Exception as e:
+                    self.msg("modelo_alterado_erro", str(e))
+
+            self.executar_thread(worker)
+
+        ttk.Button(modelo_frame, text="Aplicar modelo no servidor", command=alterar_modelo_no_servidor).pack(side="left")
+        ttk.Label(
+            modelo_frame,
+            text="(cria uma nova tarefa na conta com o modelo escolhido - pode consumir créditos)",
+            style="Status.TLabel",
+        ).pack(side="left", padx=10)
 
         ttk.Label(rodape, textvariable=resumo_var).pack(side="left")
 
@@ -5264,6 +5367,41 @@ class ManusGui(tk.Tk):
                 elif kind == "credit_all_result":
                     _, linhas = item
                     self.abrir_janela_creditos_todas_chaves(linhas)
+
+                elif kind == "modelo_alterado_servidor":
+                    _, janela_ref, tree_ref, iid, modelo_conf, novo_id = item
+                    try:
+                        if tree_ref.winfo_exists() and tree_ref.exists(iid):
+                            vals = list(tree_ref.item(iid, "values"))
+                            if len(vals) >= 5:
+                                vals[4] = modelo_conf
+                                tree_ref.item(iid, values=vals)
+                    except Exception:
+                        pass
+                    self.log(f"[MODELO] Modelo alterado no servidor para '{modelo_conf}' (nova tarefa: {novo_id}).\n")
+                    self.definir_status(f"Modelo alterado no servidor: {modelo_conf}")
+                    try:
+                        messagebox.showinfo(
+                            "Modelo alterado no servidor",
+                            f"Modelo aplicado no servidor do Manus: {modelo_conf}\n"
+                            f"Nova tarefa criada: {novo_id}\n\n"
+                            "A coluna 'Modelo em uso' foi atualizada.",
+                        )
+                    except Exception:
+                        pass
+
+                elif kind == "modelo_alterado_erro":
+                    _, erro = item
+                    self.log(f"[MODELO/ERRO] {erro}\n")
+                    self.definir_status("Falha ao alterar modelo no servidor.")
+                    if erro_credito_esgotado(erro):
+                        messagebox.showerror(
+                            "Sem crédito",
+                            "Não foi possível alterar o modelo: a conta está sem crédito/limite "
+                            "para criar a tarefa que aplica o modelo no servidor.\n\n" + resumo_texto(erro, 300),
+                        )
+                    else:
+                        messagebox.showerror("Erro ao alterar modelo", str(erro))
 
                 elif kind == "other_ai_result":
                     _, ok, provider_name, text_or_error, raw = item
