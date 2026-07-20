@@ -671,6 +671,9 @@ class OrcamentoApp:
         self._build_left_panel(left)
 
     def _build_left_panel(self, parent):
+        # funcao chamada quando o grupo muda e a janela de busca esta aberta
+        self._busca_refresh = None
+
         # Area de grupos
         grupos_wrap = tk.Frame(parent, bg=COR_AZUL)
         grupos_wrap.pack(fill="x", padx=14, pady=(14, 6))
@@ -682,33 +685,22 @@ class OrcamentoApp:
         # Divisor
         tk.Frame(parent, bg="#BFE0F2", height=2).pack(fill="x", padx=14, pady=4)
 
-        # Area de produtos (scroll)
-        prod_wrap = tk.Frame(parent, bg=COR_AZUL)
-        prod_wrap.pack(fill="both", expand=True, padx=14, pady=(4, 12))
-        tk.Label(prod_wrap, text="Produtos", bg=COR_AZUL, fg="#DCEAF6",
-                 font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(0, 4))
+        # Os produtos NAO sao mais exibidos na tela.
+        # A escolha e feita pelo campo "Codigo" (Enter) ou pelo botao "..."
+        dica = tk.Frame(parent, bg=COR_AZUL)
+        dica.pack(fill="both", expand=True, padx=14, pady=(6, 12))
+        tk.Label(
+            dica,
+            text=("Para adicionar um produto:\n\n"
+                  "  1) (Opcional) clique em um GRUPO acima para filtrar;\n"
+                  "  2) no campo \"Codigo\" digite parte do nome/codigo e\n"
+                  "     tecle ENTER  ->  abre a busca de produtos;\n"
+                  "     (ou clique no botao \"...\" ao lado do campo)."),
+            bg=COR_AZUL, fg="#DCEAF6", font=("Segoe UI", 11), justify="left"
+        ).pack(anchor="w")
 
-        canvas = tk.Canvas(prod_wrap, bg=COR_AZUL, highlightthickness=0)
-        vsb = ttk.Scrollbar(prod_wrap, orient="vertical", command=canvas.yview)
-        self.frame_produtos = tk.Frame(canvas, bg=COR_AZUL)
-        self.frame_produtos.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        self._prod_win = canvas.create_window((0, 0), window=self.frame_produtos, anchor="nw")
-        canvas.bind("<Configure>",
-                    lambda e: canvas.itemconfig(self._prod_win, width=e.width))
-        canvas.configure(yscrollcommand=vsb.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        vsb.pack(side="right", fill="y")
-
-        def _wheel(ev):
-            try:
-                canvas.yview_scroll(int(-1 * (ev.delta / 120)), "units")
-            except Exception:
-                pass
-        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel))
-        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
-        self._prod_canvas = canvas
+        # produtos nao sao renderizados na tela principal
+        self.frame_produtos = None
 
     def _build_right_panel(self, parent):
         pad = 10
@@ -744,8 +736,14 @@ class OrcamentoApp:
         cod_row.pack(fill="x", pady=(2, 0))
         self.ent_codigo = tk.Entry(cod_row, font=("Segoe UI", 11), relief="solid", bd=1)
         self.ent_codigo.pack(side="left", fill="x", expand=True, ipady=3)
-        self.ent_codigo.bind("<Return>", lambda e: self._add_por_codigo())
-        tk.Button(cod_row, text="...", command=self._buscar_produto_dialog,
+        # ENTER no campo Codigo abre a janela de busca (o botao "..." ao lado),
+        # ja usando o texto digitado como filtro inicial.
+        self.ent_codigo.bind(
+            "<Return>",
+            lambda e: self._buscar_produto_dialog(self.ent_codigo.get().strip()))
+        tk.Button(cod_row, text="...",
+                  command=lambda: self._buscar_produto_dialog(
+                      self.ent_codigo.get().strip()),
                   bg=COR_CINZA_BTN, fg=COR_NAVY, relief="flat", width=3,
                   font=("Segoe UI", 10, "bold"), cursor="hand2").pack(side="left", padx=(4, 0))
 
@@ -929,41 +927,19 @@ class OrcamentoApp:
                 row += 1
 
     def _render_produtos(self):
-        for w in self.frame_produtos.winfo_children():
-            w.destroy()
-
-        lista = self.produtos
-        if self.grupo_filtro is not None:
-            lista = [p for p in self.produtos if p["grupo_id"] == self.grupo_filtro]
-
-        if not lista:
-            tk.Label(self.frame_produtos,
-                     text="Nenhum produto neste grupo.",
-                     bg=COR_AZUL, fg="#DCEAF6",
-                     font=("Segoe UI", 11)).grid(row=0, column=0, padx=6, pady=10)
-            return
-
-        col = 0
-        row = 0
-        max_cols = 6
-        for p in lista:
-            texto = f"{p['descricao']}\nR$ {fmt_money(p['preco'])}"
-            b = tk.Button(self.frame_produtos, text=texto,
-                          command=lambda pr=p: self._add_produto(pr),
-                          bg=COR_BRANCO, fg=COR_NAVY, relief="flat",
-                          font=("Segoe UI", 8, "bold"), width=15, height=3,
-                          cursor="hand2", wraplength=110, justify="center",
-                          activebackground="#EAF2FA")
-            b.grid(row=row, column=col, padx=5, pady=5, sticky="nw")
-            col += 1
-            if col >= max_cols:
-                col = 0
-                row += 1
+        # Os produtos nao sao exibidos na tela principal.
+        # A selecao acontece pela janela de busca (campo Codigo / botao "...").
+        return
 
     def _filtrar_grupo(self, gid):
         self.grupo_filtro = gid
         self._render_grupos()
-        self._render_produtos()
+        # se a janela de busca estiver aberta, atualiza a lista pelo grupo
+        if getattr(self, "_busca_refresh", None):
+            try:
+                self._busca_refresh()
+            except Exception:
+                pass
 
     # ------------------------------------------------------- itens / carrinho
     def _get_qtd_entry(self):
@@ -1018,16 +994,27 @@ class OrcamentoApp:
             messagebox.showwarning("Nao encontrado",
                                    f"Nenhum produto com o codigo '{codigo}'.")
 
-    def _buscar_produto_dialog(self):
+    def _buscar_produto_dialog(self, filtro_inicial=""):
         dlg = tk.Toplevel(self.root)
         dlg.title("Buscar Produto")
-        dlg.geometry("620x460")
+        dlg.geometry("640x500")
         dlg.configure(bg="#FFFFFF")
         dlg.transient(self.root)
         dlg.grab_set()
 
-        tk.Label(dlg, text="Buscar produto:", bg="#FFFFFF", fg=COR_NAVY,
-                 font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=12, pady=(10, 2))
+        def _nome_grupo():
+            if self.grupo_filtro is None:
+                return "TODOS"
+            return next((d for (g, d) in self.grupos
+                         if g == self.grupo_filtro), "TODOS")
+
+        lbl_grp = tk.Label(dlg, text=f"Grupo: {_nome_grupo()}", bg="#FFFFFF",
+                           fg=COR_VERDE, font=("Segoe UI", 10, "bold"))
+        lbl_grp.pack(anchor="w", padx=12, pady=(8, 0))
+
+        tk.Label(dlg, text="Buscar produto (nome ou codigo):", bg="#FFFFFF",
+                 fg=COR_NAVY, font=("Segoe UI", 11, "bold")).pack(
+                     anchor="w", padx=12, pady=(6, 2))
         ent = tk.Entry(dlg, font=("Segoe UI", 11), relief="solid", bd=1)
         ent.pack(fill="x", padx=12, ipady=3)
         ent.focus_set()
@@ -1039,36 +1026,69 @@ class OrcamentoApp:
         tv.heading("desc", text="Descricao")
         tv.heading("preco", text="Preco")
         tv.column("cod", width=90, anchor="w")
-        tv.column("desc", width=360, anchor="w")
+        tv.column("desc", width=370, anchor="w")
         tv.column("preco", width=90, anchor="e")
         tv.pack(fill="both", expand=True, padx=12, pady=8)
 
+        def _produtos_do_grupo():
+            if self.grupo_filtro is None:
+                return self.produtos
+            return [p for p in self.produtos
+                    if p["grupo_id"] == self.grupo_filtro]
+
         def _fill(filtro=""):
             tv.delete(*tv.get_children())
-            f = filtro.lower()
-            for p in self.produtos:
+            f = filtro.lower().strip()
+            for p in _produtos_do_grupo():
                 if f and f not in p["descricao"].lower() and f not in p["codigo"].lower():
                     continue
                 tv.insert("", "end", iid=str(p["id"]),
                           values=(p["codigo"], p["descricao"], fmt_money(p["preco"])))
 
-        _fill()
+        def _refresh_grupo():
+            """Chamada quando o usuario troca de grupo com a janela aberta."""
+            lbl_grp.config(text=f"Grupo: {_nome_grupo()}")
+            _fill(ent.get())
+
+        # registra para o botao de grupo atualizar esta janela
+        self._busca_refresh = _refresh_grupo
+
         ent.bind("<KeyRelease>", lambda e: _fill(ent.get()))
+
+        def _fechar():
+            self._busca_refresh = None
+            dlg.destroy()
+
+        dlg.protocol("WM_DELETE_WINDOW", _fechar)
 
         def _sel():
             s = tv.selection()
             if not s:
-                return
+                # se nada selecionado mas ha itens, pega o primeiro
+                kids = tv.get_children()
+                if not kids:
+                    return
+                s = (kids[0],)
             pid = int(s[0])
             prod = next((p for p in self.produtos if p["id"] == pid), None)
             if prod:
                 self._add_produto(prod)
-            dlg.destroy()
+            self.ent_codigo.delete(0, tk.END)
+            _fechar()
 
         tv.bind("<Double-1>", lambda e: _sel())
+        # Enter na caixa de busca ou na lista adiciona o produto selecionado
+        ent.bind("<Return>", lambda e: _sel())
+        tv.bind("<Return>", lambda e: _sel())
+
         tk.Button(dlg, text="Adicionar", command=_sel, bg=COR_VERDE, fg="#FFFFFF",
                   relief="flat", font=("Segoe UI", 10, "bold"),
                   cursor="hand2").pack(pady=(0, 10))
+
+        # aplica o filtro inicial (texto vindo do campo Codigo)
+        if filtro_inicial:
+            ent.insert(0, filtro_inicial)
+        _fill(filtro_inicial)
 
     def _item_selecionado(self):
         s = self.tree.selection()
