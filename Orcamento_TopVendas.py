@@ -472,7 +472,7 @@ class OrcamentoApp:
         body.pack(fill="both", expand=True)
 
         # Painel direito (montado primeiro para reservar largura)
-        right = tk.Frame(body, bg=COR_CINZA, width=360)
+        right = tk.Frame(body, bg=COR_CINZA, width=390)
         right.pack(side="right", fill="y")
         right.pack_propagate(False)
         self._build_right_panel(right)
@@ -523,11 +523,14 @@ class OrcamentoApp:
         self._prod_canvas = canvas
 
     def _build_right_panel(self, parent):
-        pad = 12
+        pad = 10
 
+        # ===================================================================
+        # TOPO (fixo no alto): Cliente + Codigo/Qtde
+        # ===================================================================
         # --- Cliente ---
         cli = tk.Frame(parent, bg=COR_CINZA)
-        cli.pack(fill="x", padx=pad, pady=(pad, 4))
+        cli.pack(side="top", fill="x", padx=pad, pady=(pad, 2))
         tk.Label(cli, text="Cliente", bg=COR_CINZA, fg=COR_NAVY,
                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
         cli_row = tk.Frame(cli, bg=COR_CINZA)
@@ -543,7 +546,7 @@ class OrcamentoApp:
 
         # --- Codigo + Qtde ---
         top_row = tk.Frame(parent, bg=COR_CINZA)
-        top_row.pack(fill="x", padx=pad, pady=(6, 4))
+        top_row.pack(side="top", fill="x", padx=pad, pady=(4, 2))
 
         col_cod = tk.Frame(top_row, bg=COR_CINZA)
         col_cod.pack(side="left", fill="x", expand=True)
@@ -567,7 +570,7 @@ class OrcamentoApp:
                  font=("Segoe UI", 11, "bold")).pack(anchor="w")
         qtd_row = tk.Frame(col_qtd, bg=COR_CINZA)
         qtd_row.pack(fill="x", pady=(2, 0))
-        self.ent_qtd = tk.Entry(qtd_row, font=("Segoe UI", 11), width=5,
+        self.ent_qtd = tk.Entry(qtd_row, font=("Segoe UI", 11), width=4,
                                 relief="solid", bd=1, justify="center")
         self.ent_qtd.insert(0, "1")
         self.ent_qtd.pack(side="left", ipady=3)
@@ -581,42 +584,49 @@ class OrcamentoApp:
                   bg="#F3D2CE", fg=COR_VERMELHO, relief="flat", width=2,
                   font=("Segoe UI", 11), cursor="hand2").pack(side="left", padx=(3, 0))
 
-        # --- Tabela de itens ---
-        tab = tk.Frame(parent, bg=COR_CINZA)
-        tab.pack(fill="both", expand=True, padx=pad, pady=(6, 4))
-        cols = ("produto", "qtde", "unit", "total")
-        self.tree = ttk.Treeview(tab, columns=cols, show="headings",
-                                 style="Orc.Treeview", height=10)
-        self.tree.heading("produto", text="Produto")
-        self.tree.heading("qtde", text="Qtde")
-        self.tree.heading("unit", text="Unitario")
-        self.tree.heading("total", text="Total")
-        self.tree.column("produto", width=150, anchor="w")
-        self.tree.column("qtde", width=45, anchor="center")
-        self.tree.column("unit", width=70, anchor="e")
-        self.tree.column("total", width=70, anchor="e")
-        vsb2 = ttk.Scrollbar(tab, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=vsb2.set)
-        self.tree.pack(side="left", fill="both", expand=True)
-        vsb2.pack(side="right", fill="y")
-        self.tree.bind("<Double-1>", lambda e: self._editar_qtd_item())
+        # ===================================================================
+        # RODAPE (fixo embaixo) - empacotado de baixo para cima com side=bottom
+        # Assim os botoes e o total ficam SEMPRE visiveis, mesmo em telas baixas
+        # ===================================================================
+        # --- Botoes finais (na base) ---
+        btns = tk.Frame(parent, bg=COR_CINZA)
+        btns.pack(side="bottom", fill="x", padx=pad, pady=(4, pad))
+        tk.Button(btns, text="Cancelar", command=self._cancelar,
+                  bg="#E3E9EF", fg="#44586B", relief="flat",
+                  font=("Segoe UI", 10, "bold"), height=2, cursor="hand2").pack(
+                      side="left", fill="x", expand=True, padx=(0, 3))
+        tk.Button(btns, text="Imprimir", command=self._gerar_orcamento,
+                  bg=COR_NAVY, fg="#FFFFFF", relief="flat",
+                  font=("Segoe UI", 10, "bold"), height=2, cursor="hand2").pack(
+                      side="left", fill="x", expand=True, padx=3)
+        tk.Button(btns, text="Gerar Orcamento", command=self._gerar_orcamento,
+                  bg=COR_VERDE, fg="#FFFFFF", relief="flat",
+                  font=("Segoe UI", 10, "bold"), height=2, cursor="hand2").pack(
+                      side="left", fill="x", expand=True, padx=(3, 0))
 
-        # botoes de item (editar qtd / desconto item)
-        item_btns = tk.Frame(parent, bg=COR_CINZA)
-        item_btns.pack(fill="x", padx=pad, pady=(0, 4))
-        tk.Button(item_btns, text="Editar Qtde", command=self._editar_qtd_item,
-                  bg=COR_CINZA_BTN, fg=COR_NAVY, relief="flat",
-                  font=("Segoe UI", 9, "bold"), cursor="hand2").pack(side="left", padx=(0, 4))
-        tk.Button(item_btns, text="Desconto Item", command=self._desconto_item,
-                  bg=COR_CINZA_BTN, fg=COR_NAVY, relief="flat",
-                  font=("Segoe UI", 9, "bold"), cursor="hand2").pack(side="left", padx=4)
-        tk.Button(item_btns, text="Remover", command=self._remover_item,
-                  bg="#F3D2CE", fg=COR_VERMELHO, relief="flat",
-                  font=("Segoe UI", 9, "bold"), cursor="hand2").pack(side="left", padx=4)
+        # --- Caixa Valor Total ---
+        total_box = tk.Frame(parent, bg=COR_TOTALBG, relief="solid", bd=1)
+        total_box.pack(side="bottom", fill="x", padx=pad, pady=(0, 4))
+        self.lbl_subtotal = tk.Label(total_box, text="Subtotal: R$ 0,00",
+                                     bg=COR_TOTALBG, fg="#5A6B7B",
+                                     font=("Segoe UI", 9))
+        self.lbl_subtotal.pack(anchor="e", padx=10, pady=(3, 0))
+        self.lbl_desc = tk.Label(total_box, text="Desconto: R$ 0,00",
+                                 bg=COR_TOTALBG, fg=COR_VERMELHO,
+                                 font=("Segoe UI", 9))
+        self.lbl_desc.pack(anchor="e", padx=10)
+        self.lbl_total = tk.Label(total_box, text="R$ 0,00", bg=COR_TOTALBG,
+                                  fg="#111111", font=("Segoe UI", 22, "bold"))
+        self.lbl_total.pack(anchor="e", padx=10, pady=(0, 4))
 
-        # --- Desconto geral ---
+        # --- Rotulo Valor Total ---
+        tk.Label(parent, text="Valor Total", bg=COR_CINZA, fg=COR_NAVY,
+                 font=("Segoe UI", 12, "bold")).pack(side="bottom", anchor="w",
+                                                      padx=pad, pady=(4, 0))
+
+        # --- Desconto geral (venda) ---
         dg = tk.Frame(parent, bg=COR_CINZA)
-        dg.pack(fill="x", padx=pad, pady=(2, 2))
+        dg.pack(side="bottom", fill="x", padx=pad, pady=(2, 2))
         tk.Label(dg, text="Desconto (venda):", bg=COR_CINZA, fg=COR_NAVY,
                  font=("Segoe UI", 10, "bold")).pack(side="left")
         self.combo_desc = ttk.Combobox(dg, values=["R$", "%"], width=4,
@@ -630,34 +640,40 @@ class OrcamentoApp:
         self.ent_desc.pack(side="left", padx=4, ipady=2)
         self.ent_desc.bind("<KeyRelease>", lambda e: self._atualizar_totais())
 
-        # --- Valor Total ---
-        tk.Label(parent, text="Valor Total", bg=COR_CINZA, fg=COR_NAVY,
-                 font=("Segoe UI", 13, "bold")).pack(anchor="w", padx=pad, pady=(6, 0))
-        total_box = tk.Frame(parent, bg=COR_TOTALBG, relief="solid", bd=1)
-        total_box.pack(fill="x", padx=pad, pady=(2, 6))
-        self.lbl_subtotal = tk.Label(total_box, text="Subtotal: R$ 0,00",
-                                     bg=COR_TOTALBG, fg="#5A6B7B",
-                                     font=("Segoe UI", 9))
-        self.lbl_subtotal.pack(anchor="e", padx=10, pady=(4, 0))
-        self.lbl_desc = tk.Label(total_box, text="Desconto: R$ 0,00",
-                                 bg=COR_TOTALBG, fg=COR_VERMELHO,
-                                 font=("Segoe UI", 9))
-        self.lbl_desc.pack(anchor="e", padx=10)
-        self.lbl_total = tk.Label(total_box, text="R$ 0,00", bg=COR_TOTALBG,
-                                  fg="#111111", font=("Segoe UI", 26, "bold"))
-        self.lbl_total.pack(anchor="e", padx=10, pady=(0, 6))
+        # --- Botoes de item (editar qtd / desconto item / remover) ---
+        item_btns = tk.Frame(parent, bg=COR_CINZA)
+        item_btns.pack(side="bottom", fill="x", padx=pad, pady=(2, 2))
+        tk.Button(item_btns, text="Editar Qtde", command=self._editar_qtd_item,
+                  bg=COR_CINZA_BTN, fg=COR_NAVY, relief="flat",
+                  font=("Segoe UI", 9, "bold"), cursor="hand2").pack(side="left", padx=(0, 4))
+        tk.Button(item_btns, text="Desconto Item", command=self._desconto_item,
+                  bg=COR_CINZA_BTN, fg=COR_NAVY, relief="flat",
+                  font=("Segoe UI", 9, "bold"), cursor="hand2").pack(side="left", padx=4)
+        tk.Button(item_btns, text="Remover", command=self._remover_item,
+                  bg="#F3D2CE", fg=COR_VERMELHO, relief="flat",
+                  font=("Segoe UI", 9, "bold"), cursor="hand2").pack(side="left", padx=4)
 
-        # --- Botoes finais ---
-        btns = tk.Frame(parent, bg=COR_CINZA)
-        btns.pack(fill="x", padx=pad, pady=(2, pad))
-        tk.Button(btns, text="Cancelar", command=self._cancelar,
-                  bg="#E3E9EF", fg="#44586B", relief="flat",
-                  font=("Segoe UI", 11, "bold"), height=2, cursor="hand2").pack(
-                      side="left", fill="x", expand=True, padx=(0, 4))
-        tk.Button(btns, text="Gerar Orcamento", command=self._gerar_orcamento,
-                  bg=COR_VERDE, fg="#FFFFFF", relief="flat",
-                  font=("Segoe UI", 11, "bold"), height=2, cursor="hand2").pack(
-                      side="left", fill="x", expand=True, padx=(4, 0))
+        # ===================================================================
+        # MEIO (preenche o espaco restante): Tabela de itens
+        # ===================================================================
+        tab = tk.Frame(parent, bg=COR_CINZA)
+        tab.pack(side="top", fill="both", expand=True, padx=pad, pady=(4, 2))
+        cols = ("produto", "qtde", "unit", "total")
+        self.tree = ttk.Treeview(tab, columns=cols, show="headings",
+                                 style="Orc.Treeview", height=5)
+        self.tree.heading("produto", text="Produto")
+        self.tree.heading("qtde", text="Qtde")
+        self.tree.heading("unit", text="Unitario")
+        self.tree.heading("total", text="Total")
+        self.tree.column("produto", width=160, anchor="w")
+        self.tree.column("qtde", width=45, anchor="center")
+        self.tree.column("unit", width=75, anchor="e")
+        self.tree.column("total", width=75, anchor="e")
+        vsb2 = ttk.Scrollbar(tab, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=vsb2.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        vsb2.pack(side="right", fill="y")
+        self.tree.bind("<Double-1>", lambda e: self._editar_qtd_item())
 
     # ------------------------------------------------------- carregar dados
     def _conectar_e_carregar(self):
