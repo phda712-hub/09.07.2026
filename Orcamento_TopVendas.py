@@ -450,9 +450,23 @@ class OrcamentoApp:
         btn_cfg.pack(side="right", padx=16)
         btn_cfg.bind("<Button-1>", lambda e: self._abrir_config())
 
-        cx = tk.Label(header, text="\u24C8 Caixa", bg=COR_TOPBAR, fg="#FFFFFF",
-                      font=("Segoe UI", 12, "bold"))
-        cx.pack(side="right", padx=8)
+        # Botao chamativo: abrir o sistema de vendas
+        self.btn_vender = tk.Button(
+            header, text="\U0001F6D2  ABRIR O SISTEMA PARA VENDER",
+            command=self._abrir_sistema_vender,
+            bg=COR_VERDE, fg="#FFFFFF",
+            activebackground="#17A85A", activeforeground="#FFFFFF",
+            relief="flat", bd=0, cursor="hand2",
+            font=("Segoe UI", 12, "bold"), padx=18, pady=6)
+        self.btn_vender.pack(side="right", padx=10, pady=8)
+
+        # efeito hover para deixar o botao mais vistoso
+        def _hover_in(_e):
+            self.btn_vender.config(bg="#25B869")
+        def _hover_out(_e):
+            self.btn_vender.config(bg=COR_VERDE)
+        self.btn_vender.bind("<Enter>", _hover_in)
+        self.btn_vender.bind("<Leave>", _hover_out)
 
         # ---- Status bar ----
         self.status = tk.Frame(self.root, bg=COR_STATUS, height=24)
@@ -1267,6 +1281,44 @@ class OrcamentoApp:
                 return False, f"Erro lp: {r.stderr}"
             except Exception as e:
                 return False, f"Nao foi possivel imprimir: {e}"
+
+    # ---------------------------------------------------- abrir sistema vender
+    def _abrir_sistema_vender(self):
+        """Fecha o orcamento e abre o sistema de vendas do TopVendas."""
+        exe = r"C:\Topvendas\Topvendas_vender.exe"
+        if self.itens:
+            if not messagebox.askyesno(
+                    "Abrir sistema de vendas",
+                    "Existe um orcamento em andamento que sera descartado.\n\n"
+                    "Deseja fechar o orcamento e abrir o sistema para vender?"):
+                return
+        import platform
+        import subprocess
+        try:
+            if platform.system() == "Windows":
+                if not os.path.exists(exe):
+                    messagebox.showerror(
+                        "Executavel nao encontrado",
+                        f"Nao foi possivel localizar:\n{exe}\n\n"
+                        "Verifique se o TopVendas esta instalado nesse caminho.")
+                    return
+                # abre o executavel de forma independente
+                os.startfile(exe)  # noqa: S606 (Windows)
+            else:
+                # Ambientes nao-Windows (apenas para teste)
+                subprocess.Popen([exe])
+        except Exception as e:
+            messagebox.showerror(
+                "Erro ao abrir o sistema",
+                f"Nao foi possivel abrir o sistema de vendas.\n\n"
+                f"Caminho: {exe}\n\nDetalhe: {e}")
+            return
+        # fecha a conexao e encerra o formulario de orcamento
+        try:
+            self.db.close()
+        except Exception:
+            pass
+        self.root.destroy()
 
     # ------------------------------------------------------------- config UI
     def _abrir_config(self):
