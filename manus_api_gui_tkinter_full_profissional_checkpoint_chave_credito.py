@@ -1211,6 +1211,40 @@ class ManusAPI:
             params["cursor"] = cursor
         return self.request("GET", "/v2/task.list", params=params)
 
+    def current_model(self) -> str:
+        """
+        Descobre o MODELO em uso no momento consultando DIRETAMENTE o servidor
+        do Manus (endpoint /v2/task.list). Pega a tarefa mais recente da conta e
+        extrai o modelo/agent_profile dela.
+
+        Retorna:
+        - o nome do modelo (ex.: "manus-1.6-lite") quando disponível;
+        - "sem tarefas" quando a conta não possui tarefas;
+        - "--" quando não é possível determinar o modelo.
+        """
+        try:
+            data = self.list_tasks(limit=1, order="desc", scope="all")
+        except Exception:
+            raise
+
+        tasks = []
+        if isinstance(data, dict):
+            tasks = data.get("data") or data.get("tasks") or []
+        if not tasks:
+            return "sem tarefas"
+
+        t = tasks[0] if isinstance(tasks, list) else {}
+        if not isinstance(t, dict):
+            return "--"
+
+        # O campo do modelo pode variar conforme a versão da API: tenta vários nomes.
+        for campo in ("agent_profile", "model", "agentProfile", "agent", "model_name", "modelName", "profile"):
+            valor = t.get(campo)
+            if valor:
+                return str(valor)
+
+        return "--"
+
     def list_completed_tasks(self, max_pages: int = 5, scope: str = "all") -> List[Dict[str, Any]]:
         concluidas: List[Dict[str, Any]] = []
         cursor = ""
@@ -4023,11 +4057,20 @@ class ManusGui(tk.Tk):
                     api = ManusAPI(key)
                     data = api.available_credits()
                     total = total_creditos_manus(data)
+
+                    # Busca o MODELO em uso DIRETAMENTE do servidor do Manus
+                    # (tarefa mais recente da conta via task.list). Nada local.
+                    try:
+                        modelo = api.current_model()
+                    except Exception as me:
+                        modelo = f"erro: {resumo_texto(str(me), 40)}"
+
                     linhas.append({
                         "idx": idx,
                         "key": key,
                         "ok": True,
                         "total": total,
+                        "model": modelo,
                         "detail": formatar_creditos_manus(data),
                         "raw": data,
                     })
@@ -4038,6 +4081,7 @@ class ManusGui(tk.Tk):
                         "key": key,
                         "ok": False,
                         "total": "--",
+                        "model": "--",
                         "detail": str(e),
                         "raw": str(e),
                     })
@@ -4102,8 +4146,8 @@ class ManusGui(tk.Tk):
         """
         janela = tk.Toplevel(self)
         janela.title("Créditos de todas as APIKEYs")
-        janela.geometry("1180x560")
-        janela.minsize(900, 400)
+        janela.geometry("1340x560")
+        janela.minsize(980, 400)
         janela.columnconfigure(0, weight=1)
         janela.rowconfigure(1, weight=1)
 
@@ -4111,26 +4155,34 @@ class ManusGui(tk.Tk):
             janela,
             text=("Dica: dê um duplo clique (ou tecle F2 / Enter) em um campo para editá-lo. "
                   "Enter confirma, Esc cancela. As edições são salvas automaticamente e "
-                  "recarregadas ao reabrir (valores locais, não alteram o saldo real do servidor)."),
+                  "recarregadas ao reabrir (valores locais, não alteram o saldo real do servidor). "
+                  "A coluna 'Modelo em uso' é lida direto do servidor do Manus e não é editável."),
             style="Status.TLabel",
-            wraplength=1120,
+            wraplength=1280,
             justify="left",
         ).grid(row=0, column=0, columnspan=2, sticky="w", padx=10, pady=(10, 0))
 
-        cols = ("idx", "key", "ok", "total", "detail")
+        cols = ("idx", "key", "ok", "total", "model", "detail")
         tree = ttk.Treeview(janela, columns=cols, show="headings", height=16)
         tree.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
 
         cfg = {
             "idx": ("#", 50),
-            "key": ("APIKEY", 180),
-            "ok": ("OK", 80),
-            "total": ("Créditos disponíveis", 150),
-            "detail": ("Detalhes", 680),
+            "key": ("APIKEY", 170),
+            "ok": ("OK", 70),
+            "total": ("Créditos disponíveis", 140),
+            "model": ("Modelo em uso (servidor)", 190),
+            "detail": ("Detalhes", 560),
         }
         for col, (name, width) in cfg.items():
             tree.heading(col, text=name)
             tree.column(col, width=width, anchor="w")
+
+        # Coluna do modelo: destaque visual para deixar claro que vem do servidor.
+        try:
+            tree.tag_configure("temmodelo", foreground="#1D4ED8")
+        except Exception:
+            pass
 
         scroll_y = ttk.Scrollbar(janela, orient="vertical", command=tree.yview)
         scroll_y.grid(row=1, column=1, sticky="ns", pady=10)
@@ -4149,8 +4201,11 @@ class ManusGui(tk.Tk):
             ok_val = "SIM" if row.get("ok") else "NÃO"
             total_val = row.get("total")
             detail_val = row.get("detail")
+            # O modelo vem SEMPRE do servidor (nunca de edição local).
+            model_val = row.get("model") or "--"
 
             # Se houver edição local salva para esta chave, aplica por cima da API.
+            # (a coluna 'modelo' é intencionalmente ignorada aqui, pois é do servidor)
             editado = edicoes_por_chave.get(mk)
             if isinstance(editado, dict):
                 if "ok" in editado:
@@ -4160,7 +4215,12 @@ class ManusGui(tk.Tk):
                 if "detail" in editado:
                     detail_val = editado.get("detail")
 
-            tree.insert("", "end", values=(row.get("idx"), mk, ok_val, total_val, detail_val))
+            tree.insert(
+                "",
+                "end",
+                values=(row.get("idx"), mk, ok_val, total_val, model_val, detail_val),
+                tags=("temmodelo",),
+            )
 
         # Reinsere as linhas adicionadas manualmente (não vinculadas a uma chave da API).
         for reg in edicoes_extras:
@@ -4174,6 +4234,7 @@ class ManusGui(tk.Tk):
                     reg.get("key", ""),
                     reg.get("ok", ""),
                     reg.get("total", ""),
+                    "--",  # modelo não se aplica a linhas locais adicionadas à mão
                     reg.get("detail", ""),
                 ),
             )
@@ -4213,11 +4274,13 @@ class ManusGui(tk.Tk):
             extras: List[Dict[str, Any]] = []
             for iid in tree.get_children():
                 vals = list(tree.item(iid, "values"))
+                # Colunas: idx(0), key(1), ok(2), total(3), model(4), detail(5).
+                # A coluna 'model' NÃO é persistida: ela é lida do servidor a cada consulta.
                 idx_v = vals[0] if len(vals) > 0 else ""
                 key_v = str(vals[1]).strip() if len(vals) > 1 else ""
                 ok_v = vals[2] if len(vals) > 2 else ""
                 total_v = vals[3] if len(vals) > 3 else ""
-                detail_v = vals[4] if len(vals) > 4 else ""
+                detail_v = vals[5] if len(vals) > 5 else ""
                 registro = {"idx": idx_v, "key": key_v, "ok": ok_v, "total": total_v, "detail": detail_v}
                 if key_v and key_v in chaves_api_mascaradas:
                     por_chave[key_v] = {"ok": ok_v, "total": total_v, "detail": detail_v}
@@ -4273,6 +4336,10 @@ class ManusGui(tk.Tk):
             cancelar_editor()
             if not iid or not col:
                 return
+            # A coluna "Modelo em uso" (#5) é somente leitura: vem do servidor.
+            if str(col) == "#5":
+                self.definir_status("A coluna 'Modelo em uso' vem do servidor e não pode ser editada.")
+                return
             try:
                 bbox = tree.bbox(iid, col)
             except Exception:
@@ -4318,7 +4385,7 @@ class ManusGui(tk.Tk):
                 iid = sel[0] if sel else ""
             if iid:
                 # Por padrão edita a coluna "Detalhes" (a mais usada).
-                iniciar_edicao(iid, "#5")
+                iniciar_edicao(iid, "#6")
             return "break"
 
         tree.bind("<Double-1>", ao_duplo_clique)
@@ -4328,7 +4395,7 @@ class ManusGui(tk.Tk):
         # ===== Ações auxiliares de edição da tabela =====
         def adicionar_linha():
             cancelar_editor()
-            novo = tree.insert("", "end", values=(len(tree.get_children()) + 1, "", "NÃO", 0, ""))
+            novo = tree.insert("", "end", values=(len(tree.get_children()) + 1, "", "NÃO", 0, "--", ""))
             tree.selection_set(novo)
             tree.focus(novo)
             tree.see(novo)
@@ -4362,7 +4429,8 @@ class ManusGui(tk.Tk):
                         "key_mascarada": vals[1] if len(vals) > 1 else "",
                         "ok": vals[2] if len(vals) > 2 else "",
                         "total": vals[3] if len(vals) > 3 else "",
-                        "detail": vals[4] if len(vals) > 4 else "",
+                        "model_servidor": vals[4] if len(vals) > 4 else "",
+                        "detail": vals[5] if len(vals) > 5 else "",
                     })
                 SESSION_EXPORT_DIR.mkdir(exist_ok=True)
                 destino = SESSION_EXPORT_DIR / ("creditos_editados_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".json")
