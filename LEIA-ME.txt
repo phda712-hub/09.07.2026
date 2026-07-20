@@ -1,0 +1,53 @@
+================================================================================
+ ORCAMENTO TopVendas - Formulario de Orcamento (Firebird 2.5)
+================================================================================
+
+CONTEUDO DESTE PACOTE
+---------------------
+- Orcamento_TopVendas.py   -> o programa (formulario de orcamento)
+- icone_carrinho.ico       -> icone do carrinho azul (janela e .exe)
+- icone_carrinho.png       -> versao PNG do icone
+- gerar_icone.py           -> gera novamente o icone (opcional)
+- Orcamento_TopVendas.spec -> configuracao do PyInstaller para gerar o .exe
+- gerar_exe.bat            -> gera o .exe com um clique (Windows)
+- LEIA-ME.txt              -> este arquivo
+
+--------------------------------------------------------------------------------
+1) COMO RODAR DIRETO (sem gerar .exe)
+--------------------------------------------------------------------------------
+Requisitos (uma vez):
+    pip install fdb pywin32 pillow
+
+Rodar:
+    python Orcamento_TopVendas.py
+
+--------------------------------------------------------------------------------
+2) COMO GERAR O EXECUTAVEL (Orcamento_TopVendas.exe)
+--------------------------------------------------------------------------------
+Na maquina WINDOWS, com Python instalado (marque "Add to PATH"):
+    - De DOIS CLIQUES em: gerar_exe.bat
+    - Aguarde. O executavel sera criado em:  dist\Orcamento_TopVendas.exe
+
+--------------------------------------------------------------------------------
+3) CONFIGURACAO DO BANCO
+--------------------------------------------------------------------------------
+Caminho padrao do banco:  C:\Topvendas\BD\TOPVENDAS.FDB
+Usuario/senha padrao...:  SYSDBA / masterkey
+Charset padrao.........:  WIN1252
+
+Para alterar, clique na ENGRENAGEM (canto superior direito) dentro do programa,
+ajuste os dados, use "Testar" e depois "Salvar".
+
+--------------------------------------------------------------------------------
+4) RECURSOS
+--------------------------------------------------------------------------------
+- Escolha de produto por DIGITACAO (codigo/codigo de barras) ou por GRUPO.
+- Cliente com padrao "CLIENTE NAO INFORMADO" (botao ... para escolher outro).
+- Desconto por ITEM e desconto em TODA a venda (R$ ou %).
+- Impressao em formato de CUPOM (Imprimir / Salvar TXT / Copiar).
+- Botao "ABRIR O SISTEMA PARA VENDER" -> fecha o orcamento e abre
+  C:\Topvendas\Topvendas_vender.exe
+
+Tabelas usadas: THOSPEDES (clientes), TPRODUTOS (produtos),
+TGRUPOS_PRODUTOS (grupos de produtos).
+================================================================================
