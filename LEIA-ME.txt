@@ -72,4 +72,25 @@ do Firebird). O programa agora tenta localizar sozinho, mas se ainda falhar:
 
  c) Verifique se o servico do Firebird esta em execucao (services.msc ->
     "Firebird Server" / "FirebirdGuardian").
+
+--------------------------------------------------------------------------------
+6) ERRO: "Failed to load dynlib/dll ... fbclient.dll"
+--------------------------------------------------------------------------------
+Aqui a DLL foi ENCONTRADA mas nao carregou. Clique em "Testar" na engrenagem:
+o programa mostra um DIAGNOSTICO dizendo os bits do Python e da DLL.
+
+ CAUSA 1 - Bits diferentes (a mais comum):
+   Ex.: Python 64 bits tentando carregar fbclient.dll de 32 bits.
+   -> Use Python da MESMA arquitetura da DLL (e gere o .exe com esse Python),
+      ou aponte um fbclient.dll da mesma arquitetura do seu Python.
+   -> Dica: a pasta C:\Topvendas geralmente tem um fbclient.dll compativel
+      com o proprio TopVendas. Use "Detectar" para prioriza-lo.
+
+ CAUSA 2 - Dependencias faltando (quando os bits BATEM):
+   O Firebird 2.5 depende do runtime "Microsoft Visual C++ 2005"
+   (msvcr80.dll / msvcp80.dll). Instale o pacote:
+      "Microsoft Visual C++ 2005 Redistributable" (x86 para 32 bits,
+       x64 para 64 bits) e tente novamente.
+   O programa ja adiciona a pasta 'bin' do Firebird ao caminho de busca,
+   o que costuma resolver quando essas DLLs estao la.
 ================================================================================

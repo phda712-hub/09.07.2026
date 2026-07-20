@@ -273,10 +273,68 @@ class Database:
         # erro "The location of Firebird Client Library could not be determined"
         lib = self.localizar_fbclient()
         if lib:
+            libdir = os.path.dirname(lib)
+            # Garante que as DLLs dependentes (msvcr80.dll, msvcp80.dll, etc.)
+            # que ficam na mesma pasta 'bin' do Firebird sejam encontradas.
+            try:
+                if hasattr(os, "add_dll_directory") and os.path.isdir(libdir):
+                    os.add_dll_directory(libdir)
+            except Exception:
+                pass
+            try:
+                os.environ["PATH"] = libdir + os.pathsep + os.environ.get("PATH", "")
+            except Exception:
+                pass
             kwargs["fb_library_name"] = lib
             self.fbclient_usado = lib
         self.con = fdb.connect(**kwargs)
         return self.con
+
+    @staticmethod
+    def arch_dll(path):
+        """Le o cabecalho PE da DLL e retorna 32, 64 ou None."""
+        try:
+            with open(path, "rb") as f:
+                cab = f.read(2)
+                if cab != b"MZ":
+                    return None
+                f.seek(60)
+                pe_off = int.from_bytes(f.read(4), "little")
+                f.seek(pe_off)
+                if f.read(4) != b"PE\x00\x00":
+                    return None
+                machine = int.from_bytes(f.read(2), "little")
+            return {0x14c: 32, 0x8664: 64, 0x1c0: 32, 0xAA64: 64}.get(machine)
+        except Exception:
+            return None
+
+    def diagnostico(self):
+        """Retorna um texto de diagnostico sobre a biblioteca cliente."""
+        import struct
+        py_bits = struct.calcsize("P") * 8
+        lib = self.localizar_fbclient()
+        if not lib:
+            return (f"- Python de {py_bits} bits.\n"
+                    "- fbclient.dll NAO foi localizado.")
+        dll_bits = self.arch_dll(lib)
+        txt = (f"- Python de {py_bits} bits.\n"
+               f"- fbclient.dll: {lib}")
+        if dll_bits:
+            txt += f"\n- Arquitetura da DLL: {dll_bits} bits."
+            if dll_bits != py_bits:
+                txt += (f"\n\n*** INCOMPATIBILIDADE DE BITS ***\n"
+                        f"Python {py_bits} bits NAO consegue carregar uma DLL de "
+                        f"{dll_bits} bits.\n"
+                        f"SOLUCAO: use Python de {dll_bits} bits (e gere o .exe com "
+                        f"Python {dll_bits} bits),\nOU aponte um fbclient.dll de "
+                        f"{py_bits} bits.")
+            else:
+                txt += ("\n\nA arquitetura BATE. Se ainda falha ao carregar, "
+                        "provavelmente faltam as dependencias do Firebird 2.5:\n"
+                        "instale o 'Microsoft Visual C++ 2005 Redistributable' "
+                        f"({py_bits} bits) e confirme que msvcr80.dll e msvcp80.dll "
+                        "estao na pasta 'bin' do Firebird.")
+        return txt
 
     def close(self):
         try:
@@ -311,7 +369,12 @@ class Database:
             cur.fetchone()
             return True, "Conexao realizada com sucesso!"
         except Exception as e:
-            return False, str(e)
+            msg = str(e)
+            # Se for erro de carregamento/localizacao da DLL, anexa diagnostico
+            if any(t in msg for t in ("load dynlib", "Client Library",
+                                      "dll", "DLL", "library")):
+                msg += "\n\nDIAGNOSTICO:\n" + self.diagnostico()
+            return False, msg
         finally:
             self.close()
 
@@ -816,23 +879,13 @@ class OrcamentoApp:
             self._render_produtos()
         except Exception as e:
             self.lbl_conn.config(text="Sem conexao", fg="#FF9B9B")
-            import struct
-            bits = struct.calcsize("P") * 8
-            achou = self.db.localizar_fbclient()
-            msg_lib = (f"fbclient.dll encontrado em:\n   {achou}"
-                       if achou else
-                       "fbclient.dll NAO foi localizado automaticamente.")
             detalhe = str(e)
             dica_lib = ""
-            if "Client Library" in detalhe or not achou:
+            if any(t in detalhe for t in ("load dynlib", "Client Library",
+                                          "dll", "DLL", "library")):
                 dica_lib = (
                     "\n>>> PROBLEMA DA BIBLIOTECA CLIENTE (fbclient.dll) <<<\n"
-                    f"- {msg_lib}\n"
-                    "- Informe o caminho do fbclient.dll na ENGRENAGEM (Config),\n"
-                    "  campo 'fbclient.dll'. Ele costuma estar em C:\\Topvendas\\\n"
-                    "  ou em C:\\Program Files\\Firebird\\...\\bin\\fbclient.dll\n"
-                    f"- ATENCAO: seu Python e de {bits} bits. O fbclient.dll PRECISA\n"
-                    f"  ser tambem de {bits} bits (32 com 32, 64 com 64).\n")
+                    + self.db.diagnostico() + "\n")
             messagebox.showerror(
                 "Erro de Conexao",
                 "Nao foi possivel conectar ao banco de dados Firebird.\n\n"
