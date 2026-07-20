@@ -144,6 +144,10 @@ INJECTIONS_FILE = Path(__file__).with_name("manus_injecoes.local.json")
 PROMPT_PRESETS_FILE = Path(__file__).with_name("manus_prompt_presets.json")
 # Pool de chaves fundidas (créditos somados / uso em cadeia automática).
 FUSION_FILE = Path(__file__).with_name("manus_chaves_fundidas.local.json")
+# Edições LOCAIS dos campos de créditos (refresh, quota, próximo refresh, etc.).
+# Esses valores são apenas locais/visuais: o servidor do Manus não permite gravar
+# saldo/quota, então persistimos as edições aqui para não se perderem ao reabrir.
+CREDITOS_EDITADOS_FILE = Path(__file__).with_name("manus_creditos_editados.local.json")
 # Estúdio de Outras IAs: histórico de tarefas/conversas e pasta de downloads própria.
 ESTUDIO_TAREFAS_FILE = Path(__file__).with_name("estudio_ia_tarefas.json")
 ESTUDIO_DOWNLOAD_DIR = DOWNLOAD_DIR / "estudio_ia"
@@ -4041,6 +4045,45 @@ class ManusGui(tk.Tk):
 
         self.executar_thread(worker)
 
+    def _carregar_creditos_editados(self) -> Dict[str, Any]:
+        """
+        Lê o arquivo local com as edições dos campos de créditos
+        (refresh, créditos, quota mensal, próximo refresh, intervalo, etc.).
+
+        Estrutura:
+        {
+          "por_chave": { "<apikey_mascarada>": {ok,total,detail} },
+          "extras":    [ {idx,key,ok,total,detail}, ... ]  # linhas adicionadas à mão
+        }
+        """
+        data = ler_json_seguro(CREDITOS_EDITADOS_FILE, {})
+        if not isinstance(data, dict):
+            data = {}
+        if not isinstance(data.get("por_chave"), dict):
+            data["por_chave"] = {}
+        if not isinstance(data.get("extras"), list):
+            data["extras"] = []
+        return data
+
+    def _salvar_creditos_editados(self, data: Dict[str, Any]) -> bool:
+        """Grava (de forma atômica) as edições locais dos campos de créditos."""
+        try:
+            payload = {
+                "updated_at": agora_iso(),
+                "nota": "Edições LOCAIS dos campos de créditos. Não refletem o saldo real da conta no servidor do Manus.",
+                "por_chave": data.get("por_chave", {}) if isinstance(data, dict) else {},
+                "extras": data.get("extras", []) if isinstance(data, dict) else [],
+            }
+            ok = escrever_json_atomico(CREDITOS_EDITADOS_FILE, payload)
+            if ok:
+                try:
+                    self.enfileirar_backup(CREDITOS_EDITADOS_FILE)
+                except Exception:
+                    pass
+            return ok
+        except Exception:
+            return False
+
     def abrir_janela_creditos_todas_chaves(self, linhas: List[Dict[str, Any]]):
         """
         Mostra uma janela com o saldo de crédito de todas as chaves consultadas.
@@ -4050,7 +4093,12 @@ class ManusGui(tk.Tk):
         - Enter confirma a edição.
         - Esc cancela.
         - Ao sair do campo (clicar fora), a alteração também é confirmada.
-        A soma dos créditos é recalculada automaticamente após cada edição.
+
+        PERSISTÊNCIA LOCAL: cada alteração é gravada automaticamente em
+        manus_creditos_editados.local.json e recarregada ao reabrir a janela
+        (ou reiniciar o app). Assim as edições NÃO se perdem. Importante: esses
+        valores são apenas locais/visuais e não alteram o saldo real no servidor
+        do Manus, que é somente leitura.
         """
         janela = tk.Toplevel(self)
         janela.title("Créditos de todas as APIKEYs")
@@ -4062,8 +4110,11 @@ class ManusGui(tk.Tk):
         ttk.Label(
             janela,
             text=("Dica: dê um duplo clique (ou tecle F2 / Enter) em um campo para editá-lo. "
-                  "Enter confirma, Esc cancela."),
+                  "Enter confirma, Esc cancela. As edições são salvas automaticamente e "
+                  "recarregadas ao reabrir (valores locais, não alteram o saldo real do servidor)."),
             style="Status.TLabel",
+            wraplength=1120,
+            justify="left",
         ).grid(row=0, column=0, columnspan=2, sticky="w", padx=10, pady=(10, 0))
 
         cols = ("idx", "key", "ok", "total", "detail")
@@ -4085,16 +4136,45 @@ class ManusGui(tk.Tk):
         scroll_y.grid(row=1, column=1, sticky="ns", pady=10)
         tree.configure(yscrollcommand=scroll_y.set)
 
+        # Carrega as edições locais persistidas e prepara para reaplicá-las.
+        persistidos = self._carregar_creditos_editados()
+        edicoes_por_chave = persistidos.get("por_chave", {}) or {}
+        edicoes_extras = persistidos.get("extras", []) or []
+        chaves_api_mascaradas = set()
+
         for row in linhas:
+            mk = mascarar_chave_api(row.get("key"))
+            chaves_api_mascaradas.add(mk)
+
+            ok_val = "SIM" if row.get("ok") else "NÃO"
+            total_val = row.get("total")
+            detail_val = row.get("detail")
+
+            # Se houver edição local salva para esta chave, aplica por cima da API.
+            editado = edicoes_por_chave.get(mk)
+            if isinstance(editado, dict):
+                if "ok" in editado:
+                    ok_val = editado.get("ok")
+                if "total" in editado:
+                    total_val = editado.get("total")
+                if "detail" in editado:
+                    detail_val = editado.get("detail")
+
+            tree.insert("", "end", values=(row.get("idx"), mk, ok_val, total_val, detail_val))
+
+        # Reinsere as linhas adicionadas manualmente (não vinculadas a uma chave da API).
+        for reg in edicoes_extras:
+            if not isinstance(reg, dict):
+                continue
             tree.insert(
                 "",
                 "end",
                 values=(
-                    row.get("idx"),
-                    mascarar_chave_api(row.get("key")),
-                    "SIM" if row.get("ok") else "NÃO",
-                    row.get("total"),
-                    row.get("detail"),
+                    reg.get("idx", ""),
+                    reg.get("key", ""),
+                    reg.get("ok", ""),
+                    reg.get("total", ""),
+                    reg.get("detail", ""),
                 ),
             )
 
@@ -4122,6 +4202,31 @@ class ManusGui(tk.Tk):
                 f"Consulta finalizada: {total_ok}/{len(filhos)} chave(s) OK. "
                 f"Soma dos saldos consultados: {soma} crédito(s)."
             )
+
+        def persistir_estado_tabela(silencioso: bool = True) -> bool:
+            """
+            Grava o estado atual da tabela no arquivo local, separando linhas
+            vinculadas a uma chave da API (por_chave) das linhas adicionadas
+            manualmente (extras). Chamado automaticamente após cada alteração.
+            """
+            por_chave: Dict[str, Any] = {}
+            extras: List[Dict[str, Any]] = []
+            for iid in tree.get_children():
+                vals = list(tree.item(iid, "values"))
+                idx_v = vals[0] if len(vals) > 0 else ""
+                key_v = str(vals[1]).strip() if len(vals) > 1 else ""
+                ok_v = vals[2] if len(vals) > 2 else ""
+                total_v = vals[3] if len(vals) > 3 else ""
+                detail_v = vals[4] if len(vals) > 4 else ""
+                registro = {"idx": idx_v, "key": key_v, "ok": ok_v, "total": total_v, "detail": detail_v}
+                if key_v and key_v in chaves_api_mascaradas:
+                    por_chave[key_v] = {"ok": ok_v, "total": total_v, "detail": detail_v}
+                else:
+                    extras.append(registro)
+            ok = self._salvar_creditos_editados({"por_chave": por_chave, "extras": extras})
+            if ok and not silencioso:
+                self.log(f"[CRÉDITOS] Edições salvas em: {CREDITOS_EDITADOS_FILE}\n")
+            return ok
 
         recalcular_resumo()
 
@@ -4161,6 +4266,8 @@ class ManusGui(tk.Tk):
                 pass
             cancelar_editor()
             recalcular_resumo()
+            # Persiste automaticamente a edição para não se perder ao reabrir/reiniciar.
+            persistir_estado_tabela(silencioso=True)
 
         def iniciar_edicao(iid, col):
             cancelar_editor()
@@ -4226,6 +4333,7 @@ class ManusGui(tk.Tk):
             tree.focus(novo)
             tree.see(novo)
             recalcular_resumo()
+            persistir_estado_tabela(silencioso=True)
 
         def remover_selecionada():
             cancelar_editor()
@@ -4236,20 +4344,26 @@ class ManusGui(tk.Tk):
             for iid in selecionados:
                 tree.delete(iid)
             recalcular_resumo()
+            persistir_estado_tabela(silencioso=True)
 
         def salvar_alteracoes():
             confirmar_editor()
-            dados = []
-            for iid in tree.get_children():
-                vals = tree.item(iid, "values")
-                dados.append({
-                    "idx": vals[0] if len(vals) > 0 else "",
-                    "key_mascarada": vals[1] if len(vals) > 1 else "",
-                    "ok": vals[2] if len(vals) > 2 else "",
-                    "total": vals[3] if len(vals) > 3 else "",
-                    "detail": vals[4] if len(vals) > 4 else "",
-                })
+            # 1) Persistência principal: grava no arquivo local que é recarregado
+            #    ao reabrir a janela / reiniciar o app.
+            ok = persistir_estado_tabela(silencioso=False)
+
+            # 2) Cópia extra com carimbo de data/hora para histórico/backup.
             try:
+                dados = []
+                for iid in tree.get_children():
+                    vals = tree.item(iid, "values")
+                    dados.append({
+                        "idx": vals[0] if len(vals) > 0 else "",
+                        "key_mascarada": vals[1] if len(vals) > 1 else "",
+                        "ok": vals[2] if len(vals) > 2 else "",
+                        "total": vals[3] if len(vals) > 3 else "",
+                        "detail": vals[4] if len(vals) > 4 else "",
+                    })
                 SESSION_EXPORT_DIR.mkdir(exist_ok=True)
                 destino = SESSION_EXPORT_DIR / ("creditos_editados_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".json")
                 escrever_json_atomico(destino, {"salvo_em": agora_iso(), "linhas": dados})
@@ -4257,15 +4371,54 @@ class ManusGui(tk.Tk):
                     self.enfileirar_backup(destino)
                 except Exception:
                     pass
-                self.log(f"[CRÉDITOS] Alterações da tabela salvas em: {destino}\n")
-                messagebox.showinfo("Salvo", f"Alterações salvas em:\n{destino}", parent=janela)
-            except Exception as e:
-                messagebox.showerror("Erro", str(e), parent=janela)
+            except Exception:
+                pass
+
+            if ok:
+                messagebox.showinfo(
+                    "Salvo",
+                    "Alterações salvas localmente.\n\n"
+                    f"Arquivo: {CREDITOS_EDITADOS_FILE.name}\n\n"
+                    "Elas serão recarregadas automaticamente ao reabrir esta janela "
+                    "ou reiniciar o aplicativo.",
+                    parent=janela,
+                )
+            else:
+                messagebox.showerror("Erro", "Não foi possível salvar as alterações localmente.", parent=janela)
+
+        def descartar_edicoes():
+            if not messagebox.askyesno(
+                "Descartar edições",
+                "Isto apaga TODAS as edições locais salvas e volta a mostrar apenas os "
+                "valores reais consultados da API na próxima consulta.\n\nConfirmar?",
+                parent=janela,
+            ):
+                return
+            try:
+                if CREDITOS_EDITADOS_FILE.exists():
+                    CREDITOS_EDITADOS_FILE.unlink()
+            except Exception:
+                pass
+            # Zera o arquivo em memória também.
+            self._salvar_creditos_editados({"por_chave": {}, "extras": []})
+            try:
+                if CREDITOS_EDITADOS_FILE.exists():
+                    CREDITOS_EDITADOS_FILE.unlink()
+            except Exception:
+                pass
+            self.log("[CRÉDITOS] Edições locais descartadas.\n")
+            messagebox.showinfo(
+                "Edições descartadas",
+                "Edições locais apagadas. Consulte os créditos novamente para ver os valores reais.",
+                parent=janela,
+            )
+            janela.destroy()
 
         ttk.Label(rodape, textvariable=resumo_var).pack(side="left")
 
         ttk.Button(rodape, text="Fechar", command=janela.destroy).pack(side="right")
         ttk.Button(rodape, text="Salvar alterações", command=salvar_alteracoes).pack(side="right", padx=6)
+        ttk.Button(rodape, text="Descartar edições", command=descartar_edicoes).pack(side="right", padx=6)
         ttk.Button(rodape, text="Remover linha", command=remover_selecionada).pack(side="right", padx=6)
         ttk.Button(rodape, text="Adicionar linha", command=adicionar_linha).pack(side="right", padx=6)
 
