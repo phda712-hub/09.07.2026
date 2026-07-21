@@ -108,6 +108,27 @@ def solicitar_modelo(modelo_padrao):
     return modelo or modelo_padrao
 
 
+def escolher_modelo_manus():
+    """
+    Menu numerado para escolher o tier do Manus.
+
+    O valor retornado e enviado LITERALMENTE no campo 'agent_profile' da API,
+    ou seja, e o que realmente define o modelo usado na tarefa.
+    """
+    print("\nEscolha o modelo (tier) do Manus:")
+    for i, nome in enumerate(MANUS_MODELOS, start=1):
+        marca = "  (padrao)" if nome == MANUS_MODELO_PADRAO else ""
+        print(f"  {i}. {nome}{marca}")
+
+    while True:
+        escolha = input(f"Numero [1-{len(MANUS_MODELOS)}]: ").strip()
+        if not escolha:
+            return MANUS_MODELO_PADRAO
+        if escolha.isdigit() and 1 <= int(escolha) <= len(MANUS_MODELOS):
+            return MANUS_MODELOS[int(escolha) - 1]
+        print("Opcao invalida. Tente novamente.")
+
+
 # ===========================================================================
 # Fluxo dos provedores compativeis com OpenAI
 # ===========================================================================
@@ -307,15 +328,21 @@ def manus_aguardar_resposta(chave, task_id, ids_ja_vistos, tempo_max=600):
 def chat_manus():
     """Loop de conversa para o Manus (baseado em tarefas)."""
     chave = solicitar_chave(nome_var="MANUS_API_KEY")
-
-    print("\nModelos disponiveis:", ", ".join(MANUS_MODELOS))
-    modelo = solicitar_modelo(MANUS_MODELO_PADRAO)
+    modelo = escolher_modelo_manus()
 
     print("\n" + "=" * 55)
-    print(f"Conectado ao Manus usando o perfil '{modelo}'.")
-    print("Digite sua mensagem e pressione Enter para conversar.")
-    print("Comandos: 'sair' para encerrar.")
+    print(f"Conectado ao Manus. Tier ATIVO (agent_profile): '{modelo}'")
+    print("Este valor e enviado de verdade a API ao criar cada tarefa.")
+    print("-" * 55)
+    print("Comandos:")
+    print("  /modelo  -> trocar o tier (inicia uma nova tarefa no novo tier)")
+    print("  /tier    -> mostrar o tier ativo neste momento")
+    print("  sair     -> encerrar")
+    print("-" * 55)
     print("Obs.: o Manus processa tarefas; a resposta pode levar alguns segundos.")
+    print("AVISO: se voce perguntar ao Manus 'qual modelo sou eu?', a resposta")
+    print("dele nao e confiavel (ele nao tem introspecao real do proprio tier).")
+    print("A fonte de verdade e o 'agent_profile' que este script envia (acima).")
     print("=" * 55 + "\n")
 
     task_id = ""
@@ -334,16 +361,36 @@ def chat_manus():
             print("Encerrando. Ate logo!")
             break
 
+        # Mostra o tier realmente ativo (valor enviado a API).
+        if entrada.lower() in ("/tier", "/modelo?", "tier"):
+            print(f"\n>> Tier ATIVO (agent_profile enviado a API): '{modelo}'\n")
+            continue
+
+        # Troca o tier. Como o agent_profile e definido na CRIACAO da tarefa,
+        # trocar o tier obrigatoriamente inicia uma nova tarefa.
+        if entrada.lower() in ("/modelo", "/trocar", "modelo"):
+            novo = escolher_modelo_manus()
+            if novo != modelo:
+                modelo = novo
+                task_id = ""          # forca criar nova tarefa no novo tier
+                ids_vistos = set()
+                print(f"\n>> Tier alterado para '{modelo}'. A proxima mensagem "
+                      f"iniciara uma NOVA tarefa neste tier.\n")
+            else:
+                print(f"\n>> Tier mantido em '{modelo}'.\n")
+            continue
+
         try:
             if not task_id:
-                # Primeira mensagem: cria a tarefa.
+                # Primeira mensagem (ou apos troca de tier): cria a tarefa.
                 task_id = manus_criar_tarefa(chave, modelo, entrada)
                 if not task_id:
                     print("\n[Erro] Nao foi possivel criar a tarefa no Manus.\n")
                     continue
-                print(f"  (tarefa criada: {task_id})")
+                # PROVA REAL: mostramos o agent_profile que ENVIAMOS a API.
+                print(f"  (tarefa criada: {task_id} | agent_profile enviado = '{modelo}')")
             else:
-                # Continua a conversa na mesma tarefa.
+                # Continua a conversa na mesma tarefa (mesmo tier).
                 manus_enviar_mensagem(chave, task_id, entrada)
 
             resposta, ids_vistos = manus_aguardar_resposta(chave, task_id, ids_vistos)
@@ -352,7 +399,7 @@ def chat_manus():
             continue
 
         if resposta:
-            print(f"\nManus: {resposta}\n")
+            print(f"\nManus [{modelo}]: {resposta}\n")
         else:
             print("\nManus: (sem resposta textual; a tarefa pode estar aguardando ou concluida)\n")
 
