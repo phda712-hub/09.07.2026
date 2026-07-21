@@ -70,8 +70,10 @@ import mimetypes
 import os
 import queue
 import re
+import shutil
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 import traceback
@@ -159,6 +161,22 @@ FUSION_FILE = Path(__file__).with_name("manus_chaves_fundidas.local.json")
 # Esses valores são apenas locais/visuais: o servidor do Manus não permite gravar
 # saldo/quota, então persistimos as edições aqui para não se perderem ao reabrir.
 CREDITOS_EDITADOS_FILE = Path(__file__).with_name("manus_creditos_editados.local.json")
+
+# ===== Tor embutido (instalação silenciosa do Tor Expert Bundle oficial) =====
+# O Expert Bundle é apenas um tor.exe autônomo (open-source, gratuito). O app
+# baixa, extrai e executa em segundo plano, expondo o SOCKS em 127.0.0.1:9050.
+TOR_DIR = Path(__file__).with_name("tor_embutido")
+TOR_DATA_DIR = TOR_DIR / "dados_tor"
+TOR_VERSAO_PADRAO = "15.0.17"
+
+
+def tor_url_expert_bundle(versao: str = TOR_VERSAO_PADRAO) -> str:
+    """Monta a URL oficial do Tor Expert Bundle (Windows x86_64) para a versão."""
+    versao = str(versao or TOR_VERSAO_PADRAO).strip()
+    return (
+        "https://archive.torproject.org/tor-package-archive/torbrowser/"
+        f"{versao}/tor-expert-bundle-windows-x86_64-{versao}.tar.gz"
+    )
 # Estúdio de Outras IAs: histórico de tarefas/conversas e pasta de downloads própria.
 ESTUDIO_TAREFAS_FILE = Path(__file__).with_name("estudio_ia_tarefas.json")
 ESTUDIO_DOWNLOAD_DIR = DOWNLOAD_DIR / "estudio_ia"
@@ -4463,6 +4481,8 @@ class ManusGui(tk.Tk):
         self.conta_proxy_var = tk.StringVar(value="")
         self.conta_proxy_status_var = tk.StringVar(value="Proxy: desativado.")
         self.conta_anon_var = tk.BooleanVar(value=False)
+        self.tor_status_var = tk.StringVar(value="Tor embutido: não instalado / parado.")
+        self.tor_url_var = tk.StringVar(value=tor_url_expert_bundle())
 
         proxy_box = ttk.LabelFrame(tab, text="Proxy para a janela embutida (opcional)", padding=12)
         proxy_box.grid(row=1, column=0, sticky="ew", pady=(0, 8))
@@ -4505,9 +4525,34 @@ class ManusGui(tk.Tk):
             style="Danger.TLabel", wraplength=1180, justify="left",
         ).grid(row=4, column=0, columnspan=4, sticky="w", pady=(6, 0))
 
+        # ----- Tor embutido (instalação silenciosa) -----
+        tor_box = ttk.LabelFrame(tab, text="Tor embutido (instalação silenciosa — não precisa instalar nada à mão)", padding=12)
+        tor_box.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        tor_box.columnconfigure(1, weight=1)
+
+        ttk.Label(tor_box, text="URL do pacote:").grid(row=0, column=0, sticky="w", padx=(0, 6))
+        ttk.Entry(tor_box, textvariable=self.tor_url_var).grid(row=0, column=1, sticky="ew", padx=(0, 6))
+        ttk.Button(tor_box, text="Buscar versão recente", command=self.buscar_tor_versao_recente).grid(row=0, column=2, padx=4)
+
+        botoes_tor = ttk.Frame(tor_box)
+        botoes_tor.grid(row=1, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Button(botoes_tor, text="Instalar / Atualizar Tor", command=lambda: self.instalar_tor(iniciar_apos=False)).pack(side="left", padx=(0, 6))
+        ttk.Button(botoes_tor, text="Iniciar Tor", command=self.iniciar_tor).pack(side="left", padx=6)
+        ttk.Button(botoes_tor, text="Parar Tor", command=self.parar_tor).pack(side="left", padx=6)
+        ttk.Button(botoes_tor, text="Instalar e Iniciar", command=lambda: self.instalar_tor(iniciar_apos=True)).pack(side="left", padx=6)
+
+        ttk.Label(tor_box, textvariable=self.tor_status_var, style="Success.TLabel").grid(row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(
+            tor_box,
+            text=("Baixa o Tor Expert Bundle oficial (open-source, gratuito) e roda o tor.exe em segundo plano, "
+                  "SILENCIOSAMENTE (sem janela de console), expondo o SOCKS em 127.0.0.1:9050. Ao conectar "
+                  "(bootstrap 100%), o proxy e o modo privacidade são ativados automaticamente. Windows x86_64."),
+            style="Status.TLabel", wraplength=1180, justify="left",
+        ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
+
         # ----- Atalhos rápidos (janela embutida) -----
         atalhos = ttk.LabelFrame(tab, text="Abrir no app (janela embutida)", padding=12)
-        atalhos.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        atalhos.grid(row=3, column=0, sticky="ew", pady=(0, 8))
 
         ttk.Button(
             atalhos, text="Entrar / Criar conta",
@@ -4528,7 +4573,7 @@ class ManusGui(tk.Tk):
 
         # ----- URL livre -----
         livre = ttk.LabelFrame(tab, text="Abrir uma URL específica do Manus na janela embutida", padding=12)
-        livre.grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        livre.grid(row=4, column=0, sticky="ew", pady=(0, 8))
         livre.columnconfigure(0, weight=1)
         self.conta_url_var = tk.StringVar(value="https://manus.im")
         ttk.Entry(livre, textvariable=self.conta_url_var).grid(row=0, column=0, sticky="ew", padx=(0, 8))
@@ -4549,7 +4594,7 @@ class ManusGui(tk.Tk):
             style="Warn.TLabel",
             wraplength=1180,
             justify="left",
-        ).grid(row=4, column=0, sticky="w", pady=(6, 0))
+        ).grid(row=5, column=0, sticky="w", pady=(6, 0))
 
     def _conta_proxy_atual(self) -> str:
         """Retorna o proxy a usar na janela embutida (ou '' se desativado)."""
@@ -4672,6 +4717,190 @@ class ManusGui(tk.Tk):
                 self.msg("conta_proxy_status", f"Falha no proxy: {resumo_texto(str(e), 120)}")
 
         self.executar_thread(worker)
+
+    def _tor_exe_local(self):
+        """Procura o tor.exe: pasta do app (tor_embutido), PATH ou Tor Browser instalado."""
+        try:
+            if TOR_DIR.exists():
+                for p in TOR_DIR.rglob("tor.exe"):
+                    return p
+        except Exception:
+            pass
+        try:
+            w = shutil.which("tor")
+            if w:
+                return Path(w)
+        except Exception:
+            pass
+        try:
+            candidatos = [
+                Path(os.environ.get("USERPROFILE", "")) / "Desktop" / "Tor Browser" / "Browser" / "TorBrowser" / "Tor" / "tor.exe",
+                Path(os.environ.get("PROGRAMFILES", "")) / "Tor Browser" / "Browser" / "TorBrowser" / "Tor" / "tor.exe",
+            ]
+            for c in candidatos:
+                if str(c) and c.exists():
+                    return c
+        except Exception:
+            pass
+        return None
+
+    def buscar_tor_versao_recente(self):
+        """Tenta detectar a versão estável mais recente do Tor no dist oficial."""
+        self.tor_status_var.set("Buscando versão mais recente do Tor...")
+
+        def worker():
+            try:
+                r = HTTP_SESSION.get("https://dist.torproject.org/torbrowser/", timeout=30)
+                versoes = re.findall(r'href="(\d+\.\d+(?:\.\d+)?)/"', r.text)
+                estaveis = [v for v in versoes if "a" not in v.lower() and "b" not in v.lower()]
+
+                def kf(v):
+                    try:
+                        return tuple(int(x) for x in v.split("."))
+                    except Exception:
+                        return (0,)
+
+                if estaveis:
+                    melhor = sorted(set(estaveis), key=kf)[-1]
+                    self.msg("tor_set_url", tor_url_expert_bundle(melhor))
+                    self.msg("tor_status", f"Versão detectada: {melhor}. URL atualizada.")
+                else:
+                    self.msg("tor_status", "Não consegui detectar a versão; use a URL atual ou cole manualmente.")
+            except Exception as e:
+                self.msg("tor_status", f"Falha ao detectar versão: {resumo_texto(str(e), 90)}")
+
+        self.executar_thread(worker)
+
+    def instalar_tor(self, iniciar_apos: bool = False):
+        """Baixa e extrai o Tor Expert Bundle (instalação silenciosa, em thread)."""
+        url = (self.tor_url_var.get() or "").strip() or tor_url_expert_bundle()
+        self.tor_status_var.set("Baixando Tor (silencioso)...")
+        self.log(f"[TOR] Baixando {url}\n")
+
+        def worker():
+            try:
+                TOR_DIR.mkdir(parents=True, exist_ok=True)
+                destino = TOR_DIR / "tor-expert-bundle.tar.gz"
+                with HTTP_SESSION.get(url, stream=True, timeout=600) as r:
+                    r.raise_for_status()
+                    total = int(r.headers.get("Content-Length") or 0)
+                    baixado = 0
+                    ult = -1
+                    with destino.open("wb") as f:
+                        for chunk in r.iter_content(1024 * 256):
+                            if chunk:
+                                f.write(chunk)
+                                baixado += len(chunk)
+                                if total:
+                                    pct = baixado * 100 // total
+                                    if pct != ult:
+                                        ult = pct
+                                        self.msg("tor_status", f"Baixando Tor: {pct}%")
+                self.msg("tor_status", "Extraindo Tor...")
+                with tarfile.open(destino, "r:gz") as tf:
+                    try:
+                        tf.extractall(TOR_DIR, filter="data")
+                    except TypeError:
+                        tf.extractall(TOR_DIR)
+                try:
+                    destino.unlink()
+                except Exception:
+                    pass
+                exe = self._tor_exe_local()
+                if exe:
+                    self.msg("tor_status", f"Tor instalado em: {exe}")
+                    self.msg("log", f"[TOR] Instalado: {exe}\n")
+                    if iniciar_apos:
+                        self.msg("tor_iniciar")
+                else:
+                    self.msg("tor_status", "Baixado, mas tor.exe não foi encontrado no pacote (verifique a URL/versão).")
+            except Exception as e:
+                self.msg("tor_status", f"Falha ao instalar Tor: {resumo_texto(str(e), 140)}")
+                self.msg("log", f"[TOR/ERRO] {e}\n")
+
+        self.executar_thread(worker)
+
+    def iniciar_tor(self):
+        """Inicia o tor.exe em segundo plano (silencioso) e detecta o bootstrap."""
+        proc = getattr(self, "_tor_proc", None)
+        if proc is not None and proc.poll() is None:
+            self.tor_status_var.set("Tor já está rodando.")
+            return
+        exe = self._tor_exe_local()
+        if not exe:
+            if messagebox.askyesno(
+                "Tor não instalado",
+                "O Tor embutido ainda não está instalado.\n\n"
+                "Baixar e instalar agora (silencioso) e iniciar em seguida?",
+            ):
+                self.instalar_tor(iniciar_apos=True)
+            return
+        try:
+            TOR_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        cmd = [str(exe), "--SocksPort", "127.0.0.1:9050", "--DataDirectory", str(TOR_DATA_DIR)]
+        try:
+            data_dir = exe.parent.parent / "data"
+            g = data_dir / "geoip"
+            g6 = data_dir / "geoip6"
+            if g.exists():
+                cmd += ["--GeoIPFile", str(g)]
+            if g6.exists():
+                cmd += ["--GeoIPv6File", str(g6)]
+        except Exception:
+            pass
+        creation = 0
+        if os.name == "nt":
+            creation = 0x08000000  # CREATE_NO_WINDOW: sem janela de console (silencioso)
+        self.tor_status_var.set("Iniciando Tor... aguardando bootstrap (pode levar de 10 a 40s).")
+        self.log("[TOR] Iniciando tor.exe...\n")
+
+        def worker():
+            try:
+                p = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    creationflags=creation,
+                    cwd=str(exe.parent),
+                )
+                self._tor_proc = p
+                for linha in p.stdout:
+                    linha = (linha or "").strip()
+                    if not linha:
+                        continue
+                    if "Bootstrapped" in linha:
+                        self.msg("tor_status", "Tor: " + linha)
+                        if "100%" in linha:
+                            self.msg("tor_pronto")
+                    elif "[err]" in linha.lower():
+                        self.msg("log", f"[TOR] {linha}\n")
+                self.msg("tor_status", "Tor: processo finalizado.")
+            except Exception as e:
+                self.msg("tor_status", f"Falha ao iniciar Tor: {resumo_texto(str(e), 120)}")
+                self.msg("log", f"[TOR/ERRO] {e}\n")
+
+        self.executar_thread(worker)
+
+    def parar_tor(self):
+        """Para o processo do Tor embutido."""
+        proc = getattr(self, "_tor_proc", None)
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        self._tor_proc = None
+        try:
+            self.tor_status_var.set("Tor parado.")
+            self.log("[TOR] Tor parado.\n")
+        except Exception:
+            pass
 
     def construir_aba_api_manus(self):
         """
@@ -6231,6 +6460,38 @@ class ManusGui(tk.Tk):
                         self.conta_proxy_status_var.set(str(texto))
                     except Exception:
                         pass
+
+                elif kind == "tor_status":
+                    _, texto = item
+                    try:
+                        self.tor_status_var.set(str(texto))
+                    except Exception:
+                        pass
+
+                elif kind == "tor_set_url":
+                    _, u = item
+                    try:
+                        self.tor_url_var.set(str(u))
+                    except Exception:
+                        pass
+
+                elif kind == "tor_iniciar":
+                    try:
+                        self.iniciar_tor()
+                    except Exception:
+                        pass
+
+                elif kind == "tor_pronto":
+                    try:
+                        self.conta_proxy_var.set("socks5://127.0.0.1:9050")
+                        self.conta_proxy_enabled_var.set(True)
+                        self.conta_anon_var.set(True)
+                        self.tor_status_var.set(
+                            "Tor conectado (bootstrap 100%)! Proxy socks5://127.0.0.1:9050 + modo privacidade ativados."
+                        )
+                    except Exception:
+                        pass
+                    self.log("[TOR] Conectado (bootstrap 100%). Proxy e modo privacidade ativados.\n")
 
                 elif kind == "api_console_result":
                     _, ok, titulo, texto = item
@@ -10009,6 +10270,10 @@ class ManusGui(tk.Tk):
         - Caso contrário: salva tudo (chaves, provedores, preferências,
           checkpoint da tarefa e rascunho) antes de fechar, para nada se perder.
         """
+        try:
+            self.parar_tor()
+        except Exception:
+            pass
         try:
             if self.privacy_var.get():
                 self.limpar_dados_locais()
