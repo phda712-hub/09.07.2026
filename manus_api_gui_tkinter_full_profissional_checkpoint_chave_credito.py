@@ -4371,18 +4371,21 @@ class ManusGui(tk.Tk):
 
         self.executar_thread(worker)
 
-    def abrir_janela_manus_embutida(self, url: str = "https://manus.im", titulo: str = "Manus - Conta e Planos", proxy: str = ""):
+    def abrir_janela_manus_embutida(self, url: str = "https://manus.im", titulo: str = "Manus - Conta e Planos", proxy: str = "", anon: bool = False):
         """
         Abre uma página do Manus dentro de uma JANELA EMBUTIDA do app (pywebview),
         em um processo separado (para não conflitar com o mainloop do Tkinter).
 
         Se 'proxy' for informado, a janela embutida roteia o tráfego por ele.
+        Se 'anon' for True, abre em modo privacidade máxima (sem cookies/histórico,
+        WebRTC sem vazar IP, user-agent genérico).
         Se o pywebview não estiver instalado, oferece abrir no navegador padrão.
         """
         url = (url or "").strip() or "https://manus.im"
         if not url.lower().startswith(("http://", "https://")):
             url = "https://" + url
         proxy = str(proxy or "").strip()
+        anon = bool(anon)
 
         if not WEBVIEW_DISPONIVEL:
             if messagebox.askyesno(
@@ -4408,10 +4411,13 @@ class ManusGui(tk.Tk):
                 cmd = [sys.executable, os.path.abspath(__file__), "--webview", url, "--webview-title", titulo]
             if proxy:
                 cmd += ["--webview-proxy", proxy]
+            if anon:
+                cmd += ["--webview-anon"]
             subprocess.Popen(cmd)
             via = f" via proxy {proxy}" if proxy else ""
-            self.definir_status(f"Janela embutida aberta: {url}{via}")
-            self.log(f"[WEBVIEW] Janela embutida aberta para {url}{(' (proxy ' + proxy + ')') if proxy else ''}\n")
+            modo = " [modo privacidade]" if anon else ""
+            self.definir_status(f"Janela embutida aberta: {url}{via}{modo}")
+            self.log(f"[WEBVIEW] Janela embutida aberta para {url}{(' (proxy ' + proxy + ')') if proxy else ''}{' (anon)' if anon else ''}\n")
         except Exception as e:
             messagebox.showerror("Erro ao abrir janela embutida", str(e))
             try:
@@ -4456,6 +4462,7 @@ class ManusGui(tk.Tk):
         self.conta_proxy_enabled_var = tk.BooleanVar(value=False)
         self.conta_proxy_var = tk.StringVar(value="")
         self.conta_proxy_status_var = tk.StringVar(value="Proxy: desativado.")
+        self.conta_anon_var = tk.BooleanVar(value=False)
 
         proxy_box = ttk.LabelFrame(tab, text="Proxy para a janela embutida (opcional)", padding=12)
         proxy_box.grid(row=1, column=0, sticky="ew", pady=(0, 8))
@@ -4480,6 +4487,23 @@ class ManusGui(tk.Tk):
                   "tráfego. NÃO use proxy grátis nas páginas de LOGIN e PAGAMENTO do Manus."),
             style="Danger.TLabel", wraplength=1180, justify="left",
         ).grid(row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
+
+        # ----- Modo privacidade máxima ("anônimo") + Tor -----
+        ttk.Checkbutton(
+            proxy_box,
+            text="Modo privacidade máxima (sem cookies/histórico, WebRTC sem vazar IP, user-agent genérico)",
+            variable=self.conta_anon_var, command=self._conta_anon_toggle,
+        ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Button(proxy_box, text="Usar Tor (socks5 local)", command=self._conta_usar_tor).grid(row=3, column=3, padx=4, pady=(8, 0))
+
+        ttk.Label(
+            proxy_box,
+            text=("REALIDADE: navegação 100% anônima NÃO existe. Este modo reduz muito o rastreamento, mas "
+                  "fingerprint do navegador, o site de destino e — principalmente — FAZER LOGIN na sua conta "
+                  "identificam você de qualquer forma. Para o máximo de anonimato, combine 'Modo privacidade' + Tor "
+                  "e NÃO faça login. O Tor exige o programa Tor rodando na máquina (porta 9050 ou 9150)."),
+            style="Danger.TLabel", wraplength=1180, justify="left",
+        ).grid(row=4, column=0, columnspan=4, sticky="w", pady=(6, 0))
 
         # ----- Atalhos rápidos (janela embutida) -----
         atalhos = ttk.LabelFrame(tab, text="Abrir no app (janela embutida)", padding=12)
@@ -4555,8 +4579,41 @@ class ManusGui(tk.Tk):
             pass
 
     def _conta_abrir(self, url: str, titulo: str = "Manus"):
-        """Abre a janela embutida aplicando o proxy quando ativado."""
-        self.abrir_janela_manus_embutida(url, titulo, self._conta_proxy_atual())
+        """Abre a janela embutida aplicando o proxy e o modo privacidade quando ativados."""
+        try:
+            anon = bool(self.conta_anon_var.get())
+        except Exception:
+            anon = False
+        self.abrir_janela_manus_embutida(url, titulo, self._conta_proxy_atual(), anon)
+
+    def _conta_anon_toggle(self):
+        """Avisa, ao ativar, que anonimato 100% não existe (especialmente com login)."""
+        try:
+            if self.conta_anon_var.get():
+                messagebox.showwarning(
+                    "Sobre o modo privacidade máxima",
+                    "Este modo reduz bastante o rastreamento (sem cookies/histórico, WebRTC sem vazar IP, "
+                    "user-agent genérico, armazenamento temporário).\n\n"
+                    "MAS navegação 100% anônima NÃO existe: o site de destino, o fingerprint do navegador e, "
+                    "sobretudo, FAZER LOGIN na sua conta identificam você.\n\n"
+                    "Para o máximo de privacidade: ative também o Tor e evite logar.",
+                )
+        except Exception:
+            pass
+
+    def _conta_usar_tor(self):
+        """Configura o proxy para o Tor local e liga o modo privacidade."""
+        self.conta_proxy_var.set("socks5://127.0.0.1:9050")
+        self.conta_proxy_enabled_var.set(True)
+        self.conta_anon_var.set(True)
+        self.conta_proxy_status_var.set("Configurado para Tor (socks5://127.0.0.1:9050) + modo privacidade.")
+        messagebox.showinfo(
+            "Usar Tor",
+            "Para funcionar, o Tor precisa estar INSTALADO e RODANDO na sua máquina.\n\n"
+            "- Tor daemon (Expert Bundle): porta 9050\n"
+            "- Tor Browser aberto: porta 9150 (troque para socks5://127.0.0.1:9150 se usar o Tor Browser)\n\n"
+            "Sem o Tor rodando, a janela não vai carregar. Use 'Testar proxy' para verificar.",
+        )
 
     def buscar_proxies_gratuitos(self):
         """Busca uma lista de proxies gratuitos de fontes públicas (podem estar instáveis)."""
@@ -9983,21 +10040,23 @@ class ManusGui(tk.Tk):
             self.destroy()
 
 
-def run_webview(url: str, titulo: str = "Manus", proxy: str = "") -> int:
+def run_webview(url: str, titulo: str = "Manus", proxy: str = "", anon: bool = False) -> int:
     """
     Abre uma JANELA EMBUTIDA (pywebview) com a URL informada.
 
     Roda em um PROCESSO separado (chamado com --webview), pois o pywebview
     precisa da thread principal e não pode coexistir com o mainloop do Tkinter.
-    O login e o pagamento acontecem na própria página segura do Manus, mas
-    exibidos dentro de uma janela do aplicativo (sem navegador externo).
 
-    Se 'proxy' for informado (host:port ou scheme://host:port), o tráfego da
-    janela embutida é roteado por ele:
-    - No Windows (WebView2/Edge Chromium) via --proxy-server nos argumentos do
-      motor do navegador (WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS).
-    - Como fallback, define variáveis de ambiente HTTP(S)_PROXY.
-    ATENÇÃO: proxies gratuitos podem interceptar o tráfego; não use em login/pagamento.
+    proxy: se informado (host:port ou scheme://host:port), roteia o tráfego por ele
+    (WebView2 via --proxy-server + fallback HTTP(S)_PROXY).
+
+    anon (Modo Privacidade Máxima): NÃO é "100% anônimo" (isso não existe), mas
+    reduz bastante o rastreamento:
+    - modo privado (private_mode): não guarda cookies/histórico/localStorage;
+    - armazenamento temporário isolado (apagado depois);
+    - WebRTC configurado para não vazar o IP local/real;
+    - user-agent genérico.
+    Importante: fazer LOGIN na conta identifica você de qualquer forma.
     """
     if not WEBVIEW_DISPONIVEL:
         print(
@@ -10008,17 +10067,43 @@ def run_webview(url: str, titulo: str = "Manus", proxy: str = "") -> int:
         return 1
     try:
         proxy = str(proxy or "").strip()
+        extra_args = []
+
         if proxy:
             proxy_url = proxy if "://" in proxy else ("http://" + proxy)
-            # WebView2 (Windows/Edge Chromium): repassa o proxy ao motor do navegador.
-            os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = f"--proxy-server={proxy_url}"
+            extra_args.append(f"--proxy-server={proxy_url}")
             # Fallback genérico (alguns backends respeitam variáveis de ambiente).
             os.environ["HTTP_PROXY"] = proxy_url
             os.environ["HTTPS_PROXY"] = proxy_url
             os.environ["http_proxy"] = proxy_url
             os.environ["https_proxy"] = proxy_url
+
+        ua_generico = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                       "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+
+        if anon:
+            # Evita vazamento de IP real por WebRTC e reduz identificação por mDNS.
+            extra_args.append("--force-webrtc-ip-handling-policy=disable_non_proxied_udp")
+            extra_args.append("--disable-features=WebRtcHideLocalIpsWithMdns")
+
+        if extra_args:
+            os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = " ".join(extra_args)
+
         webview.create_window(titulo or "Manus", url, width=1180, height=820, resizable=True)
-        webview.start()
+
+        # Alguns kwargs (user_agent/storage_path/private_mode) só existem em
+        # versões novas do pywebview; por isso o fallback protegido.
+        start_kwargs = {}
+        if anon:
+            import tempfile
+            start_kwargs["private_mode"] = True
+            start_kwargs["storage_path"] = tempfile.mkdtemp(prefix="manus_anon_")
+            start_kwargs["user_agent"] = ua_generico
+        try:
+            webview.start(**start_kwargs)
+        except TypeError:
+            # Versão antiga do pywebview sem esses parâmetros.
+            webview.start()
         return 0
     except Exception as e:
         print(f"[WEBVIEW/ERRO] {e}", file=sys.stderr)
@@ -10047,6 +10132,7 @@ def parse_args():
     p.add_argument("--webview", default="", help="Abre uma janela embutida (pywebview) com a URL informada e sai.")
     p.add_argument("--webview-title", default="Manus", help="Título da janela embutida aberta com --webview.")
     p.add_argument("--webview-proxy", default="", help="Proxy (host:port ou scheme://host:port) para a janela embutida.")
+    p.add_argument("--webview-anon", action="store_true", help="Abre a janela embutida em modo privacidade máxima.")
     return p.parse_args()
 
 
@@ -10055,7 +10141,7 @@ def main():
 
     # Modo janela embutida: abre a página do Manus em uma janela pywebview e sai.
     if args.webview:
-        return run_webview(args.webview, args.webview_title, args.webview_proxy)
+        return run_webview(args.webview, args.webview_title, args.webview_proxy, args.webview_anon)
 
     if args.list_completed:
         try:
