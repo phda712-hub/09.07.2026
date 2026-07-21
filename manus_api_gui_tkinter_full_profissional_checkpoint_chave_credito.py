@@ -4452,7 +4452,35 @@ class ManusGui(tk.Tk):
         Manus (não há API pública para isso); aqui apenas embutimos essa página
         numa janela do próprio aplicativo.
         """
-        tab = self.conta_tab
+        # A aba é ROLÁVEL: canvas + barra de rolagem vertical garantem que todos
+        # os painéis (planos, proxy, Tor, atalhos, etc.) fiquem acessíveis mesmo
+        # em telas menores, sem "fugir" para baixo da janela.
+        outer = self.conta_tab
+        outer.columnconfigure(0, weight=1)
+        outer.rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(outer, highlightthickness=0, borderwidth=0)
+        canvas.configure(background=getattr(self, "_tema_text_bg", "#FFFFFF"))
+        vsb = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+
+        tab = ttk.Frame(canvas, padding=(0, 0, 10, 0))
+        _jin_conta = canvas.create_window((0, 0), window=tab, anchor="nw")
+        tab.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(_jin_conta, width=e.width))
+
+        def _wheel_conta(e):
+            try:
+                canvas.yview_scroll(int(-1 * (e.delta / 120)) * 3, "units")
+            except Exception:
+                pass
+
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel_conta))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        tab.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel_conta))
+
         tab.columnconfigure(0, weight=1)
 
         # ----- Info de planos -----
