@@ -438,6 +438,9 @@ class MySQLCache:
 
     TABELA_CACHE = "manus_cache"
     TABELA_CONVERSAS = "manus_conversas"
+    # Base de conhecimento local (dicionários, enciclopédias, arquivos) usada
+    # pelo MODO LOCAL (sem IA). Alimenta respostas sem chamar nenhuma IA externa.
+    TABELA_KB = "base_conhecimento"
 
     def __init__(self, host=MYSQL_HOST, db=MYSQL_DB, user=MYSQL_USER, password=MYSQL_PASS):
         self.host = host
@@ -533,6 +536,117 @@ class MySQLCache:
                 "content": "LONGTEXT",
                 "created_at": "DATETIME",
             })
+            # Tabela da BASE DE CONHECIMENTO local (modo sem IA).
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS " + self.TABELA_KB + " ("
+                "id INT AUTO_INCREMENT PRIMARY KEY,"
+                "tipo VARCHAR(40),"
+                "termo VARCHAR(255),"
+                "titulo VARCHAR(255),"
+                "conteudo LONGTEXT,"
+                "tags VARCHAR(255),"
+                "fonte VARCHAR(255),"
+                "arquivo_ref VARCHAR(500),"
+                "created_at DATETIME,"
+                "updated_at DATETIME,"
+                "KEY idx_kb_termo (termo),"
+                "KEY idx_kb_tipo (tipo)"
+                ") DEFAULT CHARSET=utf8mb4"
+            )
+            self._garantir_colunas(cur, self.TABELA_KB, {
+                "tipo": "VARCHAR(40)",
+                "termo": "VARCHAR(255)",
+                "titulo": "VARCHAR(255)",
+                "conteudo": "LONGTEXT",
+                "tags": "VARCHAR(255)",
+                "fonte": "VARCHAR(255)",
+                "arquivo_ref": "VARCHAR(500)",
+                "created_at": "DATETIME",
+                "updated_at": "DATETIME",
+            })
+            # Índice FULLTEXT para busca melhor (ignora se o engine não suportar).
+            try:
+                cur.execute("ALTER TABLE " + self.TABELA_KB + " ADD FULLTEXT ft_kb (termo, titulo, conteudo, tags)")
+            except Exception:
+                pass
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    # ===== Base de Conhecimento (modo local, sem IA) =====
+    def kb_inserir(self, tipo: str, termo: str, titulo: str, conteudo: str,
+                   tags: str = "", fonte: str = "", arquivo_ref: str = "") -> bool:
+        conn = self._conn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO " + self.TABELA_KB +
+                " (tipo, termo, titulo, conteudo, tags, fonte, arquivo_ref, created_at, updated_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())",
+                (str(tipo or "")[:40], str(termo or "")[:255], str(titulo or "")[:255],
+                 str(conteudo or ""), str(tags or "")[:255], str(fonte or "")[:255], str(arquivo_ref or "")[:500]),
+            )
+            return True
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def kb_inserir_muitos(self, registros: List[Tuple]) -> int:
+        """registros: lista de tuplas (tipo, termo, titulo, conteudo, tags, fonte, arquivo_ref)."""
+        if not registros:
+            return 0
+        conn = self._conn()
+        try:
+            cur = conn.cursor()
+            cur.executemany(
+                "INSERT INTO " + self.TABELA_KB +
+                " (tipo, termo, titulo, conteudo, tags, fonte, arquivo_ref, created_at, updated_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())",
+                registros,
+            )
+            return len(registros)
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def kb_buscar(self, consulta: str, limit: int = 50) -> List[Dict[str, Any]]:
+        conn = self._conn()
+        try:
+            cur = conn.cursor()
+            like = "%" + str(consulta or "").strip() + "%"
+            cur.execute(
+                "SELECT id, tipo, termo, titulo, conteudo, tags, fonte FROM " + self.TABELA_KB + " "
+                "WHERE termo LIKE %s OR titulo LIKE %s OR conteudo LIKE %s OR tags LIKE %s "
+                "ORDER BY updated_at DESC LIMIT %s",
+                (like, like, like, like, int(limit)),
+            )
+            rows = cur.fetchall() or []
+            out = []
+            for r in rows:
+                out.append({
+                    "id": r[0], "tipo": r[1], "termo": r[2], "titulo": r[3],
+                    "conteudo": r[4], "tags": r[5], "fonte": r[6],
+                })
+            return out
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def kb_contar(self) -> int:
+        conn = self._conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM " + self.TABELA_KB)
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
         finally:
             try:
                 conn.close()
@@ -2447,6 +2561,88 @@ MANUS_API_ENDPOINTS: List[Dict[str, Any]] = [
 ]
 
 
+# Rótulos amigáveis (em português) para os campos dos endpoints, usados no
+# "Modo Fácil" da Central da API — para quem não entende de JSON/código.
+API_CAMPOS_AMIGAVEIS = {
+    "task_id": "ID da tarefa",
+    "agent_profile": "Modelo",
+    "title": "Título",
+    "limit": "Quantidade (limite)",
+    "order": "Ordem (desc = mais novo primeiro / asc)",
+    "scope": "Escopo (all/standard/project/agent_subtask)",
+    "cursor": "Cursor de paginação",
+    "file_id": "ID do arquivo",
+    "agent_id": "ID do agente",
+    "nickname": "Apelido / nome do agente",
+    "about": "Descrição do agente",
+    "filename": "Nome do arquivo",
+    "name": "Nome",
+    "instruction": "Instrução do projeto",
+    "url": "URL (endereço)",
+    "webhook_id": "ID do webhook",
+    "website_id": "ID do site",
+    "visibility": "Visibilidade (public/team)",
+    "share_visibility": "Visibilidade (private/team/public)",
+    "enable_visible_in_task_list": "Mostrar na lista de tarefas",
+    "hide_in_task_list": "Ocultar da lista de tarefas",
+    "event_id": "ID do evento",
+}
+
+# Texto de exemplos/documentação exibido na aba "Exemplos / IAs grátis".
+EXEMPLOS_DOCS_TEXTO = (
+    "===== COMO USAR ESTE APLICATIVO (RESUMO) =====\n\n"
+    "1) COM A MANUS (precisa de chave):\n"
+    "   - Aba 'Configuração / IDs': cole sua APIKEY da Manus e salve.\n"
+    "   - Aba 'Principal': escreva o prompt, anexe arquivos e clique em INICIAR TAREFA.\n"
+    "   - Aba 'Central da API Manus': escolha uma ação, preencha o formulário (Modo Fácil) e clique em EXECUTAR.\n\n"
+    "2) SEM IA E SEM CHAVE (modo local):\n"
+    "   - Aba 'Base de Conhecimento': salve dicionários, enciclopédias e arquivos no MySQL + FTP\n"
+    "     (inclui upload em massa de muitos arquivos/JSON/CSV de uma vez).\n"
+    "   - Aba 'Modo Local (sem IA)': pesquise e o app responde usando SÓ o que está no MySQL/FTP,\n"
+    "     sem chamar nenhuma inteligência artificial e sem precisar de chave.\n\n"
+    "3) OUTRAS IAs (opcional):\n"
+    "   - Aba 'Outras IAs / APIs': cadastre provedores compatíveis com OpenAI (muitos têm plano grátis).\n"
+    "   - Aba 'Estúdio Outras IAs': converse, anexe arquivos e baixe resultados.\n\n"
+    "===== EXEMPLOS DE PROMPT =====\n"
+    "- 'Resuma este PDF em 10 tópicos.' (anexe o arquivo)\n"
+    "- 'Crie um site simples de uma página e entregue o código em zip.'\n"
+    "- 'Analise esta planilha e gere um relatório.'\n\n"
+    "===== DICAS =====\n"
+    "- Conta gratuita da Manus só roda o modelo manus-1.6-lite.\n"
+    "- O Modo Local é ótimo para consultas offline (glossários, manuais, catálogos) sem gastar créditos.\n"
+    "- Use a aba 'Turbo / IA / Injeção' para presets de prompt e comparação entre IAs.\n"
+)
+
+# Provedores de IA com uso/chave gratuita (limites mudam — confirme no site de cada um).
+IAS_GRATUITAS = [
+    ("Groq", "Sim — camada gratuita rápida", "console.groq.com/keys"),
+    ("Google Gemini", "Sim — camada gratuita (AI Studio)", "aistudio.google.com/apikey"),
+    ("OpenRouter", "Sim — vários modelos marcados como :free", "openrouter.ai/keys"),
+    ("Mistral", "Sim — camada gratuita (La Plateforme)", "console.mistral.ai"),
+    ("Cerebras", "Sim — camada gratuita", "cloud.cerebras.ai"),
+    ("Cohere", "Sim — chave trial gratuita", "dashboard.cohere.com/api-keys"),
+    ("Together AI", "Créditos iniciais grátis", "api.together.xyz/settings/api-keys"),
+    ("Hugging Face", "Inferência gratuita (limitada)", "huggingface.co/settings/tokens"),
+    ("GitHub Models", "Gratuito com conta GitHub", "github.com/marketplace/models"),
+    ("Ollama (local)", "100% grátis, roda no PC, SEM chave", "ollama.com"),
+    ("LM Studio (local)", "100% grátis, roda no PC, SEM chave", "lmstudio.ai"),
+]
+
+IAS_GRATUITAS_URLS = {
+    "Groq": "https://console.groq.com/keys",
+    "Google Gemini": "https://aistudio.google.com/apikey",
+    "OpenRouter": "https://openrouter.ai/keys",
+    "Mistral": "https://console.mistral.ai",
+    "Cerebras": "https://cloud.cerebras.ai",
+    "Cohere": "https://dashboard.cohere.com/api-keys",
+    "Together AI": "https://api.together.xyz/settings/api-keys",
+    "Hugging Face": "https://huggingface.co/settings/tokens",
+    "GitHub Models": "https://github.com/marketplace/models",
+    "Ollama (local)": "https://ollama.com",
+    "LM Studio (local)": "https://lmstudio.ai",
+}
+
+
 class ManusGui(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -2738,6 +2934,22 @@ class ManusGui(tk.Tk):
         self.conta_tab = ttk.Frame(self.notebook, padding=10)
         self.notebook.add(self.conta_tab, text="Conta / Planos")
         self.construir_aba_conta_planos()
+
+        # Base de Conhecimento: salva dicionários/enciclopédias/arquivos no
+        # MySQL + FTP (com upload em massa). NÃO usa IA.
+        self.kb_tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(self.kb_tab, text="Base de Conhecimento")
+        self.construir_aba_base_conhecimento()
+
+        # Modo Local: responde SÓ com MySQL + FTP, sem IA e sem chave de API.
+        self.local_tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(self.local_tab, text="Modo Local (sem IA)")
+        self.construir_aba_modo_local()
+
+        # Exemplos, documentação e lista de IAs com chave gratuita.
+        self.exemplos_tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(self.exemplos_tab, text="Exemplos / IAs grátis")
+        self.construir_aba_exemplos_ias()
 
         # ============================================================
         # ABA CONFIGURAÇÃO / IDS
@@ -4930,6 +5142,417 @@ class ManusGui(tk.Tk):
         except Exception:
             pass
 
+    def _criar_container_rolavel(self, parent):
+        """Cria um container com barra de rolagem vertical e devolve o frame interno."""
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(0, weight=1)
+        canvas = tk.Canvas(parent, highlightthickness=0, borderwidth=0)
+        canvas.configure(background=getattr(self, "_tema_text_bg", "#FFFFFF"))
+        vsb = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        inner = ttk.Frame(canvas, padding=(0, 0, 10, 0))
+        jid = canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(jid, width=e.width))
+
+        def _wheel(e):
+            try:
+                canvas.yview_scroll(int(-1 * (e.delta / 120)) * 3, "units")
+            except Exception:
+                pass
+
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        inner.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel))
+        inner.columnconfigure(0, weight=1)
+        return inner
+
+    # ===================================================================
+    # ============ BASE DE CONHECIMENTO (MySQL + FTP, sem IA) ===========
+    # ===================================================================
+    def construir_aba_base_conhecimento(self):
+        self.kb_status_var = tk.StringVar(value="Base de Conhecimento (MySQL + FTP). Não usa IA.")
+        self.kb_massa_status_var = tk.StringVar(value="Aguardando importação...")
+        self.kb_tipo_var = tk.StringVar(value="dicionario")
+        self.kb_termo_var = tk.StringVar(value="")
+        self.kb_titulo_var = tk.StringVar(value="")
+        self.kb_tags_var = tk.StringVar(value="")
+        self.kb_fonte_var = tk.StringVar(value="")
+
+        tab = self._criar_container_rolavel(self.kb_tab)
+
+        cab = ttk.LabelFrame(tab, text="Base de Conhecimento local (alimenta o Modo Local, SEM IA)", padding=10)
+        cab.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        cab.columnconfigure(0, weight=1)
+        ttk.Label(cab, text=("Salve dicionários, enciclopédias e arquivos direto no MySQL e no FTP. Depois o "
+                             "'Modo Local' responde usando SÓ esses dados, sem nenhuma IA e sem chave."),
+                  style="Status.TLabel", wraplength=1150, justify="left").grid(row=0, column=0, sticky="w")
+        ttk.Label(cab, textvariable=self.kb_status_var, style="Success.TLabel").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Button(cab, text="Atualizar contagem", command=self.kb_atualizar_contagem).grid(row=0, column=1, sticky="e")
+
+        form = ttk.LabelFrame(tab, text="Adicionar um registro", padding=10)
+        form.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        form.columnconfigure(1, weight=1)
+        ttk.Label(form, text="Tipo:").grid(row=0, column=0, sticky="w", padx=(0, 6))
+        ttk.Combobox(form, textvariable=self.kb_tipo_var, values=["dicionario", "enciclopedia", "arquivo", "nota"],
+                     state="readonly", width=18).grid(row=0, column=1, sticky="w")
+        ttk.Label(form, text="Termo / Palavra:").grid(row=1, column=0, sticky="w", padx=(0, 6))
+        ttk.Entry(form, textvariable=self.kb_termo_var).grid(row=1, column=1, sticky="ew")
+        ttk.Label(form, text="Título:").grid(row=2, column=0, sticky="w", padx=(0, 6))
+        ttk.Entry(form, textvariable=self.kb_titulo_var).grid(row=2, column=1, sticky="ew")
+        ttk.Label(form, text="Tags (vírgula):").grid(row=3, column=0, sticky="w", padx=(0, 6))
+        ttk.Entry(form, textvariable=self.kb_tags_var).grid(row=3, column=1, sticky="ew")
+        ttk.Label(form, text="Fonte:").grid(row=4, column=0, sticky="w", padx=(0, 6))
+        ttk.Entry(form, textvariable=self.kb_fonte_var).grid(row=4, column=1, sticky="ew")
+        ttk.Label(form, text="Conteúdo:").grid(row=5, column=0, sticky="nw", padx=(0, 6))
+        self.kb_conteudo_text = ScrolledText(form, height=6, wrap="word")
+        self.kb_conteudo_text.grid(row=5, column=1, sticky="ew")
+        ttk.Button(form, text="Salvar no MySQL", command=self.kb_salvar_um, style="Accent.TButton").grid(row=6, column=1, sticky="w", pady=(8, 0))
+
+        massa = ttk.LabelFrame(tab, text="Upload em massa (muitas informações de uma vez)", padding=10)
+        massa.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        massa.columnconfigure(0, weight=1)
+        linha = ttk.Frame(massa)
+        linha.grid(row=0, column=0, sticky="w")
+        ttk.Button(linha, text="Importar arquivos (texto) -> MySQL+FTP", command=self.kb_importar_arquivos).pack(side="left", padx=(0, 6))
+        ttk.Button(linha, text="Importar pasta inteira", command=self.kb_importar_pasta).pack(side="left", padx=6)
+        ttk.Button(linha, text="Importar JSON/CSV (lote)", command=self.kb_importar_json_csv).pack(side="left", padx=6)
+        ttk.Label(massa, text=("Arquivos de texto (.txt, .md, .csv, .json, .html, .py, etc.) têm o conteúdo salvo no MySQL "
+                               "e o arquivo enviado ao FTP (pasta base_conhecimento). JSON = lista de objetos com campos "
+                               "termo, titulo, conteudo, tags, tipo, fonte. CSV = cabeçalho com essas colunas."),
+                  style="Status.TLabel", wraplength=1150, justify="left").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Label(massa, textvariable=self.kb_massa_status_var, style="Status.TLabel").grid(row=2, column=0, sticky="w", pady=(6, 0))
+
+        self.kb_atualizar_contagem()
+
+    def kb_atualizar_contagem(self):
+        if not MYSQL_DISPONIVEL:
+            self.kb_status_var.set("MySQL indisponível (instale PyMySQL). A base de conhecimento precisa do MySQL.")
+            return
+
+        def worker():
+            try:
+                self._mysql.inicializar()
+                n = self._mysql.kb_contar()
+                self.msg("kb_status", f"MySQL OK ({MYSQL_HOST}/{MYSQL_DB}). Registros na base: {n}.")
+            except Exception as e:
+                self.msg("kb_status", f"Falha MySQL: {resumo_texto(str(e), 100)}")
+
+        self.executar_thread(worker)
+
+    def kb_salvar_um(self):
+        if not MYSQL_DISPONIVEL:
+            messagebox.showerror("MySQL", "MySQL indisponível. Instale PyMySQL: python -m pip install PyMySQL")
+            return
+        tipo = self.kb_tipo_var.get().strip()
+        termo = self.kb_termo_var.get().strip()
+        titulo = self.kb_titulo_var.get().strip()
+        tags = self.kb_tags_var.get().strip()
+        fonte = self.kb_fonte_var.get().strip()
+        conteudo = self.kb_conteudo_text.get("1.0", "end").strip()
+        if not (termo or titulo or conteudo):
+            messagebox.showinfo("Base de Conhecimento", "Preencha ao menos Termo, Título ou Conteúdo.")
+            return
+
+        def worker():
+            try:
+                self._mysql.inicializar()
+                self._mysql.kb_inserir(tipo, termo, titulo, conteudo, tags, fonte, "")
+                self.msg("kb_status", f"Registro salvo: {termo or titulo}")
+                try:
+                    n = self._mysql.kb_contar()
+                    self.msg("kb_status", f"MySQL OK. Registros na base: {n}. (último: {termo or titulo})")
+                except Exception:
+                    pass
+            except Exception as e:
+                self.msg("kb_status", f"Falha ao salvar: {resumo_texto(str(e), 100)}")
+
+        self.executar_thread(worker)
+        self.kb_termo_var.set("")
+        self.kb_titulo_var.set("")
+        try:
+            self.kb_conteudo_text.delete("1.0", "end")
+        except Exception:
+            pass
+
+    def kb_importar_arquivos(self):
+        if not MYSQL_DISPONIVEL:
+            messagebox.showerror("MySQL", "MySQL indisponível. Instale PyMySQL.")
+            return
+        paths = filedialog.askopenfilenames(title="Selecione arquivos para importar em massa", filetypes=[("Todos os arquivos", "*.*")])
+        if not paths:
+            return
+        self._kb_importar_lista([Path(p) for p in paths])
+
+    def kb_importar_pasta(self):
+        if not MYSQL_DISPONIVEL:
+            messagebox.showerror("MySQL", "MySQL indisponível. Instale PyMySQL.")
+            return
+        d = filedialog.askdirectory(title="Selecione a pasta para importar (recursivo)")
+        if not d:
+            return
+        arquivos = [f for f in Path(d).rglob("*") if f.is_file()]
+        if not arquivos:
+            messagebox.showinfo("Base de Conhecimento", "Nenhum arquivo encontrado na pasta.")
+            return
+        self._kb_importar_lista(arquivos)
+
+    def _kb_importar_lista(self, arquivos: List[Path]):
+        self.kb_massa_status_var.set(f"Importando {len(arquivos)} arquivo(s)...")
+        exts_texto = {".txt", ".md", ".csv", ".json", ".html", ".xml", ".py", ".js",
+                      ".css", ".log", ".sql", ".ini", ".yaml", ".yml", ".rtf"}
+
+        def worker():
+            try:
+                self._mysql.inicializar()
+            except Exception:
+                pass
+            ok = 0
+            falhas = 0
+            total = len(arquivos)
+            for i, f in enumerate(arquivos, 1):
+                try:
+                    conteudo = ""
+                    if f.suffix.lower() in exts_texto:
+                        try:
+                            conteudo = f.read_text(encoding="utf-8", errors="ignore")[:200000]
+                        except Exception:
+                            conteudo = ""
+                    self._mysql.kb_inserir("arquivo", f.stem, f.name, conteudo, "", "import_massa", f.name)
+                    try:
+                        self.enfileirar_backup(f, "base_conhecimento/" + nome_seguro(f.name, 160))
+                    except Exception:
+                        pass
+                    ok += 1
+                except Exception:
+                    falhas += 1
+                if i % 5 == 0 or i == total:
+                    self.msg("kb_massa_status", f"Importados {ok}/{total} (falhas: {falhas})...")
+            self.msg("kb_massa_status", f"Concluído: {ok} importado(s), {falhas} falha(s). Arquivos enviados ao FTP (base_conhecimento/).")
+            try:
+                n = self._mysql.kb_contar()
+                self.msg("kb_status", f"MySQL OK. Registros na base: {n}.")
+            except Exception:
+                pass
+
+        self.executar_thread(worker)
+
+    def kb_importar_json_csv(self):
+        if not MYSQL_DISPONIVEL:
+            messagebox.showerror("MySQL", "MySQL indisponível. Instale PyMySQL.")
+            return
+        p = filedialog.askopenfilename(title="Selecione JSON ou CSV", filetypes=[("JSON/CSV", "*.json *.csv"), ("Todos", "*.*")])
+        if not p:
+            return
+        path = Path(p)
+        self.kb_massa_status_var.set(f"Lendo {path.name}...")
+
+        def worker():
+            import csv
+            import io
+            try:
+                self._mysql.inicializar()
+            except Exception:
+                pass
+            registros = []
+            try:
+                if path.suffix.lower() == ".json":
+                    data = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+                    if isinstance(data, dict):
+                        data = data.get("itens") or data.get("dados") or data.get("registros") or []
+                    for it in (data or []):
+                        if isinstance(it, dict):
+                            registros.append((
+                                str(it.get("tipo") or "enciclopedia")[:40],
+                                str(it.get("termo") or it.get("palavra") or it.get("title") or "")[:255],
+                                str(it.get("titulo") or it.get("title") or "")[:255],
+                                str(it.get("conteudo") or it.get("content") or it.get("definicao") or ""),
+                                str(it.get("tags") or "")[:255],
+                                str(it.get("fonte") or path.name)[:255],
+                                "",
+                            ))
+                else:
+                    txt = path.read_text(encoding="utf-8", errors="ignore")
+                    reader = csv.DictReader(io.StringIO(txt))
+                    for row in reader:
+                        registros.append((
+                            str(row.get("tipo") or "enciclopedia")[:40],
+                            str(row.get("termo") or row.get("palavra") or "")[:255],
+                            str(row.get("titulo") or "")[:255],
+                            str(row.get("conteudo") or row.get("definicao") or ""),
+                            str(row.get("tags") or "")[:255],
+                            str(row.get("fonte") or path.name)[:255],
+                            "",
+                        ))
+                total = 0
+                lote = 500
+                for i in range(0, len(registros), lote):
+                    parte = registros[i:i + lote]
+                    total += self._mysql.kb_inserir_muitos(parte)
+                    self.msg("kb_massa_status", f"Inserindo... {total}/{len(registros)}")
+                self.msg("kb_massa_status", f"Concluído: {total} registro(s) inseridos de {path.name}.")
+                try:
+                    self.enfileirar_backup(path, "base_conhecimento/" + nome_seguro(path.name, 160))
+                except Exception:
+                    pass
+                try:
+                    n = self._mysql.kb_contar()
+                    self.msg("kb_status", f"MySQL OK. Registros na base: {n}.")
+                except Exception:
+                    pass
+            except Exception as e:
+                self.msg("kb_massa_status", f"Falha na importação: {resumo_texto(str(e), 120)}")
+
+        self.executar_thread(worker)
+
+    # ===================================================================
+    # ================= MODO LOCAL (sem IA, sem chave) ==================
+    # ===================================================================
+    def construir_aba_modo_local(self):
+        self.local_status_var = tk.StringVar(value="Modo Local: responde SÓ com MySQL + FTP, sem IA e sem chave.")
+        self.local_query_var = tk.StringVar(value="")
+        self._local_resultados: List[Dict[str, Any]] = []
+
+        tab = self._criar_container_rolavel(self.local_tab)
+
+        cab = ttk.LabelFrame(tab, text="Modo Local (sem IA, sem chave) — usa apenas MySQL e FTP", padding=10)
+        cab.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        cab.columnconfigure(0, weight=1)
+        ttk.Label(cab, text=("Este modo NÃO chama nenhuma inteligência artificial e NÃO precisa de chave de API. "
+                             "Ele busca as respostas na Base de Conhecimento salva no MySQL e lista os arquivos do FTP."),
+                  style="Status.TLabel", wraplength=1150, justify="left").grid(row=0, column=0, sticky="w")
+        ttk.Label(cab, textvariable=self.local_status_var, style="Success.TLabel").grid(row=1, column=0, sticky="w", pady=(6, 0))
+
+        busca = ttk.LabelFrame(tab, text="Buscar na base (MySQL)", padding=10)
+        busca.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        busca.columnconfigure(0, weight=1)
+        linha = ttk.Frame(busca)
+        linha.grid(row=0, column=0, sticky="ew")
+        linha.columnconfigure(0, weight=1)
+        ent = ttk.Entry(linha, textvariable=self.local_query_var)
+        ent.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ent.bind("<Return>", lambda e: self.local_buscar())
+        ttk.Button(linha, text="Buscar", command=self.local_buscar, style="Accent.TButton").grid(row=0, column=1)
+        self.local_lista = tk.Listbox(busca, height=8)
+        self.local_lista.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        self.local_lista.bind("<<ListboxSelect>>", self._local_mostrar_selecionado)
+        self.local_detalhe_text = ScrolledText(busca, height=8, wrap="word")
+        self.local_detalhe_text.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+
+        ftpf = ttk.LabelFrame(tab, text="Arquivos no FTP (pasta base_conhecimento)", padding=10)
+        ftpf.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        ftpf.columnconfigure(0, weight=1)
+        ttk.Button(ftpf, text="Listar arquivos do FTP", command=self.local_listar_ftp).grid(row=0, column=0, sticky="w")
+        self.local_ftp_lista = tk.Listbox(ftpf, height=6)
+        self.local_ftp_lista.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+
+    def local_buscar(self):
+        if not MYSQL_DISPONIVEL:
+            self.local_status_var.set("MySQL indisponível. Instale PyMySQL para usar o modo local.")
+            return
+        q = self.local_query_var.get().strip()
+        if not q:
+            messagebox.showinfo("Modo Local", "Digite algo para buscar.")
+            return
+        self.local_status_var.set(f"Buscando '{q}' na base local (MySQL)...")
+
+        def worker():
+            try:
+                res = self._mysql.kb_buscar(q, 100)
+                self.msg("local_result", res)
+            except Exception as e:
+                self.msg("local_status", f"Falha na busca: {resumo_texto(str(e), 100)}")
+
+        self.executar_thread(worker)
+
+    def _local_mostrar_selecionado(self, event=None):
+        try:
+            sel = self.local_lista.curselection()
+            if not sel:
+                return
+            r = self._local_resultados[sel[0]]
+            self.local_detalhe_text.delete("1.0", "end")
+            self.local_detalhe_text.insert(
+                "1.0",
+                f"[{r.get('tipo')}] {r.get('termo')} — {r.get('titulo')}\n"
+                f"Tags: {r.get('tags')}\nFonte: {r.get('fonte')}\n\n{r.get('conteudo')}",
+            )
+        except Exception:
+            pass
+
+    def local_listar_ftp(self):
+        self.local_status_var.set("Listando arquivos do FTP...")
+
+        def worker():
+            try:
+                fb = FTPBackup()
+                fb.conectar()
+                try:
+                    fb._garantir_dir(fb.base + "/base_conhecimento")
+                except Exception:
+                    pass
+                nomes = []
+                try:
+                    nomes = fb.ftp.nlst()
+                except Exception:
+                    pass
+                fb.fechar()
+                self.msg("local_ftp_result", nomes)
+            except Exception as e:
+                self.msg("local_status", f"Falha no FTP: {resumo_texto(str(e), 100)}")
+
+        self.executar_thread(worker)
+
+    # ===================================================================
+    # ============== EXEMPLOS / DOCS / IAs GRATUITAS ====================
+    # ===================================================================
+    def construir_aba_exemplos_ias(self):
+        tab = self._criar_container_rolavel(self.exemplos_tab)
+
+        ex = ttk.LabelFrame(tab, text="Exemplos e documentação rápida", padding=10)
+        ex.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ex.columnconfigure(0, weight=1)
+        txt = ScrolledText(ex, height=16, wrap="word")
+        txt.grid(row=0, column=0, sticky="ew")
+        txt.insert("1.0", EXEMPLOS_DOCS_TEXTO)
+        txt.configure(state="disabled")
+
+        ia = ttk.LabelFrame(tab, text="IAs com chave/uso GRATUITO (use na aba 'Outras IAs / APIs')", padding=10)
+        ia.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        ia.columnconfigure(0, weight=1)
+        cols = ("nome", "gratis", "obter")
+        tree = ttk.Treeview(ia, columns=cols, show="headings", height=11)
+        tree.grid(row=0, column=0, sticky="ew")
+        tree.heading("nome", text="Provedor")
+        tree.column("nome", width=170)
+        tree.heading("gratis", text="Gratuito?")
+        tree.column("gratis", width=280)
+        tree.heading("obter", text="Onde obter a chave")
+        tree.column("obter", width=340)
+        for nome, gratis, obter in IAS_GRATUITAS:
+            tree.insert("", "end", values=(nome, gratis, obter))
+        linha = ttk.Frame(ia)
+        linha.grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Button(linha, text="Abrir página do provedor selecionado (janela embutida)",
+                   command=lambda: self._exemplos_abrir_provedor(tree)).pack(side="left")
+        ttk.Label(ia, text="Observação: limites e disponibilidade dos planos gratuitos mudam com frequência — confirme no site de cada provedor.",
+                  style="Warn.TLabel", wraplength=1150, justify="left").grid(row=2, column=0, sticky="w", pady=(6, 0))
+
+    def _exemplos_abrir_provedor(self, tree):
+        try:
+            sel = tree.selection()
+            if not sel:
+                messagebox.showinfo("Provedor", "Selecione um provedor na lista.")
+                return
+            vals = tree.item(sel[0], "values")
+            url = IAS_GRATUITAS_URLS.get(vals[0], "")
+            if url:
+                self.abrir_janela_manus_embutida(url, str(vals[0]))
+        except Exception:
+            pass
+
     def construir_aba_api_manus(self):
         """
         Central da API Manus: permite executar QUALQUER endpoint da API v2
@@ -4943,16 +5566,39 @@ class ManusGui(tk.Tk):
         Endpoints POST alteram dados REAIS na conta (criar/alterar/apagar).
         """
         self.api_console_status_var = tk.StringVar(value="Pronto. Escolha um endpoint.")
+        self.api_form_widgets: Dict[str, Any] = {}
+        self.api_form_especial = ""
 
         outer = self.api_tab
         outer.columnconfigure(0, weight=1)
-        outer.rowconfigure(3, weight=1)
+        # A aba é rolável para caber tudo (formulário fácil + JSON + resposta).
+        outer.rowconfigure(0, weight=1)
 
-        topo = ttk.LabelFrame(outer, text="Endpoint da API do Manus (GET = leitura, POST = escrita)", padding=10)
+        canvas = tk.Canvas(outer, highlightthickness=0, borderwidth=0)
+        canvas.configure(background=getattr(self, "_tema_text_bg", "#FFFFFF"))
+        vsb = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        cont = ttk.Frame(canvas, padding=(0, 0, 10, 0))
+        _jin_api = canvas.create_window((0, 0), window=cont, anchor="nw")
+        cont.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(_jin_api, width=e.width))
+
+        def _wheel_api(e):
+            try:
+                canvas.yview_scroll(int(-1 * (e.delta / 120)) * 3, "units")
+            except Exception:
+                pass
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel_api))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        cont.columnconfigure(0, weight=1)
+
+        topo = ttk.LabelFrame(cont, text="1) Escolha o que fazer (GET = consultar/ler, POST = executar/alterar)", padding=10)
         topo.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         topo.columnconfigure(1, weight=1)
 
-        ttk.Label(topo, text="Endpoint:").grid(row=0, column=0, sticky="w", padx=(0, 6))
+        ttk.Label(topo, text="Ação/Endpoint:").grid(row=0, column=0, sticky="w", padx=(0, 6))
         self.api_endpoint_var = tk.StringVar()
         valores = [f"{e['method']:4s} {e['path']}" for e in MANUS_API_ENDPOINTS]
         self.api_endpoint_combo = ttk.Combobox(
@@ -4962,43 +5608,54 @@ class ManusGui(tk.Tk):
         self.api_endpoint_combo.bind("<<ComboboxSelected>>", self._api_ao_selecionar_endpoint)
 
         self.api_desc_var = tk.StringVar(
-            value="Selecione um endpoint. GET apenas lê; POST altera dados reais no servidor."
+            value="Selecione uma ação na lista acima. O formulário aparece automaticamente aqui embaixo."
         )
         ttk.Label(topo, textvariable=self.api_desc_var, style="Status.TLabel", wraplength=1150, justify="left").grid(
             row=1, column=0, columnspan=2, sticky="w", pady=(6, 0)
         )
 
-        params_box = ttk.LabelFrame(
-            outer, text="Parâmetros (GET) / Corpo (POST) em JSON — edite conforme necessário", padding=10
+        # ===== MODO FÁCIL: formulário gerado automaticamente por ação =====
+        facil_box = ttk.LabelFrame(cont, text="2) Preencha os campos (Modo Fácil — sem código)", padding=10)
+        facil_box.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        facil_box.columnconfigure(0, weight=1)
+        self.api_form_frame = ttk.Frame(facil_box)
+        self.api_form_frame.grid(row=0, column=0, sticky="ew")
+        self.api_form_frame.columnconfigure(1, weight=1)
+        ttk.Button(facil_box, text="EXECUTAR (modo fácil)", command=self._api_executar_facil, style="Accent.TButton").grid(
+            row=1, column=0, sticky="w", pady=(8, 0)
         )
-        params_box.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+
+        # ===== MODO AVANÇADO: JSON (opcional, para quem quiser) =====
+        params_box = ttk.LabelFrame(
+            cont, text="3) Avançado (opcional): parâmetros em JSON — só se quiser editar manualmente", padding=10
+        )
+        params_box.grid(row=2, column=0, sticky="ew", pady=(0, 8))
         params_box.columnconfigure(0, weight=1)
-        self.api_params_text = ScrolledText(params_box, height=10, wrap="word")
+        self.api_params_text = ScrolledText(params_box, height=8, wrap="word")
         self.api_params_text.grid(row=0, column=0, sticky="ew")
 
-        acoes = ttk.Frame(outer)
-        acoes.grid(row=2, column=0, sticky="ew", pady=(0, 8))
-        ttk.Button(acoes, text="Carregar modelo de parâmetros", command=self._api_carregar_template).pack(side="left", padx=(0, 6))
-        ttk.Button(acoes, text="EXECUTAR no servidor", command=self._api_executar, style="Accent.TButton").pack(side="left", padx=6)
+        acoes = ttk.Frame(cont)
+        acoes.grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(acoes, text="Carregar modelo (JSON)", command=self._api_carregar_template).pack(side="left", padx=(0, 6))
+        ttk.Button(acoes, text="Executar (JSON avançado)", command=self._api_executar).pack(side="left", padx=6)
         ttk.Button(acoes, text="Copiar resposta", command=self._api_copiar_resposta).pack(side="left", padx=6)
         ttk.Button(acoes, text="Limpar resposta", command=lambda: self.api_response_text.delete("1.0", "end")).pack(side="left", padx=6)
         ttk.Label(acoes, textvariable=self.api_console_status_var, style="Status.TLabel").pack(side="left", padx=12)
 
-        resp_box = ttk.LabelFrame(outer, text="Resposta do servidor (JSON)", padding=10)
-        resp_box.grid(row=3, column=0, sticky="nsew")
+        resp_box = ttk.LabelFrame(cont, text="Resposta do servidor", padding=10)
+        resp_box.grid(row=4, column=0, sticky="nsew", pady=(0, 8))
         resp_box.columnconfigure(0, weight=1)
-        resp_box.rowconfigure(0, weight=1)
-        self.api_response_text = ScrolledText(resp_box, height=16, wrap="word")
-        self.api_response_text.grid(row=0, column=0, sticky="nsew")
+        self.api_response_text = ScrolledText(resp_box, height=14, wrap="word")
+        self.api_response_text.grid(row=0, column=0, sticky="ew")
 
         ttk.Label(
-            outer,
-            text=("Atenção: endpoints POST executam ações REAIS na sua conta (criar/alterar/apagar). "
+            cont,
+            text=("Atenção: ações POST executam operações REAIS na sua conta (criar/alterar/apagar). "
                   "GET apenas lê. A chave usada é a ativa (com failover), definida na aba Configuração / IDs."),
             style="Warn.TLabel",
             wraplength=1200,
             justify="left",
-        ).grid(row=4, column=0, sticky="w", pady=(6, 0))
+        ).grid(row=5, column=0, sticky="w", pady=(6, 0))
 
     def _api_endpoint_atual(self) -> Optional[Dict[str, Any]]:
         try:
@@ -5015,7 +5672,155 @@ class ManusGui(tk.Tk):
             return
         tipo = "LEITURA (GET)" if e["method"] == "GET" else "ESCRITA (POST) — altera dados reais no servidor"
         self.api_desc_var.set(f"[{tipo}]  {e['path']}  —  {e.get('desc', '')}")
+        self._api_montar_form_facil(e)
         self._api_carregar_template()
+
+    def _api_montar_form_facil(self, e: Dict[str, Any]):
+        """Gera automaticamente um formulário simples (sem JSON) para a ação escolhida."""
+        frame = self.api_form_frame
+        for w in list(frame.winfo_children()):
+            try:
+                w.destroy()
+            except Exception:
+                pass
+        self.api_form_widgets = {}
+        self.api_form_especial = ""
+        if not e:
+            return
+
+        acao = ("Consultar/listar — apenas LÊ, não altera nada."
+                if e["method"] == "GET"
+                else "Executa uma ação no servidor: CRIA/ALTERA/APAGA dados reais.")
+        ttk.Label(frame, text=f"O que faz: {e.get('desc', '')}", style="Status.TLabel",
+                  wraplength=1100, justify="left").grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Label(frame, text=f"Tipo: {acao}",
+                  style=("Success.TLabel" if e["method"] == "GET" else "Warn.TLabel")).grid(
+            row=1, column=0, columnspan=2, sticky="w", pady=(2, 6))
+
+        r = 2
+        nome = e["name"]
+        template = e.get("template", {}) or {}
+
+        # Casos especiais: criar tarefa e enviar mensagem (prompt + modelo).
+        if nome in ("task.create", "task.sendMessage"):
+            self.api_form_especial = "create" if nome == "task.create" else "send"
+            if nome == "task.sendMessage":
+                ttk.Label(frame, text="ID da tarefa:").grid(row=r, column=0, sticky="w", padx=(0, 6))
+                v = tk.StringVar()
+                ttk.Entry(frame, textvariable=v).grid(row=r, column=1, sticky="ew")
+                self.api_form_widgets["task_id"] = ("str", v)
+                r += 1
+            ttk.Label(frame, text="Prompt / mensagem:").grid(row=r, column=0, sticky="nw", padx=(0, 6))
+            txt = ScrolledText(frame, height=5, wrap="word")
+            txt.grid(row=r, column=1, sticky="ew")
+            self.api_form_widgets["__prompt__"] = ("prompt", txt)
+            r += 1
+            ttk.Label(frame, text="Modelo:").grid(row=r, column=0, sticky="w", padx=(0, 6))
+            mv = tk.StringVar(value=str(template.get("agent_profile") or ""))
+            ttk.Combobox(frame, textvariable=mv, values=["", "manus-1.6-lite", "manus-1.6", "manus-1.6-max"],
+                         state="readonly", width=22).grid(row=r, column=1, sticky="w")
+            self.api_form_widgets["agent_profile"] = ("combo", mv)
+            r += 1
+            if nome == "task.create":
+                ttk.Label(frame, text="Título (opcional):").grid(row=r, column=0, sticky="w", padx=(0, 6))
+                tv = tk.StringVar()
+                ttk.Entry(frame, textvariable=tv).grid(row=r, column=1, sticky="ew")
+                self.api_form_widgets["title"] = ("str", tv)
+                r += 1
+            return
+
+        # Genérico: gera um campo por chave simples do template.
+        if not template:
+            ttk.Label(frame, text="Esta ação não precisa de parâmetros. É só clicar em EXECUTAR (modo fácil).",
+                      style="Status.TLabel").grid(row=r, column=0, columnspan=2, sticky="w")
+            return
+
+        for k, val in template.items():
+            rotulo = API_CAMPOS_AMIGAVEIS.get(k, k)
+            if isinstance(val, bool):
+                bv = tk.BooleanVar(value=bool(val))
+                ttk.Checkbutton(frame, text=rotulo, variable=bv).grid(row=r, column=0, columnspan=2, sticky="w")
+                self.api_form_widgets[k] = ("bool", bv)
+            elif isinstance(val, (int, float)):
+                ttk.Label(frame, text=rotulo + ":").grid(row=r, column=0, sticky="w", padx=(0, 6))
+                sv = tk.StringVar(value=str(val))
+                ttk.Entry(frame, textvariable=sv, width=20).grid(row=r, column=1, sticky="w")
+                self.api_form_widgets[k] = ("int", sv)
+            elif isinstance(val, str):
+                ttk.Label(frame, text=rotulo + ":").grid(row=r, column=0, sticky="w", padx=(0, 6))
+                sv = tk.StringVar(value=val)
+                ttk.Entry(frame, textvariable=sv).grid(row=r, column=1, sticky="ew")
+                self.api_form_widgets[k] = ("str", sv)
+            else:
+                ttk.Label(frame, text=f"{rotulo}: (campo avançado — ajuste no JSON abaixo)",
+                          style="Status.TLabel").grid(row=r, column=0, columnspan=2, sticky="w")
+                self.api_form_widgets[k] = ("adv", None)
+            r += 1
+
+    def _api_montar_dados_facil(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        """Monta os dados (params/body) a partir do formulário do Modo Fácil."""
+        template = e.get("template", {}) or {}
+        try:
+            dados = json.loads(json.dumps(template))  # cópia profunda segura
+        except Exception:
+            dados = dict(template)
+        esp = getattr(self, "api_form_especial", "")
+        widgets = getattr(self, "api_form_widgets", {})
+
+        if esp in ("create", "send"):
+            prompt = ""
+            pw = widgets.get("__prompt__")
+            if pw and pw[0] == "prompt":
+                try:
+                    prompt = pw[1].get("1.0", "end").strip()
+                except Exception:
+                    prompt = ""
+            dados["message"] = {"content": [{"type": "text", "text": prompt}]}
+            mv = widgets.get("agent_profile")
+            modelo = (mv[1].get().strip() if mv else "")
+            if modelo:
+                dados["agent_profile"] = modelo
+            else:
+                dados.pop("agent_profile", None)
+            if esp == "send":
+                tv = widgets.get("task_id")
+                dados["task_id"] = (tv[1].get().strip() if tv else "")
+            else:
+                tv = widgets.get("title")
+                t = (tv[1].get().strip() if tv else "")
+                if t:
+                    dados["title"] = t
+                else:
+                    dados.pop("title", None)
+            return dados
+
+        for k, (kind, var) in widgets.items():
+            if kind == "bool":
+                dados[k] = bool(var.get())
+            elif kind == "int":
+                s = str(var.get()).strip()
+                try:
+                    dados[k] = int(float(s)) if s else 0
+                except Exception:
+                    dados[k] = s
+            elif kind == "str":
+                dados[k] = str(var.get()).strip()
+            # 'adv' mantém o valor do template
+        return dados
+
+    def _api_executar_facil(self):
+        e = self._api_endpoint_atual()
+        if not e:
+            messagebox.showinfo("API Manus", "Selecione uma ação primeiro.")
+            return
+        dados = self._api_montar_dados_facil(e)
+        # Espelha no JSON avançado para transparência.
+        try:
+            self.api_params_text.delete("1.0", "end")
+            self.api_params_text.insert("1.0", json.dumps(dados, ensure_ascii=False, indent=2))
+        except Exception:
+            pass
+        self._api_disparar(e, dados)
 
     def _api_carregar_template(self):
         e = self._api_endpoint_atual()
@@ -5044,7 +5849,6 @@ class ManusGui(tk.Tk):
         if not e:
             messagebox.showinfo("API Manus", "Selecione um endpoint primeiro.")
             return
-
         raw = self.api_params_text.get("1.0", "end").strip() or "{}"
         try:
             dados = json.loads(raw)
@@ -5053,7 +5857,10 @@ class ManusGui(tk.Tk):
         except Exception as ex:
             messagebox.showerror("JSON inválido", f"Não foi possível ler os parâmetros JSON:\n\n{ex}")
             return
+        self._api_disparar(e, dados)
 
+    def _api_disparar(self, e: Dict[str, Any], dados: Dict[str, Any]):
+        """Confirma (se POST), envia a requisição em thread e mostra a resposta."""
         metodo = e["method"]
         caminho = e["path"]
 
@@ -6520,6 +7327,54 @@ class ManusGui(tk.Tk):
                     except Exception:
                         pass
                     self.log("[TOR] Conectado (bootstrap 100%). Proxy e modo privacidade ativados.\n")
+
+                elif kind == "kb_status":
+                    _, t = item
+                    try:
+                        self.kb_status_var.set(str(t))
+                    except Exception:
+                        pass
+
+                elif kind == "kb_massa_status":
+                    _, t = item
+                    try:
+                        self.kb_massa_status_var.set(str(t))
+                    except Exception:
+                        pass
+
+                elif kind == "local_status":
+                    _, t = item
+                    try:
+                        self.local_status_var.set(str(t))
+                    except Exception:
+                        pass
+
+                elif kind == "local_result":
+                    _, res = item
+                    self._local_resultados = res or []
+                    try:
+                        self.local_lista.delete(0, "end")
+                        for r in self._local_resultados:
+                            self.local_lista.insert(
+                                "end",
+                                f"[{r.get('tipo')}] {r.get('termo')} — {resumo_texto(r.get('titulo') or '', 60)}",
+                            )
+                        self.local_status_var.set(f"{len(self._local_resultados)} resultado(s) na base local (sem IA).")
+                        if not self._local_resultados:
+                            self.local_detalhe_text.delete("1.0", "end")
+                            self.local_detalhe_text.insert("1.0", "Nada encontrado. Cadastre conteúdo na aba 'Base de Conhecimento'.")
+                    except Exception:
+                        pass
+
+                elif kind == "local_ftp_result":
+                    _, nomes = item
+                    try:
+                        self.local_ftp_lista.delete(0, "end")
+                        for n in (nomes or []):
+                            self.local_ftp_lista.insert("end", str(n))
+                        self.local_status_var.set(f"{len(nomes or [])} item(ns) no FTP (base_conhecimento).")
+                    except Exception:
+                        pass
 
                 elif kind == "api_console_result":
                     _, ok, titulo, texto = item
