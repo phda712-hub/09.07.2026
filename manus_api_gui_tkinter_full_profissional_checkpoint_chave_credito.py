@@ -4371,16 +4371,18 @@ class ManusGui(tk.Tk):
 
         self.executar_thread(worker)
 
-    def abrir_janela_manus_embutida(self, url: str = "https://manus.im", titulo: str = "Manus - Conta e Planos"):
+    def abrir_janela_manus_embutida(self, url: str = "https://manus.im", titulo: str = "Manus - Conta e Planos", proxy: str = ""):
         """
         Abre uma página do Manus dentro de uma JANELA EMBUTIDA do app (pywebview),
         em um processo separado (para não conflitar com o mainloop do Tkinter).
 
+        Se 'proxy' for informado, a janela embutida roteia o tráfego por ele.
         Se o pywebview não estiver instalado, oferece abrir no navegador padrão.
         """
         url = (url or "").strip() or "https://manus.im"
         if not url.lower().startswith(("http://", "https://")):
             url = "https://" + url
+        proxy = str(proxy or "").strip()
 
         if not WEBVIEW_DISPONIVEL:
             if messagebox.askyesno(
@@ -4389,7 +4391,8 @@ class ManusGui(tk.Tk):
                 "Instale com:\n"
                 "python -m pip install pywebview\n\n"
                 "(no Windows ela usa o WebView2/Edge, já presente na maioria dos sistemas)\n\n"
-                "Deseja abrir no navegador padrão por enquanto?",
+                "Deseja abrir no navegador padrão por enquanto?\n"
+                "(observação: o proxy NÃO é aplicado ao abrir no navegador externo)",
             ):
                 try:
                     webbrowser.open(url)
@@ -4403,9 +4406,12 @@ class ManusGui(tk.Tk):
                 cmd = [sys.executable, "--webview", url, "--webview-title", titulo]
             else:
                 cmd = [sys.executable, os.path.abspath(__file__), "--webview", url, "--webview-title", titulo]
+            if proxy:
+                cmd += ["--webview-proxy", proxy]
             subprocess.Popen(cmd)
-            self.definir_status(f"Janela embutida aberta: {url}")
-            self.log(f"[WEBVIEW] Janela embutida aberta para {url}\n")
+            via = f" via proxy {proxy}" if proxy else ""
+            self.definir_status(f"Janela embutida aberta: {url}{via}")
+            self.log(f"[WEBVIEW] Janela embutida aberta para {url}{(' (proxy ' + proxy + ')') if proxy else ''}\n")
         except Exception as e:
             messagebox.showerror("Erro ao abrir janela embutida", str(e))
             try:
@@ -4446,36 +4452,65 @@ class ManusGui(tk.Tk):
             "pywebview: NÃO instalado — os botões vão perguntar se quer abrir no navegador. Instale com: python -m pip install pywebview"
         ttk.Label(info, text=status, style=("Success.TLabel" if WEBVIEW_DISPONIVEL else "Warn.TLabel")).grid(row=1, column=0, sticky="w", pady=(8, 0))
 
+        # ----- Proxy (opcional) para a janela embutida -----
+        self.conta_proxy_enabled_var = tk.BooleanVar(value=False)
+        self.conta_proxy_var = tk.StringVar(value="")
+        self.conta_proxy_status_var = tk.StringVar(value="Proxy: desativado.")
+
+        proxy_box = ttk.LabelFrame(tab, text="Proxy para a janela embutida (opcional)", padding=12)
+        proxy_box.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        proxy_box.columnconfigure(1, weight=1)
+
+        ttk.Checkbutton(
+            proxy_box, text="Usar proxy na janela embutida",
+            variable=self.conta_proxy_enabled_var, command=self._conta_proxy_toggle,
+        ).grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.conta_proxy_combo = ttk.Combobox(proxy_box, textvariable=self.conta_proxy_var, values=[], state="normal")
+        self.conta_proxy_combo.grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        ttk.Button(proxy_box, text="Buscar proxies grátis", command=self.buscar_proxies_gratuitos).grid(row=0, column=2, padx=4)
+        ttk.Button(proxy_box, text="Testar proxy", command=self.testar_proxy_conta).grid(row=0, column=3, padx=4)
+
+        ttk.Label(proxy_box, textvariable=self.conta_proxy_status_var, style="Status.TLabel").grid(
+            row=1, column=0, columnspan=4, sticky="w", pady=(6, 0)
+        )
+        ttk.Label(
+            proxy_box,
+            text=("Formato: host:porta (ex.: 200.10.20.30:8080) ou http://host:porta / socks5://host:porta. "
+                  "AVISO DE SEGURANÇA: proxies gratuitos são de terceiros desconhecidos e podem interceptar seu "
+                  "tráfego. NÃO use proxy grátis nas páginas de LOGIN e PAGAMENTO do Manus."),
+            style="Danger.TLabel", wraplength=1180, justify="left",
+        ).grid(row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
+
         # ----- Atalhos rápidos (janela embutida) -----
         atalhos = ttk.LabelFrame(tab, text="Abrir no app (janela embutida)", padding=12)
-        atalhos.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        atalhos.grid(row=2, column=0, sticky="ew", pady=(0, 8))
 
         ttk.Button(
             atalhos, text="Entrar / Criar conta",
-            command=lambda: self.abrir_janela_manus_embutida("https://manus.im/login", "Manus - Login / Cadastro"),
+            command=lambda: self._conta_abrir("https://manus.im/login", "Manus - Login / Cadastro"),
         ).pack(side="left", padx=(0, 6), pady=2)
         ttk.Button(
             atalhos, text="Planos / Assinar / Trial",
-            command=lambda: self.abrir_janela_manus_embutida("https://manus.im/subscription", "Manus - Planos e Assinatura"),
+            command=lambda: self._conta_abrir("https://manus.im/subscription", "Manus - Planos e Assinatura"),
         ).pack(side="left", padx=6, pady=2)
         ttk.Button(
             atalhos, text="Configurações de API (gerar chave)",
-            command=lambda: self.abrir_janela_manus_embutida("https://manus.im/settings/api", "Manus - API Keys"),
+            command=lambda: self._conta_abrir("https://manus.im/settings/api", "Manus - API Keys"),
         ).pack(side="left", padx=6, pady=2)
         ttk.Button(
             atalhos, text="Abrir Manus (início)",
-            command=lambda: self.abrir_janela_manus_embutida("https://manus.im", "Manus"),
+            command=lambda: self._conta_abrir("https://manus.im", "Manus"),
         ).pack(side="left", padx=6, pady=2)
 
         # ----- URL livre -----
         livre = ttk.LabelFrame(tab, text="Abrir uma URL específica do Manus na janela embutida", padding=12)
-        livre.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        livre.grid(row=3, column=0, sticky="ew", pady=(0, 8))
         livre.columnconfigure(0, weight=1)
         self.conta_url_var = tk.StringVar(value="https://manus.im")
         ttk.Entry(livre, textvariable=self.conta_url_var).grid(row=0, column=0, sticky="ew", padx=(0, 8))
         ttk.Button(
             livre, text="Abrir na janela embutida",
-            command=lambda: self.abrir_janela_manus_embutida(self.conta_url_var.get(), "Manus"),
+            command=lambda: self._conta_abrir(self.conta_url_var.get(), "Manus"),
         ).grid(row=0, column=1)
 
         # ----- Aviso -----
@@ -4490,7 +4525,96 @@ class ManusGui(tk.Tk):
             style="Warn.TLabel",
             wraplength=1180,
             justify="left",
-        ).grid(row=3, column=0, sticky="w", pady=(6, 0))
+        ).grid(row=4, column=0, sticky="w", pady=(6, 0))
+
+    def _conta_proxy_atual(self) -> str:
+        """Retorna o proxy a usar na janela embutida (ou '' se desativado)."""
+        try:
+            if self.conta_proxy_enabled_var.get():
+                return (self.conta_proxy_var.get() or "").strip()
+        except Exception:
+            pass
+        return ""
+
+    def _conta_proxy_toggle(self):
+        """Ao ativar o proxy, avisa sobre riscos de proxies gratuitos."""
+        try:
+            if self.conta_proxy_enabled_var.get():
+                self.conta_proxy_status_var.set("Proxy: ATIVADO para a janela embutida.")
+                messagebox.showwarning(
+                    "Aviso de segurança sobre proxy",
+                    "Você ativou o uso de proxy na janela embutida.\n\n"
+                    "Proxies GRATUITOS são operados por terceiros desconhecidos e podem LER, "
+                    "registrar ou alterar o tráfego que passa por eles.\n\n"
+                    "NÃO faça login nem pagamento no Manus enquanto estiver usando um proxy grátis. "
+                    "Use proxy apenas para navegação/consulta e, de preferência, um proxy confiável e próprio.",
+                )
+            else:
+                self.conta_proxy_status_var.set("Proxy: desativado.")
+        except Exception:
+            pass
+
+    def _conta_abrir(self, url: str, titulo: str = "Manus"):
+        """Abre a janela embutida aplicando o proxy quando ativado."""
+        self.abrir_janela_manus_embutida(url, titulo, self._conta_proxy_atual())
+
+    def buscar_proxies_gratuitos(self):
+        """Busca uma lista de proxies gratuitos de fontes públicas (podem estar instáveis)."""
+        self.conta_proxy_status_var.set("Buscando proxies gratuitos...")
+
+        def worker():
+            fontes = [
+                "https://www.proxy-list.download/api/v1/get?type=https",
+                "https://www.proxy-list.download/api/v1/get?type=http",
+                "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
+            ]
+            encontrados: List[str] = []
+            for u in fontes:
+                try:
+                    r = HTTP_SESSION.get(u, timeout=20)
+                    if r.ok and r.text.strip():
+                        for linha in r.text.splitlines():
+                            linha = linha.strip()
+                            if re.match(r"^\d{1,3}(\.\d{1,3}){3}:\d{2,5}$", linha):
+                                encontrados.append(linha)
+                    if encontrados:
+                        break
+                except Exception:
+                    continue
+            vistos = set()
+            lista = []
+            for p in encontrados:
+                if p not in vistos:
+                    vistos.add(p)
+                    lista.append(p)
+            lista = lista[:100]
+            info = (f"{len(lista)} proxy(s) grátis encontrados (podem estar lentos/instáveis)."
+                    if lista else "Não foi possível obter proxies grátis agora. Tente novamente ou informe um manualmente.")
+            self.msg("conta_proxy_list", lista, info)
+
+        self.executar_thread(worker)
+
+    def testar_proxy_conta(self):
+        """Testa o proxy informado consultando o IP de saída."""
+        px = (self.conta_proxy_var.get() or "").strip()
+        if not px:
+            messagebox.showinfo("Proxy", "Informe ou selecione um proxy (host:porta).")
+            return
+        proxy_url = px if "://" in px else ("http://" + px)
+        self.conta_proxy_status_var.set(f"Testando proxy {px}...")
+
+        def worker():
+            try:
+                proxies = {"http": proxy_url, "https": proxy_url}
+                r = requests.get("https://api.ipify.org?format=json", proxies=proxies, timeout=15)
+                if r.ok:
+                    self.msg("conta_proxy_status", f"Proxy OK — resposta: {resumo_texto(r.text, 80)}")
+                else:
+                    self.msg("conta_proxy_status", f"Proxy respondeu HTTP {r.status_code}")
+            except Exception as e:
+                self.msg("conta_proxy_status", f"Falha no proxy: {resumo_texto(str(e), 120)}")
+
+        self.executar_thread(worker)
 
     def construir_aba_api_manus(self):
         """
@@ -6033,6 +6157,23 @@ class ManusGui(tk.Tk):
                         )
                     else:
                         messagebox.showerror("Erro ao alterar modelo", str(erro))
+
+                elif kind == "conta_proxy_list":
+                    _, lista, info = item
+                    try:
+                        self.conta_proxy_combo.configure(values=lista)
+                        if lista:
+                            self.conta_proxy_var.set(lista[0])
+                        self.conta_proxy_status_var.set(info)
+                    except Exception:
+                        pass
+
+                elif kind == "conta_proxy_status":
+                    _, texto = item
+                    try:
+                        self.conta_proxy_status_var.set(str(texto))
+                    except Exception:
+                        pass
 
                 elif kind == "api_console_result":
                     _, ok, titulo, texto = item
@@ -9842,7 +9983,7 @@ class ManusGui(tk.Tk):
             self.destroy()
 
 
-def run_webview(url: str, titulo: str = "Manus") -> int:
+def run_webview(url: str, titulo: str = "Manus", proxy: str = "") -> int:
     """
     Abre uma JANELA EMBUTIDA (pywebview) com a URL informada.
 
@@ -9850,6 +9991,13 @@ def run_webview(url: str, titulo: str = "Manus") -> int:
     precisa da thread principal e não pode coexistir com o mainloop do Tkinter.
     O login e o pagamento acontecem na própria página segura do Manus, mas
     exibidos dentro de uma janela do aplicativo (sem navegador externo).
+
+    Se 'proxy' for informado (host:port ou scheme://host:port), o tráfego da
+    janela embutida é roteado por ele:
+    - No Windows (WebView2/Edge Chromium) via --proxy-server nos argumentos do
+      motor do navegador (WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS).
+    - Como fallback, define variáveis de ambiente HTTP(S)_PROXY.
+    ATENÇÃO: proxies gratuitos podem interceptar o tráfego; não use em login/pagamento.
     """
     if not WEBVIEW_DISPONIVEL:
         print(
@@ -9859,6 +10007,16 @@ def run_webview(url: str, titulo: str = "Manus") -> int:
         )
         return 1
     try:
+        proxy = str(proxy or "").strip()
+        if proxy:
+            proxy_url = proxy if "://" in proxy else ("http://" + proxy)
+            # WebView2 (Windows/Edge Chromium): repassa o proxy ao motor do navegador.
+            os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = f"--proxy-server={proxy_url}"
+            # Fallback genérico (alguns backends respeitam variáveis de ambiente).
+            os.environ["HTTP_PROXY"] = proxy_url
+            os.environ["HTTPS_PROXY"] = proxy_url
+            os.environ["http_proxy"] = proxy_url
+            os.environ["https_proxy"] = proxy_url
         webview.create_window(titulo or "Manus", url, width=1180, height=820, resizable=True)
         webview.start()
         return 0
@@ -9888,6 +10046,7 @@ def parse_args():
     p.add_argument("--completed-pages", type=int, default=5, help="Quantidade de páginas da API para varrer ao listar concluídas.")
     p.add_argument("--webview", default="", help="Abre uma janela embutida (pywebview) com a URL informada e sai.")
     p.add_argument("--webview-title", default="Manus", help="Título da janela embutida aberta com --webview.")
+    p.add_argument("--webview-proxy", default="", help="Proxy (host:port ou scheme://host:port) para a janela embutida.")
     return p.parse_args()
 
 
@@ -9896,7 +10055,7 @@ def main():
 
     # Modo janela embutida: abre a página do Manus em uma janela pywebview e sai.
     if args.webview:
-        return run_webview(args.webview, args.webview_title)
+        return run_webview(args.webview, args.webview_title, args.webview_proxy)
 
     if args.list_completed:
         try:
