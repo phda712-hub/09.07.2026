@@ -1,0 +1,52 @@
+============================================================
+ CHAT COM IA - chat_ia.py
+============================================================
+
+Este pacote contem:
+  - chat_ia.py       -> o programa de chat com IA (Manus, OpenAI,
+                        OpenRouter, Groq, DeepSeek)
+  - gerar_exe.bat    -> gera o chat_ia.exe automaticamente (Windows)
+  - requirements.txt -> lista de dependencias
+  - LEIA-ME.txt      -> este arquivo
+
+------------------------------------------------------------
+ OPCAO A - Rodar direto pelo Python (mais simples)
+------------------------------------------------------------
+1) Instale o Python (https://www.python.org/downloads/),
+   marcando "Add Python to PATH".
+2) Abra o Prompt de Comando na pasta do projeto.
+3) Instale as dependencias:
+       pip install -r requirements.txt
+4) Rode o programa:
+       python chat_ia.py
+
+------------------------------------------------------------
+ OPCAO B - Gerar o executavel (.exe) - Windows
+------------------------------------------------------------
+1) Instale o Python (com "Add Python to PATH").
+2) De um duplo clique no arquivo:  gerar_exe.bat
+3) Aguarde a compilacao terminar.
+4) O executavel sera criado em:  dist\chat_ia.exe
+   (a pasta sera aberta automaticamente ao final)
+5) Voce pode distribuir o chat_ia.exe sozinho; ele NAO precisa
+   do Python instalado na maquina de destino.
+
+OBS.: O .exe SO pode ser gerado no Windows. Nao e possivel
+gerar um .exe de Windows a partir de Linux/Mac.
+
+------------------------------------------------------------
+ COMO USAR O PROGRAMA
+------------------------------------------------------------
+1) Escolha o provedor de IA (1 a 5).
+2) Informe sua chave de API (ela nao aparece na tela ao digitar).
+3) Escolha o modelo/tier.
+4) Converse! Comandos:
+     sair     -> encerra
+     limpar   -> reinicia a conversa (provedores OpenAI)
+     /modelo  -> troca o tier (somente Manus)
+     /tier    -> mostra o tier ativo (somente Manus)
+
+Sobre o Manus: ele usa uma API de tarefas (assincrona), entao a
+resposta pode levar alguns segundos. O tier escolhido e enviado
+DE VERDADE no campo 'agent_profile' da API.
+============================================================
