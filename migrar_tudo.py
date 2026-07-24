@@ -11,7 +11,9 @@ Comportamento UPSERT (nos dois casos):
     - Caso contrario, e inserido um novo registro.
     - Chave "ja existe":
         * categorias -> coluna 'descricao' (= ID_GRUPO_PRODUTO)
-        * produtos   -> coluna 'codigo_barras'
+        * produtos   -> coluna 'codigo' (= CODIGO interno do Firebird, estavel).
+          Como fallback, tambem procura por 'codigo_barras' para adotar registros
+          de execucoes antigas que ainda nao tinham a coluna 'codigo' preenchida.
 
 Mapeamento categorias  (<- TGRUPOS_PRODUTOS):
     id         -> proximo id (ultimo + 1, ou 1) apenas em novos registros
@@ -24,6 +26,7 @@ Mapeamento categorias  (<- TGRUPOS_PRODUTOS):
 Mapeamento produtos  (<- TPRODUTOS):
     id                 -> proximo id (ultimo + 1, ou 1) apenas em novos registros
     nome               -> DESCRICAO
+    codigo             -> CODIGO (codigo interno do Firebird - chave estavel)
     codigo_barras      -> CODIGO_BARRAS ; se vazio, usa CODIGO
     categoria          -> ID_GRUPO_PRODUTO (texto)
     categoria_id       -> id da categoria cujo 'descricao' == ID_GRUPO_PRODUTO
@@ -78,6 +81,7 @@ COL_CATEGORIAS_CHAVE = "descricao"       # coluna de 'categorias' que guarda o I
 # Nomes das colunas na tabela MySQL 'produtos' (ajuste se algum for diferente).
 COL_ID = "id"
 COL_NOME = "nome"
+COL_CODIGO = "codigo"                     # CODIGO interno do Firebird (chave estavel)
 COL_CODIGO_BARRAS = "codigo_barras"
 COL_CATEGORIA = "categoria"
 COL_CATEGORIA_ID = "categoria_id"
@@ -255,9 +259,11 @@ def obter_produtos_firebird(con_fb):
     for row in cur.fetchall():
         (descricao, codigo_barras, codigo, id_grupo,
          preco_venda, preco_custo, estoque, estoque_minimo) = row
-        cb = _texto(codigo_barras) or _texto(codigo)
+        cod = _texto(codigo)                 # CODIGO interno (estavel)
+        cb = _texto(codigo_barras) or cod    # codigo_barras; se vazio, usa CODIGO
         produtos.append({
             "nome": _texto(descricao),
+            "codigo": cod,
             "codigo_barras": cb,
             "categoria": _texto(id_grupo),
             "grupo_chave": _chave_grupo(id_grupo),
@@ -311,6 +317,7 @@ def migrar_produtos(con_fb, con_my):
     mapeamento = [
         (COL_ID,                 lambda p, i: i),
         (COL_NOME,               lambda p, i: p["nome"]),
+        (COL_CODIGO,             lambda p, i: p["codigo"]),
         (COL_CODIGO_BARRAS,      lambda p, i: p["codigo_barras"]),
         (COL_CATEGORIA,          lambda p, i: p["categoria"]),
         (COL_CATEGORIA_ID,       lambda p, i: p["categoria_id"]),
@@ -354,18 +361,39 @@ def migrar_produtos(con_fb, con_my):
     print(f"[INFO] Ultimo id em 'produtos': {ultimo_id}. "
           f"Novos registros a partir do id {id_atual}.")
 
+    def localizar_existente(cur, p):
+        """Localiza o id de um produto ja existente usando chave estavel.
+
+        Ordem de busca (a primeira que encontrar vence):
+          1) codigo == CODIGO interno do Firebird  (chave estavel definitiva)
+          2) codigo_barras == CODIGO_BARRAS         (registro que ja tem o codigo de barras)
+          3) codigo_barras == CODIGO                (registro antigo, criado quando o
+                                                      codigo de barras ainda estava vazio)
+        As opcoes 2 e 3 servem para "adotar" registros de execucoes anteriores
+        que ainda nao tinham a coluna 'codigo' preenchida.
+        """
+        cod = p["codigo"]
+        cb = p["codigo_barras"]
+        tentativas = []
+        if cod:
+            tentativas.append((COL_CODIGO, cod))
+        if cb:
+            tentativas.append((COL_CODIGO_BARRAS, cb))
+        if cod:
+            tentativas.append((COL_CODIGO_BARRAS, cod))
+        for coluna, valor in tentativas:
+            cur.execute(
+                f"SELECT {COL_ID} FROM produtos WHERE {coluna} = %s ORDER BY {COL_ID} LIMIT 1",
+                (valor,))
+            linha = cur.fetchone()
+            if linha:
+                return int(linha[0])
+        return None
+
     cur = con_my.cursor()
     inseridos = atualizados = 0
     for p in produtos:
-        cb = p["codigo_barras"]
-        existente_id = None
-        if cb:
-            cur.execute(
-                f"SELECT {COL_ID} FROM produtos WHERE {COL_CODIGO_BARRAS} = %s LIMIT 1",
-                (cb,))
-            linha = cur.fetchone()
-            if linha:
-                existente_id = int(linha[0])
+        existente_id = localizar_existente(cur, p)
 
         if existente_id is not None:
             valores = [f(p, existente_id) for (_, f) in mapeamento_update]
