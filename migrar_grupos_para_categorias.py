@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Script de migracao: copia a coluna DESCRICAO da tabela TGRUPOS_PRODUTOS
+Script de migracao: copia dados da tabela TGRUPOS_PRODUTOS
 (banco Firebird 2.5) para a tabela 'categorias' (banco MySQL 'quantum').
 
 Regras de preenchimento na tabela MySQL 'categorias':
     - id         -> proximo numero apos o ultimo id existente (ou 1 se vazia)
     - nome       -> valor de DESCRICAO (Firebird)
-    - descricao  -> mesmo valor de DESCRICAO (Firebird)
+    - descricao  -> valor de ID_GRUPO_PRODUTO (Firebird)
     - ativo      -> sempre 1
     - created_at -> data/hora atual (yyyy-MM-dd HH:mm:ss)
     - updated_at -> data/hora atual (yyyy-MM-dd HH:mm:ss)
@@ -85,20 +85,25 @@ def conectar_mysql():
         sys.exit(1)
 
 
-def obter_descricoes_firebird(con_fb):
-    """Le todas as DESCRICAO da tabela TGRUPOS_PRODUTOS."""
+def obter_grupos_firebird(con_fb):
+    """Le DESCRICAO e ID_GRUPO_PRODUTO da tabela TGRUPOS_PRODUTOS.
+
+    Retorna lista de tuplas (nome, id_grupo_produto), onde:
+        - nome              -> DESCRICAO
+        - id_grupo_produto  -> ID_GRUPO_PRODUTO (usado na coluna 'descricao')
+    """
     cur = con_fb.cursor()
-    cur.execute("SELECT DESCRICAO FROM TGRUPOS_PRODUTOS")
-    descricoes = []
-    for (descricao,) in cur.fetchall():
-        if descricao is None:
-            continue
-        texto = descricao.strip() if isinstance(descricao, str) else str(descricao).strip()
-        if texto:
-            descricoes.append(texto)
+    cur.execute("SELECT DESCRICAO, ID_GRUPO_PRODUTO FROM TGRUPOS_PRODUTOS")
+    grupos = []
+    for descricao, id_grupo in cur.fetchall():
+        nome = descricao.strip() if isinstance(descricao, str) else (
+            str(descricao).strip() if descricao is not None else "")
+        id_grupo_txt = str(id_grupo).strip() if id_grupo is not None else ""
+        if nome:
+            grupos.append((nome, id_grupo_txt))
     cur.close()
-    print(f"[OK] {len(descricoes)} registro(s) lido(s) de TGRUPOS_PRODUTOS.")
-    return descricoes
+    print(f"[OK] {len(grupos)} registro(s) lido(s) de TGRUPOS_PRODUTOS.")
+    return grupos
 
 
 def obter_ultimo_id(con_my):
@@ -115,9 +120,9 @@ def migrar():
     con_my = conectar_mysql()
 
     try:
-        descricoes = obter_descricoes_firebird(con_fb)
-        if not descricoes:
-            print("Nenhuma descricao encontrada no Firebird. Nada a migrar.")
+        grupos = obter_grupos_firebird(con_fb)
+        if not grupos:
+            print("Nenhum registro encontrado no Firebird. Nada a migrar.")
             return
 
         ultimo_id = obter_ultimo_id(con_my)
@@ -136,8 +141,9 @@ def migrar():
         cur = con_my.cursor()
         inseridos = 0
         id_atual = proximo_id
-        for descricao in descricoes:
-            cur.execute(sql, (id_atual, descricao, descricao, 1, agora, agora))
+        for nome, id_grupo_produto in grupos:
+            # nome -> DESCRICAO ; descricao -> ID_GRUPO_PRODUTO
+            cur.execute(sql, (id_atual, nome, id_grupo_produto, 1, agora, agora))
             inseridos += 1
             id_atual += 1
 
