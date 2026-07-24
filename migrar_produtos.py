@@ -3,6 +3,10 @@
 Script de migracao: copia dados da tabela TPRODUTOS
 (banco Firebird 2.5) para a tabela 'produtos' (banco MySQL 'quantum').
 
+Comportamento UPSERT: se ja existir um produto com o mesmo 'codigo_barras',
+o registro e ATUALIZADO (id e created_at preservados); caso contrario, e
+inserido um novo registro.
+
 Mapeamento de colunas (MySQL 'produtos'  <-  Firebird 'TPRODUTOS'):
     id                 -> sequencial: ultimo id existente + 1 (ou 1 se vazia)
                           (mesma logica usada na tabela 'categorias')
@@ -278,8 +282,7 @@ def migrar():
 
         agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Mapeamento: nome_da_coluna_mysql -> funcao(produto) que retorna o valor.
-        # (funcoes lambda para calcular o valor de cada linha)
+        # Mapeamento: nome_da_coluna_mysql -> funcao(produto, id) que retorna o valor.
         mapeamento = [
             (COL_ID,                 lambda p, i: i),
             (COL_NOME,               lambda p, i: p["nome"]),
@@ -310,27 +313,59 @@ def migrar():
             print(f"[AVISO] Colunas do mapeamento que NAO existem em 'produtos' "
                   f"e serao ignoradas: {', '.join(ignoradas)}")
 
-        colunas = [c for (c, _) in mapeamento_ativo]
-        funcoes = [f for (_, f) in mapeamento_ativo]
-        placeholders = ", ".join(["%s"] * len(colunas))
-        sql = (
-            f"INSERT INTO produtos ({', '.join(colunas)}) "
+        # --- INSERT (registro novo) ---
+        colunas_ins = [c for (c, _) in mapeamento_ativo]
+        funcoes_ins = [f for (_, f) in mapeamento_ativo]
+        placeholders = ", ".join(["%s"] * len(colunas_ins))
+        sql_insert = (
+            f"INSERT INTO produtos ({', '.join(colunas_ins)}) "
             f"VALUES ({placeholders})"
         )
 
+        # --- UPDATE (registro ja existente) ---
+        # Ao atualizar, nao mexemos no id nem no created_at (preservados).
+        mapeamento_update = [
+            (c, f) for (c, f) in mapeamento_ativo
+            if c not in (COL_ID, COL_CREATED_AT)
+        ]
+        set_clause = ", ".join(f"{c} = %s" for (c, _) in mapeamento_update)
+        sql_update = f"UPDATE produtos SET {set_clause} WHERE {COL_ID} = %s"
+
         cur = con_my.cursor()
         inseridos = 0
+        atualizados = 0
         id_atual = proximo_id
         for p in produtos:
-            valores = tuple(f(p, id_atual) for f in funcoes)
-            cur.execute(sql, valores)
-            inseridos += 1
-            id_atual += 1
+            cb = p["codigo_barras"]
+
+            # Verifica se ja existe um produto com o mesmo codigo_barras.
+            existente_id = None
+            if cb:
+                cur.execute(
+                    f"SELECT {COL_ID} FROM produtos WHERE {COL_CODIGO_BARRAS} = %s LIMIT 1",
+                    (cb,),
+                )
+                linha = cur.fetchone()
+                if linha:
+                    existente_id = int(linha[0])
+
+            if existente_id is not None:
+                # Atualiza o registro existente.
+                valores = [f(p, existente_id) for (_, f) in mapeamento_update]
+                valores.append(existente_id)
+                cur.execute(sql_update, tuple(valores))
+                atualizados += 1
+            else:
+                # Insere novo registro.
+                valores = tuple(f(p, id_atual) for f in funcoes_ins)
+                cur.execute(sql_insert, valores)
+                inseridos += 1
+                id_atual += 1
 
         con_my.commit()
         cur.close()
-        print(f"[OK] {inseridos} registro(s) inserido(s) em 'produtos' "
-              f"(ids {proximo_id} ate {id_atual - 1}).")
+        print(f"[OK] Concluido em 'produtos': {inseridos} inserido(s), "
+              f"{atualizados} atualizado(s).")
 
     except Exception as e:
         con_my.rollback()

@@ -11,6 +11,10 @@ Regras de preenchimento na tabela MySQL 'categorias':
     - created_at -> data/hora atual (yyyy-MM-dd HH:mm:ss)
     - updated_at -> data/hora atual (yyyy-MM-dd HH:mm:ss)
 
+Comportamento UPSERT: se ja existir uma categoria cujo 'descricao' seja igual
+ao ID_GRUPO_PRODUTO, o registro e ATUALIZADO (id e created_at preservados);
+caso contrario, e inserida uma nova categoria.
+
 Dependencias (instale antes de rodar):
     pip install fdb mysql-connector-python
 
@@ -132,25 +136,48 @@ def migrar():
 
         agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        sql = (
+        sql_insert = (
             "INSERT INTO categorias "
             "(id, nome, descricao, ativo, created_at, updated_at) "
             "VALUES (%s, %s, %s, %s, %s, %s)"
         )
+        # No UPDATE preservamos id, descricao (a chave) e created_at.
+        sql_update = (
+            "UPDATE categorias SET nome = %s, ativo = 1, updated_at = %s "
+            "WHERE id = %s"
+        )
 
         cur = con_my.cursor()
         inseridos = 0
+        atualizados = 0
         id_atual = proximo_id
         for nome, id_grupo_produto in grupos:
-            # nome -> DESCRICAO ; descricao -> ID_GRUPO_PRODUTO
-            cur.execute(sql, (id_atual, nome, id_grupo_produto, 1, agora, agora))
-            inseridos += 1
-            id_atual += 1
+            # nome -> DESCRICAO ; descricao -> ID_GRUPO_PRODUTO (chave de comparacao)
+            # Verifica se ja existe uma categoria com esse ID_GRUPO_PRODUTO na descricao.
+            existente_id = None
+            if id_grupo_produto:
+                cur.execute(
+                    "SELECT id FROM categorias WHERE descricao = %s LIMIT 1",
+                    (id_grupo_produto,),
+                )
+                linha = cur.fetchone()
+                if linha:
+                    existente_id = int(linha[0])
+
+            if existente_id is not None:
+                # Atualiza o nome da categoria ja existente.
+                cur.execute(sql_update, (nome, agora, existente_id))
+                atualizados += 1
+            else:
+                # Insere nova categoria.
+                cur.execute(sql_insert, (id_atual, nome, id_grupo_produto, 1, agora, agora))
+                inseridos += 1
+                id_atual += 1
 
         con_my.commit()
         cur.close()
-        print(f"[OK] {inseridos} registro(s) inserido(s) em 'categorias' "
-              f"(ids {proximo_id} ate {id_atual - 1}).")
+        print(f"[OK] Concluido em 'categorias': {inseridos} inserida(s), "
+              f"{atualizados} atualizada(s).")
 
     except Exception as e:
         con_my.rollback()
