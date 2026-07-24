@@ -178,6 +178,15 @@ def obter_ultimo_id(con_my, tabela, coluna_id):
     return int(max_id) if max_id is not None else 0
 
 
+def obter_colunas_tabela(con_my, tabela):
+    """Retorna o conjunto de nomes de colunas existentes na tabela MySQL."""
+    cur = con_my.cursor()
+    cur.execute(f"SHOW COLUMNS FROM {tabela}")
+    colunas = {row[0] for row in cur.fetchall()}
+    cur.close()
+    return colunas
+
+
 def migrar():
     con_fb = conectar_firebird()
     con_my = conectar_mysql()
@@ -193,15 +202,46 @@ def migrar():
         print(f"[INFO] Ultimo id em 'produtos': {ultimo_id}. "
               f"Iniciando insercao a partir do id {proximo_id}.")
 
+        # Descobre quais colunas realmente existem na tabela 'produtos'.
+        # Colunas do mapeamento que nao existirem sao ignoradas automaticamente,
+        # evitando o erro "Unknown column".
+        colunas_existentes = obter_colunas_tabela(con_my, "produtos")
+
         agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        colunas = [
-            COL_ID, COL_NOME, COL_CODIGO_BARRAS, COL_CATEGORIA, COL_PRECO,
-            COL_PRECO_ATACADO, COL_ATACADO_QTD_MINIMA, COL_PRECO_PROMOCIONAL,
-            COL_PROMOCAO_INICIO, COL_PROMOCAO_FIM, COL_PRECO_COMPRA, COL_TIPO,
-            COL_ESTOQUE, COL_ESTOQUE_MINIMO, COL_FIDELIDADE, COL_ATIVO,
-            COL_CREATED_AT, COL_UPDATED_AT, COL_UNIDADE,
+        # Mapeamento: nome_da_coluna_mysql -> funcao(produto) que retorna o valor.
+        # (funcoes lambda para calcular o valor de cada linha)
+        mapeamento = [
+            (COL_ID,                 lambda p, i: i),
+            (COL_NOME,               lambda p, i: p["nome"]),
+            (COL_CODIGO_BARRAS,      lambda p, i: p["codigo_barras"]),
+            (COL_CATEGORIA,          lambda p, i: p["categoria"]),
+            (COL_PRECO,              lambda p, i: p["preco"]),
+            (COL_PRECO_ATACADO,      lambda p, i: 0),
+            (COL_ATACADO_QTD_MINIMA, lambda p, i: 0),
+            (COL_PRECO_PROMOCIONAL,  lambda p, i: 0),
+            (COL_PROMOCAO_INICIO,    lambda p, i: agora),
+            (COL_PROMOCAO_FIM,       lambda p, i: agora),
+            (COL_PRECO_COMPRA,       lambda p, i: p["preco_compra"]),
+            (COL_TIPO,               lambda p, i: "unidade"),
+            (COL_ESTOQUE,            lambda p, i: p["estoque"]),
+            (COL_ESTOQUE_MINIMO,     lambda p, i: p["estoque_minimo"]),
+            (COL_FIDELIDADE,         lambda p, i: 0),
+            (COL_ATIVO,              lambda p, i: 1),
+            (COL_CREATED_AT,         lambda p, i: agora),
+            (COL_UPDATED_AT,         lambda p, i: agora),
+            (COL_UNIDADE,            lambda p, i: "unid."),
         ]
+
+        # Mantem apenas as colunas que existem na tabela.
+        mapeamento_ativo = [(c, f) for (c, f) in mapeamento if c in colunas_existentes]
+        ignoradas = [c for (c, _) in mapeamento if c not in colunas_existentes]
+        if ignoradas:
+            print(f"[AVISO] Colunas do mapeamento que NAO existem em 'produtos' "
+                  f"e serao ignoradas: {', '.join(ignoradas)}")
+
+        colunas = [c for (c, _) in mapeamento_ativo]
+        funcoes = [f for (_, f) in mapeamento_ativo]
         placeholders = ", ".join(["%s"] * len(colunas))
         sql = (
             f"INSERT INTO produtos ({', '.join(colunas)}) "
@@ -212,27 +252,7 @@ def migrar():
         inseridos = 0
         id_atual = proximo_id
         for p in produtos:
-            valores = (
-                id_atual,               # id
-                p["nome"],              # nome
-                p["codigo_barras"],     # codigo_barras (ou CODIGO se vazio)
-                p["categoria"],         # categoria = ID_GRUPO_PRODUTO
-                p["preco"],             # preco = PRECO_VENDA
-                0,                      # preco_atacado
-                0,                      # atacado_qtd_minima
-                0,                      # preco_promocional
-                agora,                  # promocao_inicio
-                agora,                  # promocao_fim
-                p["preco_compra"],      # preco_compra = PRECO_CUSTO
-                "unidade",              # tipo
-                p["estoque"],           # estoque
-                p["estoque_minimo"],    # estoque_minimo
-                0,                      # fidelidade
-                1,                      # ativo
-                agora,                  # created_at
-                agora,                  # updated_at
-                "unid.",                # unidade
-            )
+            valores = tuple(f(p, id_atual) for f in funcoes)
             cur.execute(sql, valores)
             inseridos += 1
             id_atual += 1
