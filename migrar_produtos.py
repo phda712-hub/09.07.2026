@@ -57,7 +57,8 @@ MYSQL_CONFIG = {
 COL_ID = "id"
 COL_NOME = "nome"
 COL_CODIGO_BARRAS = "codigo_barras"
-COL_CATEGORIA = "categoria"
+COL_CATEGORIA = "categoria"            # coluna de texto (varchar)
+COL_CATEGORIA_ID = "categoria_id"      # coluna FK -> categorias(id)
 COL_PRECO = "preco"
 COL_PRECO_ATACADO = "preco_atacado"
 COL_ATACADO_QTD_MINIMA = "atacado_qtd_minima"
@@ -137,6 +138,16 @@ def _numero(valor, padrao=0):
         return padrao
 
 
+def _inteiro(valor, padrao=None):
+    """Converte para inteiro; None ou invalido vira o padrao."""
+    if valor is None:
+        return padrao
+    try:
+        return int(float(valor))
+    except (TypeError, ValueError):
+        return padrao
+
+
 def obter_produtos_firebird(con_fb):
     """Le os campos necessarios da tabela TPRODUTOS."""
     cur = con_fb.cursor()
@@ -158,7 +169,8 @@ def obter_produtos_firebird(con_fb):
         produtos.append({
             "nome": nome,
             "codigo_barras": cb,
-            "categoria": _texto(id_grupo),
+            "categoria": _texto(id_grupo),        # texto (varchar) = ID_GRUPO_PRODUTO
+            "categoria_id": _inteiro(id_grupo),   # FK = ID_GRUPO_PRODUTO (numero)
             "preco": _numero(preco_venda),
             "preco_compra": _numero(preco_custo),
             "estoque": _numero(estoque),
@@ -216,6 +228,7 @@ def migrar():
             (COL_NOME,               lambda p, i: p["nome"]),
             (COL_CODIGO_BARRAS,      lambda p, i: p["codigo_barras"]),
             (COL_CATEGORIA,          lambda p, i: p["categoria"]),
+            (COL_CATEGORIA_ID,       lambda p, i: p["categoria_id"]),
             (COL_PRECO,              lambda p, i: p["preco"]),
             (COL_PRECO_ATACADO,      lambda p, i: 0),
             (COL_ATACADO_QTD_MINIMA, lambda p, i: 0),
