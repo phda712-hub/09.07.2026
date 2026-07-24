@@ -59,6 +59,14 @@ COL_NOME = "nome"
 COL_CODIGO_BARRAS = "codigo_barras"
 COL_CATEGORIA = "categoria"            # coluna de texto (varchar)
 COL_CATEGORIA_ID = "categoria_id"      # coluna FK -> categorias(id)
+
+# Como a coluna categoria_id tem chave estrangeira para categorias(id), o valor
+# de ID_GRUPO_PRODUTO (do Firebird) e usado para LOCALIZAR na tabela 'categorias'
+# o registro cuja coluna 'descricao' seja igual a esse numero; o 'id' encontrado
+# e entao gravado em categoria_id. Se o grupo nao for encontrado, usa-se a
+# categoria padrao abaixo (precisa existir em categorias.id).
+CATEGORIA_ID_PADRAO = 1                 # normalmente 1 = "Geral"
+COL_CATEGORIAS_CHAVE = "descricao"      # coluna de 'categorias' que guarda o ID_GRUPO_PRODUTO
 COL_PRECO = "preco"
 COL_PRECO_ATACADO = "preco_atacado"
 COL_ATACADO_QTD_MINIMA = "atacado_qtd_minima"
@@ -148,6 +156,20 @@ def _inteiro(valor, padrao=None):
         return padrao
 
 
+def _chave_grupo(valor):
+    """Normaliza o valor do grupo para servir de chave de comparacao.
+
+    Ex.: 10, '10', '10.0', Decimal('10') -> todos viram '10'.
+    Se nao for numerico, retorna o texto limpo.
+    """
+    if valor is None:
+        return ""
+    try:
+        return str(int(float(valor)))
+    except (TypeError, ValueError):
+        return str(valor).strip()
+
+
 def obter_produtos_firebird(con_fb):
     """Le os campos necessarios da tabela TPRODUTOS."""
     cur = con_fb.cursor()
@@ -170,7 +192,8 @@ def obter_produtos_firebird(con_fb):
             "nome": nome,
             "codigo_barras": cb,
             "categoria": _texto(id_grupo),        # texto (varchar) = ID_GRUPO_PRODUTO
-            "categoria_id": _inteiro(id_grupo),   # FK = ID_GRUPO_PRODUTO (numero)
+            "grupo_chave": _chave_grupo(id_grupo),  # chave p/ localizar em categorias
+            "categoria_id": None,                 # sera resolvido via lookup depois
             "preco": _numero(preco_venda),
             "preco_compra": _numero(preco_custo),
             "estoque": _numero(estoque),
@@ -199,6 +222,21 @@ def obter_colunas_tabela(con_my, tabela):
     return colunas
 
 
+def obter_mapa_categorias(con_my, coluna_chave):
+    """Monta um dicionario {valor_da_coluna_chave -> id} da tabela categorias.
+
+    Ex.: se categorias.descricao guarda o ID_GRUPO_PRODUTO, o mapa liga
+    o numero do grupo ao id real da categoria (usado no categoria_id).
+    """
+    cur = con_my.cursor()
+    cur.execute(f"SELECT id, {coluna_chave} FROM categorias")
+    mapa = {}
+    for cat_id, chave in cur.fetchall():
+        mapa[_chave_grupo(chave)] = int(cat_id)
+    cur.close()
+    return mapa
+
+
 def migrar():
     con_fb = conectar_firebird()
     con_my = conectar_mysql()
@@ -213,6 +251,25 @@ def migrar():
         proximo_id = ultimo_id + 1 if ultimo_id >= 1 else 1
         print(f"[INFO] Ultimo id em 'produtos': {ultimo_id}. "
               f"Iniciando insercao a partir do id {proximo_id}.")
+
+        # Resolve o categoria_id de cada produto: localiza na tabela 'categorias'
+        # o registro cuja coluna-chave (descricao) == ID_GRUPO_PRODUTO e usa o id.
+        mapa_categorias = obter_mapa_categorias(con_my, COL_CATEGORIAS_CHAVE)
+        print(f"[INFO] {len(mapa_categorias)} categoria(s) carregada(s) para vinculo.")
+
+        nao_encontrados = set()
+        for p in produtos:
+            cat_id = mapa_categorias.get(p["grupo_chave"])
+            if cat_id is None:
+                cat_id = CATEGORIA_ID_PADRAO
+                if p["grupo_chave"]:
+                    nao_encontrados.add(p["grupo_chave"])
+            p["categoria_id"] = cat_id
+
+        if nao_encontrados:
+            print(f"[AVISO] Grupo(s) sem categoria correspondente em 'categorias' "
+                  f"(usando categoria padrao id={CATEGORIA_ID_PADRAO}): "
+                  f"{', '.join(sorted(nao_encontrados))}")
 
         # Descobre quais colunas realmente existem na tabela 'produtos'.
         # Colunas do mapeamento que nao existirem sao ignoradas automaticamente,
