@@ -15,7 +15,7 @@ Mapeamento clientes  (<- THOSPEDES):
     telefone   -> TELEFONE ; se vazio, usa CELULAR
     endereco   -> ENDERECO + " " + ENDERECO_NUMERO
     bairro     -> BAIRRO
-    observacao -> OBSERVACAO
+    observacao -> OBSERVACOES
     ativo      -> 1
     created_at -> data/hora atual (so em novos)
     updated_at -> data/hora atual
@@ -433,7 +433,7 @@ def obter_clientes_firebird(con_fb):
     cur = con_fb.cursor()
     cur.execute(
         "SELECT NOME, CPF, TELEFONE, CELULAR, ENDERECO, ENDERECO_NUMERO, BAIRRO, "
-        "OBSERVACAO FROM THOSPEDES"
+        "OBSERVACOES FROM THOSPEDES"
     )
     clientes = []
     for (nome, cpf, telefone, celular, endereco, numero, bairro,
