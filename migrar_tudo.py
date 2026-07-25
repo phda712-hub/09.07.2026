@@ -5,6 +5,19 @@ Script UNICO de migracao Firebird -> MySQL.
 Executa em sequencia, usando as mesmas conexoes:
     1) TGRUPOS_PRODUTOS (Firebird)  ->  categorias (MySQL 'quantum')
     2) TPRODUTOS        (Firebird)  ->  produtos   (MySQL 'quantum')
+    3) THOSPEDES        (Firebird)  ->  clientes   (MySQL 'quantum')
+
+Mapeamento clientes  (<- THOSPEDES):
+    id         -> proximo id (ultimo + 1, ou 1) apenas em novos registros
+                  (mesma logica de id usada em categorias e produtos)
+    nome       -> NOME
+    telefone   -> TELEFONE ; se vazio, usa CELULAR
+    endereco   -> ENDERECO + " " + ENDERECO_NUMERO
+    bairro     -> BAIRRO
+    ativo      -> 1
+    created_at -> data/hora atual (so em novos)
+    updated_at -> data/hora atual
+    (chave de upsert: nome)
 
 Comportamento UPSERT (nos dois casos):
     - Se o registro ja existir, ele e ATUALIZADO (id e created_at preservados).
@@ -412,6 +425,104 @@ def migrar_produtos(con_fb, con_my):
 
 
 # ----------------------------------------------------------------------------
+# ETAPA 3 - Hospedes/clientes -> clientes
+# ----------------------------------------------------------------------------
+def obter_clientes_firebird(con_fb):
+    cur = con_fb.cursor()
+    cur.execute(
+        "SELECT NOME, TELEFONE, CELULAR, ENDERECO, ENDERECO_NUMERO, BAIRRO "
+        "FROM THOSPEDES"
+    )
+    clientes = []
+    for nome, telefone, celular, endereco, numero, bairro in cur.fetchall():
+        nm = _texto(nome)
+        if not nm:
+            continue
+        tel = _texto(telefone) or _texto(celular)   # TELEFONE; se vazio, CELULAR
+        # endereco = ENDERECO + espaco + ENDERECO_NUMERO (ignora partes vazias)
+        end = " ".join(x for x in [_texto(endereco), _texto(numero)] if x)
+        clientes.append({
+            "nome": nm,
+            "telefone": tel,
+            "endereco": end,
+            "bairro": _texto(bairro),
+        })
+    cur.close()
+    print(f"[OK] {len(clientes)} registro(s) lido(s) de THOSPEDES.")
+    return clientes
+
+
+def migrar_clientes(con_fb, con_my):
+    print("\n=== ETAPA 3: THOSPEDES -> clientes ===")
+    clientes = obter_clientes_firebird(con_fb)
+    if not clientes:
+        print("[AVISO] Nenhum cliente encontrado. Nada a fazer na etapa 3.")
+        return
+
+    colunas_existentes = obter_colunas_tabela(con_my, "clientes")
+    agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # nome_da_coluna_mysql -> funcao(cliente, id)
+    mapeamento = [
+        ("id",         lambda c, i: i),
+        ("nome",       lambda c, i: c["nome"]),
+        ("telefone",   lambda c, i: c["telefone"]),
+        ("endereco",   lambda c, i: c["endereco"]),
+        ("bairro",     lambda c, i: c["bairro"]),
+        ("ativo",      lambda c, i: 1),
+        ("created_at", lambda c, i: agora),
+        ("updated_at", lambda c, i: agora),
+    ]
+    mapeamento_ativo = [(col, f) for (col, f) in mapeamento if col in colunas_existentes]
+    ignoradas = [col for (col, _) in mapeamento if col not in colunas_existentes]
+    if ignoradas:
+        print(f"[AVISO] Colunas inexistentes em 'clientes' (ignoradas): "
+              f"{', '.join(ignoradas)}")
+
+    colunas_ins = [col for (col, _) in mapeamento_ativo]
+    funcoes_ins = [f for (_, f) in mapeamento_ativo]
+    placeholders = ", ".join(["%s"] * len(colunas_ins))
+    sql_insert = (
+        f"INSERT INTO clientes ({', '.join(colunas_ins)}) VALUES ({placeholders})"
+    )
+
+    # No UPDATE nao mexemos em id nem created_at.
+    mapeamento_update = [(col, f) for (col, f) in mapeamento_ativo
+                         if col not in ("id", "created_at")]
+    set_clause = ", ".join(f"{col} = %s" for (col, _) in mapeamento_update)
+    sql_update = f"UPDATE clientes SET {set_clause} WHERE id = %s"
+
+    ultimo_id = obter_ultimo_id(con_my, "clientes")
+    id_atual = ultimo_id + 1 if ultimo_id >= 1 else 1
+    print(f"[INFO] Ultimo id em 'clientes': {ultimo_id}. "
+          f"Novos registros a partir do id {id_atual}.")
+
+    cur = con_my.cursor()
+    inseridos = atualizados = 0
+    for c in clientes:
+        # Chave de comparacao (upsert): nome.
+        cur.execute("SELECT id FROM clientes WHERE nome = %s ORDER BY id LIMIT 1",
+                    (c["nome"],))
+        linha = cur.fetchone()
+        existente_id = int(linha[0]) if linha else None
+
+        if existente_id is not None:
+            valores = [f(c, existente_id) for (_, f) in mapeamento_update]
+            valores.append(existente_id)
+            cur.execute(sql_update, tuple(valores))
+            atualizados += 1
+        else:
+            valores = tuple(f(c, id_atual) for f in funcoes_ins)
+            cur.execute(sql_insert, valores)
+            inseridos += 1
+            id_atual += 1
+
+    con_my.commit()
+    cur.close()
+    print(f"[OK] Clientes: {inseridos} inserido(s), {atualizados} atualizado(s).")
+
+
+# ----------------------------------------------------------------------------
 # Fluxo principal
 # ----------------------------------------------------------------------------
 def main():
@@ -420,6 +531,7 @@ def main():
     try:
         migrar_categorias(con_fb, con_my)   # 1) grupos -> categorias
         migrar_produtos(con_fb, con_my)     # 2) produtos -> produtos
+        migrar_clientes(con_fb, con_my)     # 3) hospedes -> clientes
         print("\n[OK] Migracao concluida com sucesso.")
     except Exception as e:
         con_my.rollback()
