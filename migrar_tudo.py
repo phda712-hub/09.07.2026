@@ -15,6 +15,7 @@ Mapeamento clientes  (<- THOSPEDES):
     telefone   -> TELEFONE ; se vazio, usa CELULAR
     endereco   -> ENDERECO + " " + ENDERECO_NUMERO
     bairro     -> BAIRRO
+    observacao -> OBSERVACAO
     ativo      -> 1
     created_at -> data/hora atual (so em novos)
     updated_at -> data/hora atual
@@ -431,11 +432,12 @@ def migrar_produtos(con_fb, con_my):
 def obter_clientes_firebird(con_fb):
     cur = con_fb.cursor()
     cur.execute(
-        "SELECT NOME, CPF, TELEFONE, CELULAR, ENDERECO, ENDERECO_NUMERO, BAIRRO "
-        "FROM THOSPEDES"
+        "SELECT NOME, CPF, TELEFONE, CELULAR, ENDERECO, ENDERECO_NUMERO, BAIRRO, "
+        "OBSERVACAO FROM THOSPEDES"
     )
     clientes = []
-    for nome, cpf, telefone, celular, endereco, numero, bairro in cur.fetchall():
+    for (nome, cpf, telefone, celular, endereco, numero, bairro,
+         observacao) in cur.fetchall():
         nm = _texto(nome)
         if not nm:
             continue
@@ -448,6 +450,7 @@ def obter_clientes_firebird(con_fb):
             "telefone": tel,
             "endereco": end,
             "bairro": _texto(bairro),
+            "observacao": _texto(observacao),
         })
     cur.close()
     print(f"[OK] {len(clientes)} registro(s) lido(s) de THOSPEDES.")
@@ -472,6 +475,7 @@ def migrar_clientes(con_fb, con_my):
         ("telefone",   lambda c, i: c["telefone"]),
         ("endereco",   lambda c, i: c["endereco"]),
         ("bairro",     lambda c, i: c["bairro"]),
+        ("observacao", lambda c, i: c["observacao"]),
         ("ativo",      lambda c, i: 1),
         ("created_at", lambda c, i: agora),
         ("updated_at", lambda c, i: agora),
