@@ -11,6 +11,7 @@ Mapeamento clientes  (<- THOSPEDES):
     id         -> proximo id (ultimo + 1, ou 1) apenas em novos registros
                   (mesma logica de id usada em categorias e produtos)
     nome       -> NOME
+    cpf        -> CPF
     telefone   -> TELEFONE ; se vazio, usa CELULAR
     endereco   -> ENDERECO + " " + ENDERECO_NUMERO
     bairro     -> BAIRRO
@@ -430,11 +431,11 @@ def migrar_produtos(con_fb, con_my):
 def obter_clientes_firebird(con_fb):
     cur = con_fb.cursor()
     cur.execute(
-        "SELECT NOME, TELEFONE, CELULAR, ENDERECO, ENDERECO_NUMERO, BAIRRO "
+        "SELECT NOME, CPF, TELEFONE, CELULAR, ENDERECO, ENDERECO_NUMERO, BAIRRO "
         "FROM THOSPEDES"
     )
     clientes = []
-    for nome, telefone, celular, endereco, numero, bairro in cur.fetchall():
+    for nome, cpf, telefone, celular, endereco, numero, bairro in cur.fetchall():
         nm = _texto(nome)
         if not nm:
             continue
@@ -443,6 +444,7 @@ def obter_clientes_firebird(con_fb):
         end = " ".join(x for x in [_texto(endereco), _texto(numero)] if x)
         clientes.append({
             "nome": nm,
+            "cpf": _texto(cpf),
             "telefone": tel,
             "endereco": end,
             "bairro": _texto(bairro),
@@ -466,6 +468,7 @@ def migrar_clientes(con_fb, con_my):
     mapeamento = [
         ("id",         lambda c, i: i),
         ("nome",       lambda c, i: c["nome"]),
+        ("cpf",        lambda c, i: c["cpf"]),
         ("telefone",   lambda c, i: c["telefone"]),
         ("endereco",   lambda c, i: c["endereco"]),
         ("bairro",     lambda c, i: c["bairro"]),
