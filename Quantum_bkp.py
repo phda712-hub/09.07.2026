@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ═══════════════════════════════════════════════════════════════════════════════
-# FARMA QUANTUM - AUTOCORREÇÃO TOTAL ANTES DE QUALQUER PROCESSO
+# LOJA QUANTUM - AUTOCORREÇÃO TOTAL ANTES DE QUALQUER PROCESSO
 # Esta camada roda antes do restante do sistema para verificar/corrigir:
 # - pastas essenciais;
 # - config.ini;
@@ -2166,7 +2166,7 @@ def quantum_visual_is_loja():
 def quantum_visual_palette():
     if quantum_visual_is_loja():
         return {"primary":"#155EEF","primary_dark":"#0B2F6B","primary_soft":"#EAF1FF","secondary":"#00A3FF","accent":"#FFB020","success":"#12B76A","warning":"#F79009","danger":"#F04438","bg":"#F5F7FB","panel":"#FFFFFF","panel_2":"#EEF4FF","text":"#101828","muted":"#667085","border":"#D0D5DD","title_icon":"🛒","brand":"LOJA QUANTUM"}
-    return {"primary":"#00856F","primary_dark":"#004C3F","primary_soft":"#E8FFF8","secondary":"#17B26A","accent":"#2E90FA","success":"#12B76A","warning":"#F79009","danger":"#F04438","bg":"#F4FBF8","panel":"#FFFFFF","panel_2":"#E9FBF3","text":"#10231F","muted":"#667085","border":"#CDE7DD","title_icon":"⚕️","brand":"QUANTUM FARMA"}
+    return {"primary":"#00856F","primary_dark":"#004C3F","primary_soft":"#E8FFF8","secondary":"#17B26A","accent":"#2E90FA","success":"#12B76A","warning":"#F79009","danger":"#F04438","bg":"#F4FBF8","panel":"#FFFFFF","panel_2":"#E9FBF3","text":"#10231F","muted":"#667085","border":"#CDE7DD","title_icon":"🏪","brand":"QUANTUM LOJA"}
 
 def quantum_visual_apply_premium_theme(root=None):
     try:
@@ -2388,7 +2388,7 @@ import threading
 ║                                                                                        ║
 ╠════════════════════════════════════════════════════════════════════════════════════════╣
 ║                                                                                        ║
-║   🚀 FARMA QUANTUM SUPREME ULTRA PROFESSIONAL - PHOENIX ETERNAL EDITION 2027        ║
+║   🚀 LOJA QUANTUM SUPREME ULTRA PROFESSIONAL - PHOENIX ETERNAL EDITION 2027        ║
 ║                                                                                        ║
 ║   ═══════════════════════════════════════════════════════════════════════════════════  ║
 ║   SISTEMA DE GESTÃO INTELIGENTE E PONTO DE VENDA DE ALTÍSSIMA PERFORMANCE              ║
@@ -2610,11 +2610,11 @@ import threading
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 💊 PATCH VISUAL FARMÁCIA / DROGARIA
-# Aplicado automaticamente para adaptar o layout do sistema para farmácia:
+# 🏪 PATCH VISUAL LOJA / VAREJO
+# Aplicado automaticamente para adaptar o layout do sistema para loja:
 # - Paleta verde saúde/teal/branco clínico
-# - Splash e janela principal com identidade Farma Quantum
-# - Cabeçalho fixo com contexto de farmácia/drogaria
+# - Splash e janela principal com identidade Loja Quantum
+# - Cabeçalho fixo com contexto de loja/varejo
 # - Menus e textos principais adaptados para medicamentos/produtos
 # - Preserva banco de dados, permissões, vendas, caixa e toda a lógica original
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2711,7 +2711,7 @@ import atexit as _atexit_auditoria
 # ═══════════════════════════════════════════════════════════════════════════════
 # ÍCONE REAL NA JANELA E NA BARRA DE TAREFAS DO WINDOWS
 # Corrige o ícone padrão do Tkinter/ttkbootstrap (pena) e força o ícone correto
-# do Quantum Farma/Loja no Alt+Tab e na barra de tarefas.
+# do Loja Quantum no Alt+Tab e na barra de tarefas.
 # ═══════════════════════════════════════════════════════════════════════════════
 def _quantum_runtime_path(*parts):
     try:
@@ -2852,7 +2852,7 @@ class _SistemaAuditoriaGlobal:
         try:
             with open(self._arquivo_auditoria, 'w', encoding='utf-8') as f:
                 f.write("=" * 100 + "\n")
-                f.write("  REGISTRO DE AUDITORIA - FARMA QUANTUM SUPREME ULTRA PROFESSIONAL\n")
+                f.write("  REGISTRO DE AUDITORIA - LOJA QUANTUM SUPREME ULTRA PROFESSIONAL\n")
                 f.write("=" * 100 + "\n")
                 f.write(f"  Arquivo criado em: {agora.strftime('%d/%m/%Y às %H:%M:%S')}\n")
                 f.write(f"  Diretório do sistema: {self._dir_sistema}\n")
@@ -3145,10 +3145,10 @@ QUANTUM_ROTINAS_ORIGINAIS_REATIVADAS = True
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 💊 PATCH FARMÁCIA - CADASTRO DE TRATAMENTO CONTÍNUO E LEMBRANÇA DE COMPRA
+# 🏪 PATCH LOJA - CADASTRO DE TRATAMENTO CONTÍNUO E LEMBRANÇA DE COMPRA
 # ═══════════════════════════════════════════════════════════════════════════════
 # Recurso adicionado:
-# - Cadastro de tratamento por cliente/paciente.
+# - Cadastro de tratamento por cliente.
 # - Controle opcional de tratamento contínuo.
 # - Cálculo automático de previsão de nova compra conforme consumo diário.
 # - Alertas no sistema quando o medicamento estiver próximo de acabar.
@@ -3301,7 +3301,7 @@ def _farmacia_tc_mensagem_whatsapp(trat):
     cliente = trat.get('cliente_nome') or 'cliente'
     medicamento = trat.get('medicamento_nome') or trat.get('medicamento') or 'seu medicamento'
     fim = trat.get('data_fim_prevista') or '-'
-    empresa = 'nossa farmácia'
+    empresa = 'nossa loja'
     try:
         empresa = (getattr(globals().get('_FARMACIA_APP_REF', None), 'empresa_data', {}) or {}).get('nome') or empresa
     except Exception:
@@ -3315,7 +3315,7 @@ def _farmacia_tc_mensagem_whatsapp(trat):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PATCH FARMÁCIA: JANELAS MAXIMIZADAS PARA TRATAMENTO E PRONTUÁRIO
+# PATCH LOJA: JANELAS MAXIMIZADAS PARA TRATAMENTO E FICHA
 # ═══════════════════════════════════════════════════════════════════════════════
 def _farmacia_maximizar_janela_segura(win):
     """Maximiza uma janela Toplevel sem ativar fullscreen obrigatório."""
@@ -3364,7 +3364,7 @@ class FarmaciaTratamentoContinuoWindow:
         self.dados = _farmacia_tc_load()
         self.selected_id = None
         self.win = tk.Toplevel(self.parent)
-        self.win.title('💊 Cadastro de Tratamento Contínuo - Lembrete de Compra')
+        self.win.title('🏪 Cadastro de Tratamento Contínuo - Lembrete de Compra')
         try:
             responsive_geometry(self.win, 1180, 760)
         except Exception:
@@ -3378,8 +3378,8 @@ class FarmaciaTratamentoContinuoWindow:
     def _build(self):
         main = ttk.Frame(self.win, padding=14)
         main.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(main, text='💊 TRATAMENTO CONTÍNUO E LEMBRANÇA DE COMPRA', font=('Segoe UI', 16, 'bold')).pack(anchor='w')
-        ttk.Label(main, text='Cadastre medicamentos de uso contínuo por cliente/paciente. O sistema calcula quando lembrar a próxima compra.', foreground='#475569').pack(anchor='w', pady=(2, 10))
+        ttk.Label(main, text='🏪 TRATAMENTO CONTÍNUO E LEMBRANÇA DE COMPRA', font=('Segoe UI', 16, 'bold')).pack(anchor='w')
+        ttk.Label(main, text='Cadastre medicamentos de uso contínuo por cliente. O sistema calcula quando lembrar a próxima compra.', foreground='#475569').pack(anchor='w', pady=(2, 10))
 
         body = ttk.Frame(main)
         body.pack(fill=tk.BOTH, expand=True)
@@ -3408,7 +3408,7 @@ class FarmaciaTratamentoContinuoWindow:
         ttk.Checkbutton(form, text='Tratamento contínuo / uso permanente', variable=self.var_continuo).grid(row=r, column=1, sticky='w', pady=3)
         r += 1
 
-        ttk.Label(form, text='Cliente/Paciente:').grid(row=r, column=0, sticky='w', pady=(8, 2))
+        ttk.Label(form, text='Cliente:').grid(row=r, column=0, sticky='w', pady=(8, 2))
         clientes = self._clientes_opcoes()
         self.cmb_cliente = ttk.Combobox(form, textvariable=self.var_cliente, values=clientes, width=36)
         self.cmb_cliente.grid(row=r, column=1, sticky='ew', pady=(8, 2))
@@ -3418,13 +3418,13 @@ class FarmaciaTratamentoContinuoWindow:
         ttk.Entry(form, textvariable=self.var_telefone, width=38).grid(row=r, column=1, sticky='ew', pady=2)
         r += 1
 
-        ttk.Label(form, text='Medicamento/Produto:').grid(row=r, column=0, sticky='w', pady=(8, 2))
+        ttk.Label(form, text='Produto:').grid(row=r, column=0, sticky='w', pady=(8, 2))
         produtos = self._produtos_opcoes()
         self.cmb_produto = ttk.Combobox(form, textvariable=self.var_medicamento, values=produtos, width=36)
         self.cmb_produto.grid(row=r, column=1, sticky='ew', pady=(8, 2))
         self.cmb_produto.bind('<<ComboboxSelected>>', self._on_produto)
         r += 1
-        ttk.Label(form, text='Dose/Posologia:').grid(row=r, column=0, sticky='w', pady=2)
+        ttk.Label(form, text='Descrição/Observação:').grid(row=r, column=0, sticky='w', pady=2)
         ttk.Entry(form, textvariable=self.var_dose, width=38).grid(row=r, column=1, sticky='ew', pady=2)
         r += 1
 
@@ -3478,7 +3478,7 @@ class FarmaciaTratamentoContinuoWindow:
 
         cols = ('id', 'cliente', 'medicamento', 'fim', 'lembrete', 'status')
         self.tree = ttk.Treeview(lista, columns=cols, show='headings', height=18)
-        headers = [('id','ID',70),('cliente','Cliente',190),('medicamento','Medicamento',220),('fim','Acaba em',100),('lembrete','Lembrar em',100),('status','Status',180)]
+        headers = [('id','ID',70),('cliente','Cliente',190),('medicamento','Produto',220),('fim','Acaba em',100),('lembrete','Lembrar em',100),('status','Status',180)]
         for c,t,w in headers:
             self.tree.heading(c, text=t)
             self.tree.column(c, width=w, anchor=tk.W if c in ('cliente','medicamento','status') else tk.CENTER)
@@ -3583,9 +3583,9 @@ class FarmaciaTratamentoContinuoWindow:
 
     def _validar(self, trat):
         if not trat.get('cliente_nome'):
-            messagebox.showerror('Tratamento contínuo', 'Informe o cliente/paciente.', parent=self.win); return False
+            messagebox.showerror('Tratamento contínuo', 'Informe o cliente.', parent=self.win); return False
         if not trat.get('medicamento_nome'):
-            messagebox.showerror('Tratamento contínuo', 'Informe o medicamento/produto.', parent=self.win); return False
+            messagebox.showerror('Tratamento contínuo', 'Informe o produto.', parent=self.win); return False
         if not _farmacia_tc_parse_date(trat.get('data_inicio')):
             messagebox.showerror('Tratamento contínuo', 'Informe uma data de compra/início válida.', parent=self.win); return False
         if _farmacia_tc_float(trat.get('quantidade_por_dia'), 0) <= 0 and _farmacia_tc_float(trat.get('intervalo_compra_dias'), 0) <= 0:
@@ -3754,9 +3754,9 @@ def _farmacia_tc_patch_app():
                     return resultado
                 menubar = self.root.nametowidget(self.root.cget('menu'))
                 tratamentos_menu = tk.Menu(menubar, tearoff=0)
-                tratamentos_menu.add_command(label='💊 Cadastro de Tratamento Contínuo', command=self.open_tratamentos_continuos, accelerator='Ctrl+Alt+M')
+                tratamentos_menu.add_command(label='🏪 Cadastro de Tratamento Contínuo', command=self.open_tratamentos_continuos, accelerator='Ctrl+Alt+M')
                 tratamentos_menu.add_command(label='🔔 Ver lembretes de compra agora', command=lambda: _farmacia_tc_mostrar_alertas_inicio(self, forcar=True))
-                menubar.add_cascade(label='💊 Tratamentos', menu=tratamentos_menu)
+                menubar.add_cascade(label='🏪 Tratamentos', menu=tratamentos_menu)
                 self.root.bind('<Control-Alt-m>', lambda event: self.open_tratamentos_continuos())
                 self.root.bind('<Control-Alt-M>', lambda event: self.open_tratamentos_continuos())
             except Exception as e:
@@ -3783,12 +3783,12 @@ _farmacia_tc_patch_app()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🏥 PATCH FARMÁCIA - PRONTUÁRIO ROBUSTO DE ATENDIMENTO AMBULATORIAL
+# 🏪 PATCH LOJA - FICHA ROBUSTA DE ATENDIMENTO AO CLIENTE
 # ═══════════════════════════════════════════════════════════════════════════════
 # Recurso adicionado:
-# - Cadastro completo de atendimento ambulatorial na farmácia.
-# - Prontuário com identificação, triagem, sinais vitais, anamnese, avaliação,
-#   conduta farmacêutica, medicamentos orientados, encaminhamento e retorno.
+# - Cadastro completo de atendimento ao cliente na loja.
+# - Ficha com identificação, triagem, sinais vitais, anamnese, avaliação,
+#   conduta de atendimento, medicamentos orientados, encaminhamento e retorno.
 # - Classificação de risco e alertas de encaminhamento.
 # - Histórico pesquisável por paciente, telefone, atendimento, risco e data.
 # - Exportação/impressão em TXT para anexar, imprimir ou salvar em PDF.
@@ -3857,7 +3857,7 @@ def _farmacia_amb_resumo(pront):
     linhas = []
     add = linhas.append
     add('=' * 86)
-    add('PRONTUÁRIO DE ATENDIMENTO AMBULATORIAL - FARMÁCIA')
+    add('FICHA DE ATENDIMENTO AO CLIENTE - LOJA')
     add('=' * 86)
     add(f"ID: {pront.get('id','')}")
     add(f"Data/Hora: {pront.get('data_hora','')}")
@@ -3874,18 +3874,18 @@ def _farmacia_amb_resumo(pront):
     add(f"PA: {pront.get('pa','')} | FC: {pront.get('fc','')} | Temperatura: {pront.get('temperatura','')} | SpO2: {pront.get('spo2','')}")
     add(f"Glicemia: {pront.get('glicemia','')} | Peso: {pront.get('peso','')} | Altura: {pront.get('altura','')} | IMC: {pront.get('imc','')}")
     add('-' * 86)
-    add('DADOS CLÍNICOS E FARMACÊUTICOS')
+    add('DADOS DE ATENDIMENTO')
     add(f"Queixa principal: {pront.get('queixa','')}")
     add(f"História/Anamnese: {pront.get('anamnese','')}")
     add(f"Alergias: {pront.get('alergias','')}")
     add(f"Doenças/Condições conhecidas: {pront.get('condicoes','')}")
-    add(f"Medicamentos em uso: {pront.get('medicamentos_uso','')}")
+    add(f"Produtos em uso: {pront.get('medicamentos_uso','')}")
     add(f"Suspeita de reação adversa/interação: {pront.get('reacao_interacao','')}")
     add('-' * 86)
     add('AVALIAÇÃO, CONDUTA E ORIENTAÇÃO')
-    add(f"Avaliação farmacêutica: {pront.get('avaliacao','')}")
+    add(f"Avaliação do atendimento: {pront.get('avaliacao','')}")
     add(f"Conduta realizada: {pront.get('conduta','')}")
-    add(f"Medicamentos/produtos orientados: {pront.get('medicamentos_orientados','')}")
+    add(f"Produtos orientados: {pront.get('medicamentos_orientados','')}")
     add(f"Orientações ao paciente: {pront.get('orientacoes','')}")
     add(f"Encaminhamento: {pront.get('encaminhamento','')}")
     add(f"Retorno/monitoramento: {pront.get('retorno','')}")
@@ -3897,13 +3897,13 @@ def _farmacia_amb_resumo(pront):
 
 
 class FarmaciaAmbulatorioProntuarioWindow:
-    """Prontuário completo de atendimento ambulatorial para farmácia."""
+    """Ficha completa de atendimento ao cliente para loja."""
 
     TIPOS = [
-        'Atenção farmacêutica', 'Aferição de pressão arterial', 'Glicemia capilar',
+        'Atendimento ao cliente', 'Aferição de pressão arterial', 'Glicemia capilar',
         'Aplicação de injetável', 'Nebulização/Inalação', 'Curativo simples',
         'Orientação de medicamento', 'Revisão de farmacoterapia', 'Triagem rápida',
-        'Outro atendimento ambulatorial'
+        'Outro atendimento'
     ]
     RISCOS = ['Verde - rotina', 'Amarelo - atenção', 'Laranja - urgente', 'Vermelho - emergência/encaminhar']
 
@@ -3913,7 +3913,7 @@ class FarmaciaAmbulatorioProntuarioWindow:
         self.dados = _farmacia_amb_load()
         self.selected_id = None
         self.win = tk.Toplevel(self.parent)
-        self.win.title('🏥 Prontuário Ambulatorial da Farmácia')
+        self.win.title('🏪 Ficha de Atendimento da Loja')
         try:
             responsive_geometry(self.win, 1360, 820)
         except Exception:
@@ -3931,13 +3931,13 @@ class FarmaciaAmbulatorioProntuarioWindow:
     def _build(self):
         main = ttk.Frame(self.win, padding=12)
         main.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(main, text='🏥 PRONTUÁRIO ROBUSTO DE ATENDIMENTO AMBULATORIAL', font=('Segoe UI', 16, 'bold')).pack(anchor='w')
-        ttk.Label(main, text='Registro completo para serviços clínicos farmacêuticos, triagem, sinais vitais, orientação e encaminhamento.', foreground='#475569').pack(anchor='w', pady=(2, 8))
+        ttk.Label(main, text='🏪 FICHA ROBUSTA DE ATENDIMENTO AO CLIENTE', font=('Segoe UI', 16, 'bold')).pack(anchor='w')
+        ttk.Label(main, text='Registro completo para serviços de atendimento ao cliente, triagem, sinais vitais, orientação e encaminhamento.', foreground='#475569').pack(anchor='w', pady=(2, 8))
 
         content = ttk.Frame(main)
         content.pack(fill=tk.BOTH, expand=True)
 
-        left = ttk.LabelFrame(content, text='Atendimento / Prontuário')
+        left = ttk.LabelFrame(content, text='Atendimento / Ficha')
         left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
         right = ttk.LabelFrame(content, text='Histórico de atendimentos')
         right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
@@ -3980,7 +3980,7 @@ class FarmaciaAmbulatorioProntuarioWindow:
         self.var_peso = self._mk_var()
         self.var_altura = self._mk_var()
         self.var_imc = self._mk_var()
-        self.var_consentimento = self._mk_var('Paciente/Responsável orientado e ciente do atendimento farmacêutico.')
+        self.var_consentimento = self._mk_var('Cliente/Responsável orientado e ciente do atendimento ao cliente.')
         self.var_filtro = self._mk_var()
         self.var_info = self._mk_var('')
 
@@ -4012,7 +4012,7 @@ class FarmaciaAmbulatorioProntuarioWindow:
         self._entry(lf0, 'Data/Hora:', self.var_data, 0, 1, 22)
         self._entry(lf0, 'Profissional:', self.var_profissional, 0, 2, 24)
         self._entry(lf0, 'Registro/CRF:', self.var_registro, 0, 3, 18)
-        self._entry(lf0, 'Paciente/Cliente:', self.var_paciente, 2, 0, 34)
+        self._entry(lf0, 'Cliente:', self.var_paciente, 2, 0, 34)
         self._entry(lf0, 'CPF/Documento:', self.var_documento, 2, 1, 20)
         self._entry(lf0, 'Nascimento/Idade:', self.var_nascimento, 2, 2, 20)
         self._entry(lf0, 'Telefone/WhatsApp:', self.var_telefone, 2, 3, 20)
@@ -4046,11 +4046,11 @@ class FarmaciaAmbulatorioProntuarioWindow:
         self.txt_anamnese = self._text(lf2, 'História/Anamnese resumida:', 2, 4)
         self.txt_alergias = self._text(lf2, 'Alergias conhecidas:', 4, 2)
         self.txt_condicoes = self._text(lf2, 'Doenças/condições conhecidas:', 6, 2)
-        self.txt_medicamentos_uso = self._text(lf2, 'Medicamentos em uso contínuo/atual:', 8, 3)
+        self.txt_medicamentos_uso = self._text(lf2, 'Produtos em uso contínuo/atual:', 8, 3)
         self.txt_reacao = self._text(lf2, 'Reação adversa suspeita / interação / contraindicação observada:', 10, 3)
-        self.txt_avaliacao = self._text(lf2, 'Avaliação farmacêutica:', 12, 4)
-        self.txt_conduta = self._text(lf2, 'Conduta realizada no ambulatório:', 14, 4)
-        self.txt_medicamentos_orientados = self._text(lf2, 'Medicamentos/produtos orientados ou administrados:', 16, 3)
+        self.txt_avaliacao = self._text(lf2, 'Avaliação do atendimento:', 12, 4)
+        self.txt_conduta = self._text(lf2, 'Conduta realizada no atendimento:', 14, 4)
+        self.txt_medicamentos_orientados = self._text(lf2, 'Produtos orientados ou administrados:', 16, 3)
         self.txt_orientacoes = self._text(lf2, 'Orientações dadas ao paciente:', 18, 4)
         self.txt_encaminhamento = self._text(lf2, 'Encaminhamento / sinais de alerta / procurar serviço de saúde:', 20, 3)
         self.txt_retorno = self._text(lf2, 'Retorno / acompanhamento / monitoramento:', 22, 2)
@@ -4060,7 +4060,7 @@ class FarmaciaAmbulatorioProntuarioWindow:
         bar = ttk.Frame(f)
         bar.grid(row=3, column=0, columnspan=4, sticky='ew', pady=8)
         ttk.Button(bar, text='Novo', command=self._novo).pack(side=tk.LEFT, padx=4)
-        ttk.Button(bar, text='Salvar prontuário', command=self._salvar).pack(side=tk.LEFT, padx=4)
+        ttk.Button(bar, text='Salvar ficha', command=self._salvar).pack(side=tk.LEFT, padx=4)
         ttk.Button(bar, text='Excluir', command=self._excluir).pack(side=tk.LEFT, padx=4)
         ttk.Button(bar, text='Resumo / imprimir TXT', command=self._exportar_txt).pack(side=tk.LEFT, padx=4)
         ttk.Button(bar, text='WhatsApp orientação', command=self._whatsapp).pack(side=tk.LEFT, padx=4)
@@ -4168,18 +4168,18 @@ class FarmaciaAmbulatorioProntuarioWindow:
     def _salvar(self):
         pront = self._montar()
         if not pront.get('paciente_nome'):
-            messagebox.showerror('Prontuário ambulatorial', 'Informe o nome do paciente.', parent=self.win); return
+            messagebox.showerror('Ficha de atendimento', 'Informe o nome do cliente.', parent=self.win); return
         if not pront.get('queixa') and not pront.get('tipo_atendimento'):
-            messagebox.showerror('Prontuário ambulatorial', 'Informe pelo menos o tipo de atendimento ou queixa principal.', parent=self.win); return
+            messagebox.showerror('Ficha de atendimento', 'Informe pelo menos o tipo de atendimento ou queixa principal.', parent=self.win); return
         if pront.get('risco','').startswith('Vermelho'):
             messagebox.showwarning('Classificação de risco', 'Risco VERMELHO: orientar encaminhamento imediato para serviço de urgência/emergência.', parent=self.win)
         self.dados[pront['id']] = pront
         if _farmacia_amb_save(self.dados):
             self.selected_id = pront['id']
             self._carregar_lista()
-            messagebox.showinfo('Prontuário ambulatorial', 'Prontuário salvo com sucesso.', parent=self.win)
+            messagebox.showinfo('Ficha de atendimento', 'Ficha salvo com sucesso.', parent=self.win)
         else:
-            messagebox.showerror('Prontuário ambulatorial', 'Não foi possível salvar o prontuário.', parent=self.win)
+            messagebox.showerror('Ficha de atendimento', 'Não foi possível salvar a ficha.', parent=self.win)
 
     def _carregar_lista(self):
         try:
@@ -4194,7 +4194,7 @@ class FarmaciaAmbulatorioProntuarioWindow:
                 continue
             total += 1
             self.tree.insert('', tk.END, iid=pid, values=(pid, p.get('data_hora',''), p.get('paciente_nome',''), p.get('tipo_atendimento',''), p.get('risco',''), p.get('profissional','')))
-        self.var_info.set(f'{total} prontuário(s) listado(s).')
+        self.var_info.set(f'{total} ficha(s) listado(s).')
 
     def _selecionar(self, event=None):
         sel = self.tree.selection()
@@ -4233,8 +4233,8 @@ class FarmaciaAmbulatorioProntuarioWindow:
 
     def _excluir(self):
         if not self.selected_id:
-            messagebox.showwarning('Prontuário ambulatorial', 'Selecione um prontuário para excluir.', parent=self.win); return
-        if messagebox.askyesno('Confirmar exclusão', 'Deseja excluir este prontuário?', parent=self.win):
+            messagebox.showwarning('Ficha de atendimento', 'Selecione uma ficha para excluir.', parent=self.win); return
+        if messagebox.askyesno('Confirmar exclusão', 'Deseja excluir este ficha?', parent=self.win):
             self.dados.pop(self.selected_id, None)
             _farmacia_amb_save(self.dados)
             self._novo(); self._carregar_lista()
@@ -4247,24 +4247,24 @@ class FarmaciaAmbulatorioProntuarioWindow:
         try:
             from tkinter import filedialog
             nome = f"prontuario_ambulatorio_{pront.get('id','sem_id')}.txt"
-            path = filedialog.asksaveasfilename(parent=self.win, title='Salvar prontuário', defaultextension='.txt', initialfile=nome, filetypes=[('Texto', '*.txt'), ('Todos', '*.*')])
+            path = filedialog.asksaveasfilename(parent=self.win, title='Salvar ficha', defaultextension='.txt', initialfile=nome, filetypes=[('Texto', '*.txt'), ('Todos', '*.*')])
             if path:
                 with open(path, 'w', encoding='utf-8') as f:
                     f.write(resumo)
-                messagebox.showinfo('Prontuário', f'Arquivo salvo em:\n{path}', parent=self.win)
+                messagebox.showinfo('Ficha', f'Arquivo salvo em:\n{path}', parent=self.win)
             else:
-                messagebox.showinfo('Resumo do prontuário', resumo[:4000], parent=self.win)
+                messagebox.showinfo('Resumo da ficha', resumo[:4000], parent=self.win)
         except Exception as e:
-            messagebox.showerror('Prontuário', f'Erro ao exportar:\n{e}', parent=self.win)
+            messagebox.showerror('Ficha', f'Erro ao exportar:\n{e}', parent=self.win)
 
     def _whatsapp(self):
         pront = self._montar()
         telefone = _farmacia_amb_limpar_numero(pront.get('telefone'))
         if not telefone:
-            messagebox.showwarning('WhatsApp', 'Informe o telefone/WhatsApp do paciente.', parent=self.win); return
+            messagebox.showwarning('WhatsApp', 'Informe o telefone/WhatsApp do cliente.', parent=self.win); return
         if not telefone.startswith('55') and len(telefone) >= 10:
             telefone = '55' + telefone
-        msg = (f"Olá {pront.get('paciente_nome','')}, segue orientação do atendimento na farmácia:\n\n"
+        msg = (f"Olá {pront.get('paciente_nome','')}, segue orientação do atendimento na loja:\n\n"
                f"Atendimento: {pront.get('tipo_atendimento','')}\n"
                f"Orientações: {pront.get('orientacoes','')}\n"
                f"Retorno/encaminhamento: {pront.get('retorno','') or pront.get('encaminhamento','')}\n\n"
@@ -4295,29 +4295,29 @@ def _farmacia_amb_patch_app():
                     return resultado
                 menubar = self.root.nametowidget(self.root.cget('menu'))
                 amb_menu = tk.Menu(menubar, tearoff=0)
-                amb_menu.add_command(label='🏥 Prontuário Ambulatorial Completo', command=self.open_prontuario_ambulatorio, accelerator='Ctrl+Alt+A')
-                menubar.add_cascade(label='🏥 Ambulatório', menu=amb_menu)
+                amb_menu.add_command(label='📋 Ficha de Atendimento ao Cliente', command=self.open_prontuario_ambulatorio, accelerator='Ctrl+Alt+A')
+                menubar.add_cascade(label='📋 Atendimento', menu=amb_menu)
                 self.root.bind('<Control-Alt-a>', lambda event: self.open_prontuario_ambulatorio())
                 self.root.bind('<Control-Alt-A>', lambda event: self.open_prontuario_ambulatorio())
             except Exception as e:
-                print(f'[PRONTUÁRIO AMBULATÓRIO] Aviso ao adicionar menu: {e}')
+                print(f'[FICHA DE ATENDIMENTO] Aviso ao adicionar menu: {e}')
             return resultado
         PDVSuperApp._create_menu = _patched_create_menu
         PDVSuperApp._farmacia_amb_patch_aplicado = True
-        print('[PRONTUÁRIO AMBULATÓRIO] Patch aplicado com sucesso.')
+        print('[FICHA DE ATENDIMENTO] Patch aplicado com sucesso.')
     except Exception as e:
-        print(f'[PRONTUÁRIO AMBULATÓRIO] Falha ao aplicar patch: {e}')
+        print(f'[FICHA DE ATENDIMENTO] Falha ao aplicar patch: {e}')
 
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🏪 PATCH FARMÁCIA PRO - RECURSOS COMERCIAIS MODERNOS PARA DROGARIAS
+# 🏪 PATCH LOJA PRO - RECURSOS COMERCIAIS MODERNOS PARA LOJAS
 # ═══════════════════════════════════════════════════════════════════════════════
 # Recursos adicionados sem alterar a lógica principal do PDV:
-# - Receituário / controlados / antibióticos / retenção de receita / SNGPC.
-# - PBM, convênios, cartões de desconto e autorizações comerciais.
+# - Encomendas / pedidos / reservas / retenção de pedido / controle interno.
+# - convênios, cartões de desconto e autorizações comerciais.
 # - Campanhas, ofertas, combos, encartes e validade promocional.
-# - Serviços farmacêuticos: vacinação, aplicação, testes rápidos e agenda.
+# - Serviços da loja: vacinação, aplicação, testes rápidos e agenda.
 # - Pós-venda/CRM: retorno ativo, WhatsApp, tele-entrega e fidelização.
 # - Dashboard de alertas: receitas vencendo, campanhas vencendo e serviços do dia.
 # - Armazenamento local robusto em JSON para não quebrar o banco atual.
@@ -4503,7 +4503,7 @@ class FarmaciaProComercialWindow:
         self.vars = {}
         self.trees = {}
         self.win = tk.Toplevel(self.master) if self.master is not None else tk.Tk()
-        self.win.title('🏪 Farmácia Pro - Recursos Comerciais Avançados')
+        self.win.title('🏪 Loja Pro - Recursos Comerciais Avançados')
         try:
             self.win.state('zoomed')
         except Exception:
@@ -4526,8 +4526,8 @@ class FarmaciaProComercialWindow:
         tk.Label(top, text=subtitulo, font=('Segoe UI', 10), fg='#334155', bg='#f8fafc').pack(anchor='w')
 
     def _build(self):
-        self._title(self.win, '🏪 FARMÁCIA PRO - GESTÃO COMERCIAL AVANÇADA',
-                    'Receituário, controlados, PBM, convênios, campanhas, serviços farmacêuticos, CRM e alertas comerciais.')
+        self._title(self.win, '🏪 LOJA PRO - GESTÃO COMERCIAL AVANÇADA',
+                    'Encomendas, pedidos, convênios, campanhas, serviços, CRM e alertas comerciais.')
         bar = tk.Frame(self.win, bg='#ecfdf5')
         bar.pack(fill='x', padx=12, pady=(0, 8))
         ttk.Button(bar, text='🔔 Dashboard / Alertas', command=self._dashboard).pack(side='left', padx=4, pady=6)
@@ -4596,23 +4596,23 @@ class FarmaciaProComercialWindow:
         return tree
 
     def _tab_receitas(self):
-        tab = tk.Frame(self.nb, bg='#f8fafc'); self.nb.add(tab, text='📋 Receituário / Controlados')
+        tab = tk.Frame(self.nb, bg='#f8fafc'); self.nb.add(tab, text='📋 Encomendas / Pedidos')
         left, right = self._frame_split(tab)
         for c in range(4): left.columnconfigure(c, weight=1)
-        self._entry(left, 'rx_paciente', 'Paciente:', 0, 0)
+        self._entry(left, 'rx_paciente', 'Cliente:', 0, 0)
         self._entry(left, 'rx_doc', 'CPF/Documento:', 0, 1)
         self._entry(left, 'rx_tel', 'WhatsApp:', 1, 0)
-        self._entry(left, 'rx_med', 'Medicamento:', 1, 1)
-        self._entry(left, 'rx_tipo', 'Tipo:', 2, 0, combo=['Comum', 'Antibiótico', 'Controlado', 'Psicotrópico', 'Retinoide', 'Especial'])
+        self._entry(left, 'rx_med', 'Produto:', 1, 1)
+        self._entry(left, 'rx_tipo', 'Tipo:', 2, 0, combo=['Comum', 'Oferta', 'Especial', 'Sazonal', 'Encomenda', 'Reserva'])
         self._entry(left, 'rx_receita', 'Nº Receita:', 2, 1)
-        self._entry(left, 'rx_prescritor', 'Prescritor:', 3, 0)
+        self._entry(left, 'rx_prescritor', 'Responsável:', 3, 0)
         self._entry(left, 'rx_crm', 'CRM/UF:', 3, 1)
         self._entry(left, 'rx_emissao', 'Emissão:', 4, 0)
         self._entry(left, 'rx_validade', 'Validade:', 4, 1)
         self._entry(left, 'rx_lote', 'Lote dispensado:', 5, 0)
         self._entry(left, 'rx_qtd', 'Quantidade:', 5, 1)
         self._entry(left, 'rx_status', 'Status:', 6, 0, combo=['Ativa', 'Dispensada', 'Parcial', 'Finalizada', 'Cancelada'])
-        self._entry(left, 'rx_sngpc', 'Controlar/SNGPC:', 6, 1, check=True)
+        self._entry(left, 'rx_sngpc', 'Controle de estoque:', 6, 1, check=True)
         self._text(left, 'rx_obs', 'Observação/Orientação:', 7, 0, height=5)
         btn = tk.Frame(left, bg='#ffffff'); btn.grid(row=8, column=0, columnspan=4, sticky='ew', padx=6, pady=8)
         ttk.Button(btn, text='Novo', command=lambda: self._clear('receitas')).pack(side='left', padx=3)
@@ -4622,23 +4622,23 @@ class FarmaciaProComercialWindow:
         self._make_tree(right, 'receitas', ['id','paciente','medicamento','tipo','validade_receita','status'], {'id':160,'paciente':180,'medicamento':220})
 
     def _tab_pbm(self):
-        tab = tk.Frame(self.nb, bg='#f8fafc'); self.nb.add(tab, text='💳 PBM / Convênios')
+        tab = tk.Frame(self.nb, bg='#f8fafc'); self.nb.add(tab, text='💳 Convênios / Crediário')
         left, right = self._frame_split(tab)
         for c in range(4): left.columnconfigure(c, weight=1)
         self._entry(left, 'pbm_cliente', 'Cliente:', 0, 0)
         self._entry(left, 'pbm_doc', 'CPF/Documento:', 0, 1)
         self._entry(left, 'pbm_tel', 'WhatsApp:', 1, 0)
-        self._entry(left, 'pbm_programa', 'Programa/Convênio:', 1, 1, combo=['PBM', 'Farmácia Popular', 'Convênio Empresa', 'Cartão Desconto', 'Fidelidade', 'Outro'])
+        self._entry(left, 'pbm_programa', 'Programa/Convênio:', 1, 1, combo=['Convênio', 'Loja Popular', 'Convênio Empresa', 'Cartão Desconto', 'Fidelidade', 'Outro'])
         self._entry(left, 'pbm_operadora', 'Operadora/Empresa:', 2, 0)
         self._entry(left, 'pbm_autorizacao', 'Autorização:', 2, 1)
-        self._entry(left, 'pbm_medicamento', 'Medicamento:', 3, 0)
+        self._entry(left, 'pbm_medicamento', 'Produto:', 3, 0)
         self._entry(left, 'pbm_desconto', 'Desconto %:', 3, 1)
         self._entry(left, 'pbm_validade', 'Validade autorização:', 4, 0)
         self._entry(left, 'pbm_status', 'Status:', 4, 1, combo=['Ativo', 'Usado', 'Expirado', 'Cancelado'])
         self._text(left, 'pbm_obs', 'Regras/observações:', 5, 0, height=6)
         btn = tk.Frame(left, bg='#ffffff'); btn.grid(row=6, column=0, columnspan=4, sticky='ew', padx=6, pady=8)
         ttk.Button(btn, text='Novo', command=lambda: self._clear('pbm')).pack(side='left', padx=3)
-        ttk.Button(btn, text='Salvar PBM/Convênio', command=self._save_pbm).pack(side='left', padx=3)
+        ttk.Button(btn, text='Salvar Convênio', command=self._save_pbm).pack(side='left', padx=3)
         ttk.Button(btn, text='Excluir', command=lambda: self._delete('pbm')).pack(side='left', padx=3)
         ttk.Button(btn, text='WhatsApp benefício', command=self._whatsapp_pbm).pack(side='left', padx=3)
         self._make_tree(right, 'pbm', ['id','cliente','programa','medicamento','desconto','status'], {'id':160,'cliente':190,'medicamento':220})
@@ -4663,11 +4663,11 @@ class FarmaciaProComercialWindow:
         self._make_tree(right, 'campanhas', ['id','titulo','tipo','produto','data_fim','status'], {'id':160,'titulo':220,'produto':220})
 
     def _tab_servicos(self):
-        tab = tk.Frame(self.nb, bg='#f8fafc'); self.nb.add(tab, text='🧪 Serviços Farmacêuticos')
+        tab = tk.Frame(self.nb, bg='#f8fafc'); self.nb.add(tab, text='🧪 Serviços da Loja')
         left, right = self._frame_split(tab)
-        self._entry(left, 'srv_paciente', 'Paciente:', 0, 0)
+        self._entry(left, 'srv_paciente', 'Cliente:', 0, 0)
         self._entry(left, 'srv_tel', 'WhatsApp:', 0, 1)
-        self._entry(left, 'srv_tipo', 'Serviço:', 1, 0, combo=['Vacinação', 'Aplicação de injetável', 'Teste rápido', 'Aferição de pressão', 'Glicemia', 'Consulta farmacêutica', 'Perfuração lóbulo', 'Outro'])
+        self._entry(left, 'srv_tipo', 'Serviço:', 1, 0, combo=['Vacinação', 'Aplicação de injetável', 'Teste rápido', 'Aferição de pressão', 'Glicemia', 'Atendimento ao cliente', 'Perfuração lóbulo', 'Outro'])
         self._entry(left, 'srv_prof', 'Profissional/CRF:', 1, 1)
         self._entry(left, 'srv_data', 'Data:', 2, 0)
         self._entry(left, 'srv_hora', 'Hora:', 2, 1)
@@ -4832,11 +4832,11 @@ class FarmaciaProComercialWindow:
         self.dados = _farma_pro_load()
         alertas = _farma_pro_alertas(self.dados)
         resumo = [
-            'DASHBOARD FARMÁCIA PRO', '='*60,
-            f"Receituários/controlados: {len(self.dados.get('receitas',{}))}",
-            f"PBM/convênios: {len(self.dados.get('pbm',{}))}",
+            'DASHBOARD LOJA PRO', '='*60,
+            f"Encomendas/pedidos: {len(self.dados.get('receitas',{}))}",
+            f"convênios: {len(self.dados.get('pbm',{}))}",
             f"Campanhas comerciais: {len(self.dados.get('campanhas',{}))}",
-            f"Serviços farmacêuticos: {len(self.dados.get('servicos',{}))}",
+            f"Serviços da loja: {len(self.dados.get('servicos',{}))}",
             f"Ações de pós-venda/CRM: {len(self.dados.get('posvenda',{}))}",
             '', 'ALERTAS:', '-'*60
         ]
@@ -4844,7 +4844,7 @@ class FarmaciaProComercialWindow:
             resumo += [f"[{nivel}] {msg}" for nivel, msg in alertas[:40]]
         else:
             resumo.append('Nenhum alerta pendente no momento.')
-        messagebox.showinfo('Dashboard / Alertas Farmácia Pro', '\n'.join(resumo), parent=self.win)
+        messagebox.showinfo('Dashboard / Alertas Loja Pro', '\n'.join(resumo), parent=self.win)
 
     def _exportar_relatorio(self):
         try:
@@ -4852,8 +4852,8 @@ class FarmaciaProComercialWindow:
             pasta = os.path.dirname(FARMACIA_PRO_FILE) or os.getcwd()
             nome = 'relatorio_farmacia_pro_' + datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + '.txt'
             caminho = os.path.join(pasta, nome)
-            linhas = ['RELATÓRIO FARMÁCIA PRO', 'Gerado em: ' + _farma_pro_now(), '='*90, '']
-            for key, titulo in [('receitas','RECEITUÁRIO/CONTROLADOS'),('pbm','PBM/CONVÊNIOS'),('campanhas','CAMPANHAS'),('servicos','SERVIÇOS FARMACÊUTICOS'),('posvenda','PÓS-VENDA/CRM')]:
+            linhas = ['RELATÓRIO LOJA PRO', 'Gerado em: ' + _farma_pro_now(), '='*90, '']
+            for key, titulo in [('receitas','ENCOMENDAS/PEDIDOS'),('pbm','CONVÊNIOS'),('campanhas','CAMPANHAS'),('servicos','SERVIÇOS DA LOJA'),('posvenda','PÓS-VENDA/CRM')]:
                 linhas += [titulo, '-'*90]
                 for rid, item in (self.dados.get(key) or {}).items():
                     linhas.append(rid + ' | ' + ' | '.join(f'{k}: {v}' for k,v in item.items() if k != 'id'))
@@ -4864,7 +4864,7 @@ class FarmaciaProComercialWindow:
             messagebox.showerror('Relatório', f'Erro ao exportar:\n{e}', parent=self.win)
 
     def _whatsapp_receita(self):
-        msg = f"Olá {self._getv('rx_paciente')}, sua orientação sobre {self._getv('rx_med')} foi registrada. Validade da receita: {self._getv('rx_validade')}. Em caso de dúvidas, fale com nossa farmácia."
+        msg = f"Olá {self._getv('rx_paciente')}, sua orientação sobre {self._getv('rx_med')} foi registrada. Validade da receita: {self._getv('rx_validade')}. Em caso de dúvidas, fale com nossa loja."
         _farma_pro_whatsapp(self._getv('rx_tel'), msg)
 
     def _whatsapp_pbm(self):
@@ -4872,7 +4872,7 @@ class FarmaciaProComercialWindow:
         _farma_pro_whatsapp(self._getv('pbm_tel'), msg)
 
     def _whatsapp_servico(self):
-        msg = f"Olá {self._getv('srv_paciente')}, confirmamos seu serviço farmacêutico: {self._getv('srv_tipo')} em {self._getv('srv_data')} às {self._getv('srv_hora')}."
+        msg = f"Olá {self._getv('srv_paciente')}, confirmamos seu serviço da loja: {self._getv('srv_tipo')} em {self._getv('srv_data')} às {self._getv('srv_hora')}."
         _farma_pro_whatsapp(self._getv('srv_tel'), msg)
 
     def _whatsapp_crm(self):
@@ -4901,13 +4901,13 @@ def _farma_pro_mostrar_alertas_inicio(app, forcar=False):
         alertas = _farma_pro_alertas()
         if not alertas:
             if forcar:
-                messagebox.showinfo('Farmácia Pro', 'Nenhum alerta comercial pendente no momento.', parent=getattr(app, 'root', None))
+                messagebox.showinfo('Loja Pro', 'Nenhum alerta comercial pendente no momento.', parent=getattr(app, 'root', None))
             return
         setattr(app, chave, hoje)
         texto = '\n'.join(f"• [{nivel}] {msg}" for nivel, msg in alertas[:25])
-        messagebox.showwarning('🔔 Alertas Farmácia Pro', texto, parent=getattr(app, 'root', None))
+        messagebox.showwarning('🔔 Alertas Loja Pro', texto, parent=getattr(app, 'root', None))
     except Exception as e:
-        print(f'[FARMÁCIA PRO] Erro ao mostrar alertas: {e}')
+        print(f'[LOJA PRO] Erro ao mostrar alertas: {e}')
 
 
 def _farma_pro_patch_app():
@@ -4925,13 +4925,13 @@ def _farma_pro_patch_app():
                     return resultado
                 menubar = self.root.nametowidget(self.root.cget('menu'))
                 pro_menu = tk.Menu(menubar, tearoff=0)
-                pro_menu.add_command(label='🏪 Painel Farmácia Pro', command=self.open_farmacia_pro, accelerator='Ctrl+Alt+F')
+                pro_menu.add_command(label='🏪 Painel Loja Pro', command=self.open_farmacia_pro, accelerator='Ctrl+Alt+F')
                 pro_menu.add_command(label='🔔 Ver alertas comerciais agora', command=lambda: _farma_pro_mostrar_alertas_inicio(self, forcar=True))
-                menubar.add_cascade(label='🏪 Farmácia Pro', menu=pro_menu)
+                menubar.add_cascade(label='🏪 Loja Pro', menu=pro_menu)
                 self.root.bind('<Control-Alt-f>', lambda event: self.open_farmacia_pro())
                 self.root.bind('<Control-Alt-F>', lambda event: self.open_farmacia_pro())
             except Exception as e:
-                print(f'[FARMÁCIA PRO] Aviso ao adicionar menu: {e}')
+                print(f'[LOJA PRO] Aviso ao adicionar menu: {e}')
             return resultado
         PDVSuperApp._create_menu = _patched_create_menu
         _orig_init = PDVSuperApp.__init__
@@ -4943,16 +4943,16 @@ def _farma_pro_patch_app():
                 pass
         PDVSuperApp.__init__ = _patched_init
         PDVSuperApp._farma_pro_patch_aplicado = True
-        print('[FARMÁCIA PRO] Patch aplicado com sucesso.')
+        print('[LOJA PRO] Patch aplicado com sucesso.')
     except Exception as e:
-        print(f'[FARMÁCIA PRO] Falha ao aplicar patch: {e}')
+        print(f'[LOJA PRO] Falha ao aplicar patch: {e}')
 
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 📊 PATCH FARMÁCIA - RELATÓRIOS E IMPRESSÕES A4 / BOBINA 80MM / 58MM
+# 📊 PATCH LOJA - RELATÓRIOS E IMPRESSÕES A4 / BOBINA 80MM / 58MM
 # ═══════════════════════════════════════════════════════════════════════════════
-# Módulo comercial de relatórios para farmácia/drogaria. Trabalha com os JSONs
+# Módulo comercial de relatórios para loja/varejo. Trabalha com os JSONs
 # existentes do sistema e também funciona mesmo quando alguns módulos ainda não
 # possuem dados cadastrados. Gera arquivos HTML A4 e TXT térmico para bobinas.
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -5094,10 +5094,10 @@ def _rf_empresa_nome(dados=None):
     try:
         emp = (dados or _rf_load_all()).get('empresa') or {}
         if isinstance(emp, dict):
-            return emp.get('nome_fantasia') or emp.get('razao_social') or emp.get('nome') or 'FARMA QUANTUM'
+            return emp.get('nome_fantasia') or emp.get('razao_social') or emp.get('nome') or 'LOJA QUANTUM'
     except Exception:
         pass
-    return 'FARMA QUANTUM'
+    return 'LOJA QUANTUM'
 
 
 def _rf_alertas_vencimentos_produtos(dados=None, dias=30):
@@ -5166,7 +5166,7 @@ def _rf_tratamentos_alerta(dados=None):
         linhas.append({
             'Cliente': _rf_get(t, 'cliente', 'paciente', 'nome_cliente'),
             'Telefone': _rf_get(t, 'telefone', 'whatsapp'),
-            'Medicamento': _rf_get(t, 'medicamento', 'produto'),
+            'Produto': _rf_get(t, 'medicamento', 'produto'),
             'Acaba em': _rf_fmt_date(acabar),
             'Aviso': _rf_fmt_date(aviso),
             'Status': status,
@@ -5187,7 +5187,7 @@ def _rf_farmacia_pro_relatorio(tipo, dados=None):
                 status = 'VENCIDA'
             elif val and (val - hoje).days <= 7:
                 status = 'VENCENDO'
-            linhas.append({'Paciente':_rf_get(r,'paciente'), 'Medicamento':_rf_get(r,'medicamento'), 'Tipo':_rf_get(r,'tipo'), 'Receita':_rf_get(r,'numero_receita'), 'Prescritor':_rf_get(r,'prescritor'), 'CRM':_rf_get(r,'crm'), 'Validade':_rf_fmt_date(val), 'Status':status})
+            linhas.append({'Cliente':_rf_get(r,'paciente'), 'Medicamento':_rf_get(r,'medicamento'), 'Tipo':_rf_get(r,'tipo'), 'Receita':_rf_get(r,'numero_receita'), 'Responsável':_rf_get(r,'prescritor'), 'CRM':_rf_get(r,'crm'), 'Validade':_rf_fmt_date(val), 'Status':status})
     elif tipo == 'pbm':
         for p in _rf_iter_values(fp.get('pbm')):
             linhas.append({'Cliente':_rf_get(p,'cliente'), 'Programa':_rf_get(p,'programa'), 'Operadora':_rf_get(p,'operadora'), 'Medicamento':_rf_get(p,'medicamento'), 'Autorização':_rf_get(p,'autorizacao'), 'Desconto':_rf_get(p,'desconto'), 'Validade':_rf_fmt_date(_rf_get(p,'validade')), 'Status':_rf_get(p,'status')})
@@ -5196,7 +5196,7 @@ def _rf_farmacia_pro_relatorio(tipo, dados=None):
             linhas.append({'Campanha':_rf_get(c,'titulo'), 'Tipo':_rf_get(c,'tipo'), 'Produto':_rf_get(c,'produto'), 'Condição':_rf_get(c,'preco'), 'Início':_rf_fmt_date(_rf_get(c,'data_inicio')), 'Fim':_rf_fmt_date(_rf_get(c,'data_fim')), 'Canal':_rf_get(c,'canal'), 'Status':_rf_get(c,'status')})
     elif tipo == 'servicos':
         for s in _rf_iter_values(fp.get('servicos')):
-            linhas.append({'Paciente':_rf_get(s,'paciente'), 'Telefone':_rf_get(s,'telefone'), 'Serviço':_rf_get(s,'tipo_servico'), 'Profissional':_rf_get(s,'profissional'), 'Data':_rf_fmt_date(_rf_get(s,'data_servico')), 'Hora':_rf_get(s,'hora'), 'Valor':_rf_money(_rf_get(s,'valor')), 'Status':_rf_get(s,'status')})
+            linhas.append({'Cliente':_rf_get(s,'paciente'), 'Telefone':_rf_get(s,'telefone'), 'Serviço':_rf_get(s,'tipo_servico'), 'Profissional':_rf_get(s,'profissional'), 'Data':_rf_fmt_date(_rf_get(s,'data_servico')), 'Hora':_rf_get(s,'hora'), 'Valor':_rf_money(_rf_get(s,'valor')), 'Status':_rf_get(s,'status')})
     elif tipo == 'crm':
         for c in _rf_iter_values(fp.get('posvenda')):
             linhas.append({'Cliente':_rf_get(c,'cliente'), 'Telefone':_rf_get(c,'telefone'), 'Motivo':_rf_get(c,'motivo'), 'Produto':_rf_get(c,'produto'), 'Retorno':_rf_fmt_date(_rf_get(c,'data_retorno')), 'Status':_rf_get(c,'status')})
@@ -5207,7 +5207,7 @@ def _rf_prontuarios_resumo(dados=None):
     dados = dados or _rf_load_all()
     linhas = []
     for p in _rf_iter_values(dados.get('prontuarios')):
-        linhas.append({'ID':_rf_get(p,'id'), 'Data':_rf_get(p,'data_hora','data'), 'Paciente':_rf_get(p,'paciente','cliente'), 'Tipo':_rf_get(p,'tipo_atendimento'), 'Risco':_rf_get(p,'risco','classificacao_risco'), 'PA':_rf_get(p,'pa'), 'Glicemia':_rf_get(p,'glicemia'), 'Conduta':_rf_get(p,'conduta')})
+        linhas.append({'ID':_rf_get(p,'id'), 'Data':_rf_get(p,'data_hora','data'), 'Cliente':_rf_get(p,'paciente','cliente'), 'Tipo':_rf_get(p,'tipo_atendimento'), 'Risco':_rf_get(p,'risco','classificacao_risco'), 'PA':_rf_get(p,'pa'), 'Glicemia':_rf_get(p,'glicemia'), 'Conduta':_rf_get(p,'conduta')})
     return linhas
 
 
@@ -5418,7 +5418,7 @@ tr:nth-child(even) {{ background:#f8fafc; }}
 <div class="sub">{_rf_html_escape(_rf_empresa_nome())} • Gerado em {_rf_now()}</div>
 <div class="resumo">{_rf_html_escape(resumo or ('Total de registros: %s' % len(linhas)))}</div>
 <table><thead><tr>{''.join('<th>%s</th>' % _rf_html_escape(c) for c in cols)}</tr></thead><tbody>{''.join(rows)}</tbody></table>
-<div class="footer">Relatório gerado pelo Farma Quantum • Formato A4</div>
+<div class="footer">Relatório gerado pelo Loja Quantum • Formato A4</div>
 <script>setTimeout(function(){{}}, 300);</script>
 </body></html>'''
     with open(caminho, 'w', encoding='utf-8') as f:
@@ -5468,7 +5468,7 @@ def _rf_make_bobina_txt(titulo, linhas, largura=48, resumo=''):
         else:
             for l in _rf_wrap(str(row), largura): out.append(l)
     out.append(sep)
-    out.append(_rf_center('FARMA QUANTUM', largura))
+    out.append(_rf_center('LOJA QUANTUM', largura))
     out.append('\n\n')
     with open(caminho, 'w', encoding='utf-8') as f:
         f.write('\n'.join(out))
@@ -5500,7 +5500,7 @@ class FarmaciaRelatoriosImpressoesWindow:
         self.parent = parent or getattr(app, 'root', None)
         self.dados = _rf_load_all()
         self.win = tk.Toplevel(self.parent) if self.parent else tk.Toplevel()
-        self.win.title('📊 Relatórios e Impressões da Farmácia')
+        self.win.title('📊 Relatórios e Impressões da Loja')
         try:
             self.win.state('zoomed')
         except Exception:
@@ -5524,7 +5524,7 @@ class FarmaciaRelatoriosImpressoesWindow:
     def _build(self):
         main = ttk.Frame(self.win)
         main.pack(fill='both', expand=True, padx=12, pady=10)
-        ttk.Label(main, text='📊 RELATÓRIOS E IMPRESSÕES PROFISSIONAIS DA FARMÁCIA', font=('Segoe UI', 16, 'bold')).pack(anchor='w')
+        ttk.Label(main, text='📊 RELATÓRIOS E IMPRESSÕES PROFISSIONAIS DA LOJA', font=('Segoe UI', 16, 'bold')).pack(anchor='w')
         ttk.Label(main, text='Gere relatórios comerciais, clínicos, fiscais, operacionais e imprima em A4, bobina 80mm ou 58mm.', font=('Segoe UI', 9)).pack(anchor='w', pady=(2,8))
         top = ttk.Frame(main); top.pack(fill='x', pady=(0,8))
         left = ttk.Frame(top); left.pack(side='left', fill='x', expand=True)
@@ -5534,15 +5534,15 @@ class FarmaciaRelatoriosImpressoesWindow:
             ('Produtos vencidos/vencendo por lote', 'vencimentos'),
             ('Estoque baixo / reposição', 'estoque_baixo'),
             ('Tratamentos contínuos - lembretes de compra', 'tratamentos'),
-            ('Prontuário ambulatorial - atendimentos', 'prontuarios'),
-            ('Receituário / controlados / SNGPC', 'receitas'),
-            ('PBM / convênios / Farmácia Popular', 'pbm'),
+            ('Ficha de atendimento - atendimentos', 'prontuarios'),
+            ('Encomendas / pedidos / reservas', 'receitas'),
+            ('Convênios / Crediário / Loja Popular', 'pbm'),
             ('Campanhas / ofertas / encartes', 'campanhas'),
-            ('Serviços farmacêuticos agendados', 'servicos'),
+            ('Serviços da loja agendados', 'servicos'),
             ('Pós-venda / CRM / WhatsApp', 'crm'),
             ('Vendas recentes / fechamento comercial', 'vendas'),
             ('Produtos vendidos (com filtros)', 'produtos_vendidos'),
-            ('Dashboard executivo da farmácia', 'dashboard'),
+            ('Dashboard executivo da loja', 'dashboard'),
         ]
         combo = ttk.Combobox(left, textvariable=self.report_var, values=[v for t,v in opts], state='readonly', width=34)
         combo.grid(row=1, column=0, sticky='we', padx=(0,8))
@@ -5599,7 +5599,7 @@ class FarmaciaRelatoriosImpressoesWindow:
         ttk.Label(frame_help, text='Modelos disponíveis', font=('Segoe UI', 10, 'bold')).pack(anchor='w')
         help_txt = tk.Text(frame_help, height=12, wrap='word')
         help_txt.pack(fill='both', expand=True)
-        help_txt.insert('1.0', 'A4: gera HTML em página A4 com botão de impressão.\n\nBobina 80mm: texto térmico com largura aproximada de 48 colunas.\n\nBobina 58mm: texto térmico com largura aproximada de 32 colunas.\n\nOs arquivos são salvos na pasta relatorios_farmacia dentro da pasta de dados do sistema.\n\nRelatórios incluídos: validade/lote, estoque baixo, tratamentos contínuos, prontuário, controlados/SNGPC, PBM/convênios, campanhas, serviços, CRM, vendas e PRODUTOS VENDIDOS.\n\nPRODUTOS VENDIDOS: lista uma linha por item vendido com produto, quantidade, data, nº da venda, usuário que vendeu, status, categoria, preço unitário, subtotal, cliente e forma de pagamento. Use os campos de Filtros para restringir por período (data inicial/final), nome do produto, categoria e número da venda. Deixe os filtros em branco para trazer tudo.')
+        help_txt.insert('1.0', 'A4: gera HTML em página A4 com botão de impressão.\n\nBobina 80mm: texto térmico com largura aproximada de 48 colunas.\n\nBobina 58mm: texto térmico com largura aproximada de 32 colunas.\n\nOs arquivos são salvos na pasta relatorios_farmacia dentro da pasta de dados do sistema.\n\nRelatórios incluídos: validade/lote, estoque baixo, tratamentos contínuos, ficha, com controle interno, convênios, campanhas, serviços, CRM, vendas e PRODUTOS VENDIDOS.\n\nPRODUTOS VENDIDOS: lista uma linha por item vendido com produto, quantidade, data, nº da venda, usuário que vendeu, status, categoria, preço unitário, subtotal, cliente e forma de pagamento. Use os campos de Filtros para restringir por período (data inicial/final), nome do produto, categoria e número da venda. Deixe os filtros em branco para trazer tudo.')
         help_txt.config(state='disabled')
 
     def _montar(self):
@@ -5622,10 +5622,10 @@ class FarmaciaRelatoriosImpressoesWindow:
             resumo = f'Lembretes de recompra e tratamentos contínuos pendentes. Total: {len(linhas)}.'
         elif tipo == 'prontuarios':
             linhas = _rf_prontuarios_resumo(self.dados)
-            resumo = f'Atendimentos ambulatoriais cadastrados. Total: {len(linhas)}.'
+            resumo = f'Atendimentos ao cliente cadastrados. Total: {len(linhas)}.'
         elif tipo in ('receitas','pbm','campanhas','servicos','crm'):
             linhas = _rf_farmacia_pro_relatorio(tipo, self.dados)
-            resumo = f'Relatório Farmácia Pro: {titulo}. Total: {len(linhas)}.'
+            resumo = f'Relatório Loja Pro: {titulo}. Total: {len(linhas)}.'
         elif tipo == 'vendas':
             linhas, total = _rf_vendas_resumo(self.dados)
             resumo = f'Vendas recentes listadas: {len(linhas)}. Total aproximado: {_rf_money(total)}.'
@@ -5669,14 +5669,14 @@ class FarmaciaRelatoriosImpressoesWindow:
                 {'Indicador':'Produtos vencidos/vencendo', 'Quantidade':venc, 'Observação':f'Janela de {dias} dias'},
                 {'Indicador':'Estoque baixo', 'Quantidade':est, 'Observação':'Reposição sugerida'},
                 {'Indicador':'Tratamentos com recompra pendente', 'Quantidade':trat, 'Observação':'Contato ativo'},
-                {'Indicador':'Prontuários ambulatoriais', 'Quantidade':pront, 'Observação':'Histórico clínico'},
-                {'Indicador':'Receitas/controlados cadastrados', 'Quantidade':rec, 'Observação':'Controle/SNGPC'},
-                {'Indicador':'PBM/convênios cadastrados', 'Quantidade':pbm, 'Observação':'Benefícios comerciais'},
-                {'Indicador':'Serviços farmacêuticos', 'Quantidade':serv, 'Observação':'Agenda e execução'},
+                {'Indicador':'Fichas de atendimento', 'Quantidade':pront, 'Observação':'Histórico clínico'},
+                {'Indicador':'Pedidos/encomendas cadastrados', 'Quantidade':rec, 'Observação':'Controle interno'},
+                {'Indicador':'convênios cadastrados', 'Quantidade':pbm, 'Observação':'Benefícios comerciais'},
+                {'Indicador':'Serviços da loja', 'Quantidade':serv, 'Observação':'Agenda e execução'},
                 {'Indicador':'CRM/pós-venda', 'Quantidade':crm, 'Observação':'Retorno ao cliente'},
                 {'Indicador':'Vendas recentes', 'Quantidade':len(vendas), 'Observação':'Total: ' + _rf_money(total)},
             ]
-            resumo = 'Dashboard executivo para gestão diária da farmácia/drogaria.'
+            resumo = 'Dashboard executivo para gestão diária da loja/varejo.'
         else:
             linhas = []
         return titulo, linhas, resumo
@@ -5763,11 +5763,11 @@ def _rf_patch_app():
                 menu.add_separator()
                 menu.add_command(label='🧾 Produtos vencidos/vencendo - A4/Bobina', command=self.open_relatorios_farmacia)
                 menu.add_command(label='📦 Estoque baixo / reposição', command=self.open_relatorios_farmacia)
-                menu.add_command(label='💊 Tratamentos contínuos / recompra', command=self.open_relatorios_farmacia)
-                menu.add_command(label='🏥 Prontuários ambulatoriais', command=self.open_relatorios_farmacia)
-                menu.add_command(label='📋 Controlados / PBM / Serviços / CRM', command=self.open_relatorios_farmacia)
+                menu.add_command(label='🏪 Tratamentos contínuos / recompra', command=self.open_relatorios_farmacia)
+                menu.add_command(label='📋 Fichas de atendimento', command=self.open_relatorios_farmacia)
+                menu.add_command(label='📋 Encomendas / Convênios / Serviços / CRM', command=self.open_relatorios_farmacia)
                 menu.add_command(label='🛒 Produtos vendidos (filtros: data, produto, categoria, nº venda)', command=self.open_relatorios_farmacia)
-                menubar.add_cascade(label='📊 Relatórios Farma', menu=menu)
+                menubar.add_cascade(label='📊 Relatórios Loja', menu=menu)
                 self.root.bind('<Control-Alt-r>', lambda event: self.open_relatorios_farmacia())
                 self.root.bind('<Control-Alt-R>', lambda event: self.open_relatorios_farmacia())
             except Exception as e:
@@ -6034,7 +6034,7 @@ except Exception as _e_qpa_um:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PATCH DEFINITIVO - VISIBILIDADE DOS MENUS FARMÁCIA COM PERSISTÊNCIA NO MYSQL
+# PATCH DEFINITIVO - VISIBILIDADE DOS MENUS LOJA COM PERSISTÊNCIA NO MYSQL
 # Regras:
 # - Checkbox desmarcado: menu fica invisível.
 # - Checkbox marcado: menu fica visível.
@@ -6109,9 +6109,9 @@ def _fq_farma_menu_seed_defaults():
     if not db:
         return False
     descricoes = {
-        "menu_relatorios_farma_visivel": "Exibe/oculta o menu Relatórios Farma",
-        "menu_farmacia_pro_visivel": "Exibe/oculta o menu Farmácia Pro",
-        "menu_ambulatorio_visivel": "Exibe/oculta o menu Ambulatório",
+        "menu_relatorios_farma_visivel": "Exibe/oculta o menu Relatórios Loja",
+        "menu_farmacia_pro_visivel": "Exibe/oculta o menu Loja Pro",
+        "menu_ambulatorio_visivel": "Exibe/oculta o menu Atendimento",
         "menu_tratamento_visivel": "Exibe/oculta o menu Tratamentos",
     }
     for chave in _FQ_FARMA_MENU_KEYS:
@@ -6166,7 +6166,7 @@ def _fq_farma_menu_persist_db(cfg):
             else:
                 db.execute(
                     "INSERT INTO configuracoes (chave, valor, categoria, descricao) VALUES (%s, %s, %s, %s)",
-                    (chave, valor, "menus_farmacia", "Configuração de visibilidade dos menus da farmácia")
+                    (chave, valor, "menus_farmacia", "Configuração de visibilidade dos menus da loja")
                 )
         return True
     except Exception as e:
@@ -6289,7 +6289,7 @@ if __name__ == "__main__":
     # Verifica se já existe uma instância rodando
     if is_already_running():
         AUDITORIA.info("Tentativa de abrir segunda instância bloqueada")
-        print("FARMA QUANTUM já está em execução!")
+        print("LOJA QUANTUM já está em execução!")
         sys.exit(0)
     AUDITORIA.processo("Verificação de instância única concluída - Nenhuma outra instância detectada")
 
@@ -6321,7 +6321,7 @@ if __name__ == "__main__":
         except Exception:
             pass
         _EARLY_BOOT_ROOT.withdraw()
-        _EARLY_BOOT_ROOT.title("Farma Quantum - Inicializando")
+        _EARLY_BOOT_ROOT.title("Loja Quantum - Inicializando")
         try:
             _EARLY_BOOT_ROOT.configure(bg="#052e2b")
         except Exception:
@@ -6332,7 +6332,7 @@ if __name__ == "__main__":
             _EARLY_BOOT_SPLASH._skip_auto_statusbar = True
         except Exception:
             pass
-        _EARLY_BOOT_SPLASH.title("Inicializando Farma Quantum")
+        _EARLY_BOOT_SPLASH.title("Inicializando Loja Quantum")
         _EARLY_BOOT_SPLASH.configure(bg="#052e2b")
         _EARLY_BOOT_SPLASH.resizable(False, False)
         try:
@@ -6349,8 +6349,8 @@ if __name__ == "__main__":
         _EARLY_BOOT_SPLASH.geometry(f"{w}x{h}+{x}+{y}")
         frame = _tk_early_boot.Frame(_EARLY_BOOT_SPLASH, bg="#052e2b", padx=18, pady=14)
         frame.pack(fill="both", expand=True)
-        _tk_early_boot.Label(frame, text="💊 FARMA QUANTUM", bg="#052e2b", fg="#5eead4", font=("Segoe UI", 18, "bold")).pack(pady=(4, 4))
-        _tk_early_boot.Label(frame, text="Sistema de Farmácia • Inicialização rápida", bg="#052e2b", fg="#ecfeff", font=("Segoe UI", 10, "bold")).pack(pady=(0, 8))
+        _tk_early_boot.Label(frame, text="🏪 LOJA QUANTUM", bg="#052e2b", fg="#5eead4", font=("Segoe UI", 18, "bold")).pack(pady=(4, 4))
+        _tk_early_boot.Label(frame, text="Sistema de Loja • Inicialização rápida", bg="#052e2b", fg="#ecfeff", font=("Segoe UI", 10, "bold")).pack(pady=(0, 8))
         _EARLY_BOOT_STATUS_VAR = _tk_early_boot.StringVar(value="Preparando abertura da Splash...")
         _tk_early_boot.Label(frame, textvariable=_EARLY_BOOT_STATUS_VAR, bg="#052e2b", fg="#ccfbf1", font=("Segoe UI", 8)).pack(pady=(0, 10))
         canvas = _tk_early_boot.Canvas(frame, width=w-70, height=8, bg="#134e4a", highlightthickness=0)
@@ -6497,7 +6497,7 @@ PERFORMANCE_CONFIG = {
 # ═══════════════════════════════════════════════════════════════════════════════════════
 
 COLOR_PALETTE = {
-    # Tema Farmácia/Drogaria - verde saúde, teal e branco clínico
+    # Tema Loja/Loja - verde saúde, teal e branco clínico
     'primary': '#0f766e',
     'primary_hover': '#0d9488',
     'primary_light': '#14b8a6',
@@ -6535,7 +6535,7 @@ COLOR_PALETTE = {
     'offline': '#ef4444',
     'busy': '#f59e0b',
     'away': '#6b7280',
-    # Extras do layout farmacêutico
+    # Extras do layout da loja
     'pharmacy_bg': '#ecfdf5',
     'pharmacy_panel': '#f8fffd',
     'pharmacy_header': '#d1fae5',
@@ -6549,15 +6549,15 @@ COLOR_PALETTE = {
 # ═══════════════════════════════════════════════════════════════════════════════════════
 
 ICONS = {
-    # Farmácia / Saúde
-    'pharmacy': '💊',
-    'medicine': '💊',
+    # Loja / Saúde
+    'pharmacy': '🏪',
+    'medicine': '🏪',
     'medication': '💉',
     'prescription': '📋',
     'lab': '🧪',
-    'health': '⚕️',
+    'health': '🏪',
     'first_aid': '🩹',
-    'capsule': '💊',
+    'capsule': '🏪',
     # Ações Principais
     'add': '➕',
     'edit': '✏️',
@@ -14726,7 +14726,7 @@ def instalar_dependencias():
     print("")
     print("╔═══════════════════════════════════════════════════════════════════════════╗")
     print("║           [FERRAMENTA] INSTALADOR AUTOMÁTICO DE DEPENDÊNCIAS                        ║")
-    print("║                   FARMA QUANTUM - FARMÁCIA & DROGARIA                       ║")
+    print("║                   LOJA QUANTUM                       ║")
     print("╚═══════════════════════════════════════════════════════════════════════════╝")
     print("")
     print(f"   [ALERTA]  Foram detectadas {len(modulos_faltando)} dependência(s) faltando.")
@@ -17992,7 +17992,7 @@ def print_test_page(printer: ThermalPrinter) -> None:
         printer.double_size(True)
         printer.textln("TESTE DE IMPRESSÃO")
         printer.double_size(False)
-        printer.textln("FARMA QUANTUM")
+        printer.textln("LOJA QUANTUM")
         printer.left()
         
         printer.double_line()
@@ -23355,7 +23355,7 @@ class BalancaIntegracaoPDV:
             if peso is not None:
                 messagebox.showinfo("Peso Lido", 
                                    f"Peso: {peso:,.3f}g\n\n"
-                                   f"Selecione um medicamento/produto para aplicar o peso.")
+                                   f"Selecione um produto para aplicar o peso.")
             return
         
         # Verifica se é produto do tipo peso
@@ -23898,7 +23898,7 @@ MYSQL_CONFIG_FILE = os.path.join(PERSISTENCE_DIR, "config.ini")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PATCH FARMA QUANTUM - CONFIG.INI ROBUSTO / SENHA NÃO VAZIA
+# PATCH LOJA QUANTUM - CONFIG.INI ROBUSTO / SENHA NÃO VAZIA
 # ═══════════════════════════════════════════════════════════════════════════
 # Alguns Windows abrem o .py/.exe em uma pasta diferente da pasta onde o
 # usuário colocou o config.ini. Por isso o sistema agora procura config.ini em
@@ -23979,7 +23979,7 @@ def _fq_get_password_fallback(user='', database=''):
 def carregar_config():
     """Carrega as configurações do arquivo config.ini.
 
-    PATCH Farma Quantum:
+    PATCH Loja Quantum:
     procura o config.ini também na pasta atual e na pasta do executável/script,
     evitando a mensagem falsa de "arquivo não encontrado" quando o usuário já
     criou o config.ini ao lado do sistema.
@@ -23994,7 +23994,7 @@ def carregar_config():
 def salvar_config(host, port, user, password, database):
     """Salva as configurações do MySQL no config.ini.
 
-    PATCH DEFINITIVO FARMA QUANTUM - SENHA NO CONFIG.INI:
+    PATCH DEFINITIVO LOJA QUANTUM - SENHA NO CONFIG.INI:
     - Grava a senha digitada exatamente no campo Senha.
     - Não usa interpolação do ConfigParser para gravar, evitando perda com caracteres especiais.
     - Se o campo vier vazio, preserva a senha já existente no config.ini.
@@ -24121,7 +24121,7 @@ def salvar_config(host, port, user, password, database):
 def testar_conexao_mysql(host, port, user, password, database='', tentar_127=True):
     """Testa a conexão com o servidor MySQL com diagnóstico claro.
 
-    Correção Farma Quantum:
+    Correção Loja Quantum:
     - Usa exatamente a senha digitada na tela.
     - Se host=localhost falhar, tenta 127.0.0.1 para evitar conflito entre
       contas MySQL root@localhost, root@127.0.0.1 e autenticação por socket/plugin.
@@ -24287,7 +24287,7 @@ def gerar_sql_criacao_banco_usuario(host, port, user, password, database):
         database = (database or 'farmacia').strip()
         user = (user or 'usuario').strip()
         password = '' if password is None else str(password)
-        conteudo = f"""-- FARMA QUANTUM - Criar banco e liberar usuário
+        conteudo = f"""-- LOJA QUANTUM - Criar banco e liberar usuário
 -- Execute este script no MySQL Workbench conectado como root/administrador.
 
 CREATE DATABASE IF NOT EXISTS {_q_ident(database)}
@@ -24410,7 +24410,7 @@ def gerar_sql_liberacoes_avancadas(user, password, database):
         user = (user or 'usuario').strip()
         password = '' if password is None else str(password)
         database = (database or 'farmacia').strip()
-        conteudo = f"""-- FARMA QUANTUM - Liberações avançadas do MySQL
+        conteudo = f"""-- LOJA QUANTUM - Liberações avançadas do MySQL
 -- Execute no MySQL Workbench conectado como root/administrador.
 -- ATENÇÃO: estas permissões são amplas. Use somente em rede confiável.
 
@@ -24554,7 +24554,7 @@ def solicitar_configuracao_mysql():
     
     # Cria janela de configuração
     cfg_win = _tk.Tk()
-    cfg_win.title("Configuração Inicial do MySQL - Farma Quantum")
+    cfg_win.title("Configuração Inicial do MySQL - Loja Quantum")
     cfg_win.resizable(True, True)
     
     # Centraliza a janela na tela com tamanho adequado
@@ -24599,7 +24599,7 @@ def solicitar_configuracao_mysql():
     # Título
     titulo = _tk.Label(
         main_frame,
-        text="Configuração do Banco de Dados MySQL - Farmácia",
+        text="Configuração do Banco de Dados MySQL - Loja",
         font=("Segoe UI", 14, "bold"),
         bg='#f0f0f0',
         fg='#1e293b'
@@ -25828,7 +25828,7 @@ MYSQL_CONFIG = {
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# FARMA QUANTUM - FIX DEFINITIVO MYSQL "USING PASSWORD: NO"
+# LOJA QUANTUM - FIX DEFINITIVO MYSQL "USING PASSWORD: NO"
 # Nunca deixa o conector MySQL receber password vazio por acidente.
 # Se config.ini estiver sem senha, abre tela/aviso de configuração e usa fallback local.
 # ═══════════════════════════════════════════════════════════════════════
@@ -25933,19 +25933,19 @@ def fq_mysql_password_missing_exception():
 def get_mysql_config():
     """Retorna a configuração de conexão MySQL.
 
-    CORREÇÃO FARMÁCIA:
+    CORREÇÃO LOJA:
     A prioridade real agora é:
     1. config.ini salvo pela tela inicial
     2. variáveis de ambiente MYSQL_* apenas se config.ini não tiver o campo
     3. network_settings.json apenas se config.ini/ambiente não tiver o campo
-    4. padrões seguros para a farmácia
+    4. padrões seguros para a loja
 
     Isso corrige o erro em que a tela mostrava usuário digitado, mas a conexão
     tentava usar root sem senha por causa de variável/arquivo antigo.
     """
     import json
 
-    # Padrão do sistema de farmácia
+    # Padrão do sistema de loja
     config = {
         'host': '127.0.0.1',
         'port': 3306,
@@ -26026,11 +26026,11 @@ MYSQL_DB_NAME = get_mysql_config().get('database', 'pdv_quantum')
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# FARMÁCIA - PRÉ-INICIALIZAÇÃO PROFISSIONAL DA ESTRUTURA MYSQL
+# LOJA - PRÉ-INICIALIZAÇÃO PROFISSIONAL DA ESTRUTURA MYSQL
 # ═══════════════════════════════════════════════════════════════════════════
 # Executa ANTES da abertura do sistema principal, logo após a escolha/leitura
 # do banco em config.ini. Garante banco, tabelas, colunas, índices, charset,
-# registros mínimos e tabelas extras da farmácia. Se algo estiver faltando, é
+# registros mínimos e tabelas extras da loja. Se algo estiver faltando, é
 # criado automaticamente sem apagar dados existentes.
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -26102,7 +26102,7 @@ def preinicializar_estrutura_mysql_farmacia(forcar=False):
     """Garante toda a estrutura mínima/profissional do banco antes do sistema iniciar.
 
     Cria o banco escolhido no config.ini, tabelas faltantes, colunas faltantes,
-    índices de performance, tabelas específicas de farmácia e registros padrão.
+    índices de performance, tabelas específicas de loja e registros padrão.
     Não remove nem apaga dados existentes.
     """
     global _FARMA_SCHEMA_PREINIT_EXECUTADO
@@ -26160,7 +26160,7 @@ def preinicializar_estrutura_mysql_farmacia(forcar=False):
         except Exception:
             pass
 
-        # Tabelas base do PDV/Farmácia. São propositalmente completas e tolerantes.
+        # Tabelas base do PDV/Loja. São propositalmente completas e tolerantes.
         create_tables = [
             """CREATE TABLE IF NOT EXISTS categorias (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -26572,9 +26572,9 @@ def preinicializar_estrutura_mysql_farmacia(forcar=False):
                 _farma_preinit_index(cur, table, idx, cols_sql)
 
         # Registros padrão comerciais, sem duplicar.
-        _farma_preinit_seed(cur, 'categorias', 'nome', 'Medicamentos', {'nome': 'Medicamentos', 'descricao': 'Medicamentos em geral', 'ativo': 1})
+        _farma_preinit_seed(cur, 'categorias', 'nome', 'Produtos Gerais', {'nome': 'Produtos Gerais', 'descricao': 'Produtos em geral', 'ativo': 1})
         _farma_preinit_seed(cur, 'categorias', 'nome', 'Perfumaria', {'nome': 'Perfumaria', 'descricao': 'Perfumaria, higiene e beleza', 'ativo': 1})
-        _farma_preinit_seed(cur, 'categorias', 'nome', 'Controlados', {'nome': 'Controlados', 'descricao': 'Medicamentos controlados/receituário', 'ativo': 1})
+        _farma_preinit_seed(cur, 'categorias', 'nome', 'Controle Especial', {'nome': 'Controle Especial', 'descricao': 'Produtos com controle especial', 'ativo': 1})
         _farma_preinit_seed(cur, 'clientes', 'nome', 'Consumidor Final', {'nome': 'Consumidor Final', 'telefone': '', 'ativo': 1})
         _farma_preinit_seed(cur, 'configuracoes', 'chave', 'farmacia_alerta_validade_dias', {'chave': 'farmacia_alerta_validade_dias', 'valor': '15', 'categoria': 'farmacia', 'descricao': 'Dias antes para alertar lote/validade'})
         _farma_preinit_seed(cur, 'configuracoes', 'chave', 'farmacia_preinit_schema_version', {'chave': 'farmacia_preinit_schema_version', 'valor': '2026.06.05.1', 'categoria': 'sistema', 'descricao': 'Versão da pré-inicialização estrutural'})
@@ -26593,7 +26593,7 @@ def preinicializar_estrutura_mysql_farmacia(forcar=False):
 
 
 try:
-    _early_boot_update('Pré-inicializando estrutura do banco da farmácia...')
+    _early_boot_update('Pré-inicializando estrutura do banco da loja...')
 except Exception:
     pass
 try:
@@ -29016,7 +29016,7 @@ def init_database():
     except Exception:
         pass  # Coluna já existe
 
-    # ========== MIGRAÇÃO FARMÁCIA: controle opcional de lote e validade ==========
+    # ========== MIGRAÇÃO LOJA: controle opcional de lote e validade ==========
     # Quando marcado na entrada de notas, estes campos permitem alertas de vencimento.
     for _col_name, _col_sql in [
         ("controlar_lote_validade", "INTEGER DEFAULT 0"),
@@ -31805,7 +31805,7 @@ def _mysql_save_users(data):
 
 # Versão e Informações
 APP_VERSION = "8.0.0"
-APP_NAME = "Farma Quantum Farmácia & Drogaria"
+APP_NAME = "Loja Quantum Comércio & Varejo"
 
 # Interface
 UI_MIN_WIDTH = 1024
@@ -34567,7 +34567,7 @@ def print_labels_using_configured_printer(pdf_info, product_data=None, quantity=
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# FIX FARMA QUANTUM - SCHEMA USUARIOS PASSWORD_HASH
+# FIX LOJA QUANTUM - SCHEMA USUARIOS PASSWORD_HASH
 # Corrige erro MySQL:
 # 1054 (42S22): Unknown column 'password_hash' in 'field list'
 # ═══════════════════════════════════════════════════════════════════════
@@ -34648,7 +34648,7 @@ def fq_fix_schema_usuarios_password_hash():
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# FARMA QUANTUM - PRÉ-BOOT AUTÔNOMO DO BANCO DE DADOS
+# LOJA QUANTUM - PRÉ-BOOT AUTÔNOMO DO BANCO DE DADOS
 # Executa ANTES dos processos principais.
 # Objetivo:
 # - Conectar no MySQL usando config.ini.
@@ -34814,7 +34814,7 @@ def fq_preboot_schema_autonomo(forcar=False):
         }.items():
             add_col('usuarios', coluna, ddl)
 
-        # Tabelas comerciais/farmácia mínimas e colunas críticas.
+        # Tabelas comerciais/loja mínimas e colunas críticas.
         exec_safe("""
             CREATE TABLE IF NOT EXISTS clientes (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -35060,7 +35060,7 @@ def fq_preboot_obrigatorio_antes_dos_processos():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# FARMA QUANTUM - PRÉ-BOOT TOTAL DO BANCO ANTES DOS PROCESSOS
+# LOJA QUANTUM - PRÉ-BOOT TOTAL DO BANCO ANTES DOS PROCESSOS
 # Analisa estrutura do banco inteiro usado pelo sistema e repõe tabelas/colunas
 # faltantes antes de usuários, permissões, telas, vendas e relatórios.
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -35525,7 +35525,7 @@ def fq_preboot_total_banco_antes_de_tudo(forcar=False):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# FARMA QUANTUM - PATCH RUNTIME COLUNAS PRECO/TAMANHOS
+# LOJA QUANTUM - PATCH RUNTIME COLUNAS PRECO/TAMANHOS
 # Corrige automaticamente Unknown column 'preco' e tabelas de tamanhos.
 # ═══════════════════════════════════════════════════════════════════════
 def fq_runtime_fix_preco_tamanhos():
@@ -35588,7 +35588,7 @@ def fq_runtime_fix_preco_tamanhos():
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# FARMA QUANTUM - PATCH RUNTIME TABELAS OPERACIONAIS
+# LOJA QUANTUM - PATCH RUNTIME TABELAS OPERACIONAIS
 # Corrige automaticamente colunas/tabelas operacionais ausentes:
 # comandas, entregadores, servicos, bairros, cartoes, vendedores,
 # customers.cpf e tamanhos.sigla.
@@ -36032,7 +36032,7 @@ def authenticate_user():
     # Logo
     
     # Título
-    tk.Label(card_frame, text="Farma Quantum", font=("Segoe UI", 20, "bold"), bg=CARD_COLOR, fg=TEXT_COLOR).pack(pady=(24, 12))
+    tk.Label(card_frame, text="Loja Quantum", font=("Segoe UI", 20, "bold"), bg=CARD_COLOR, fg=TEXT_COLOR).pack(pady=(24, 12))
     
     # Container para os campos
     fields_frame = tk.Frame(card_frame, bg=CARD_COLOR)
@@ -37877,7 +37877,7 @@ class UserManagerWindow(tk.Toplevel):
         # Busca de usuários
         search_frame = ttk.Frame(list_frame)
         search_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 5))
-        ttk.Label(search_frame, text="🔍 Buscar medicamento:").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(search_frame, text="🔍 Buscar produto:").pack(side=tk.LEFT, padx=(0, 5))
         self.search_var = tk.StringVar()
         self.search_var.trace('w', lambda *args: self._filter_users())
         ttk.Entry(search_frame, textvariable=self.search_var, width=25).pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -40987,7 +40987,7 @@ class OrdemServicoWindow:
         prioridade_combo.grid(row=0, column=3, padx=5, pady=5)
         prioridade_combo.bind("<<ComboboxSelected>>", lambda e: self._carregar_lista())
         
-        ttk.Label(filtro_frame, text="Buscar medicamento:").grid(row=0, column=4, padx=5, pady=5, sticky='w')
+        ttk.Label(filtro_frame, text="Buscar produto:").grid(row=0, column=4, padx=5, pady=5, sticky='w')
         self.busca_var = tk.StringVar()
         busca_entry = ttk.Entry(filtro_frame, textvariable=self.busca_var, width=25)
         busca_entry.grid(row=0, column=5, padx=5, pady=5)
@@ -42126,7 +42126,7 @@ class FormularioOSWindow:
         search_frame = ttk.Frame(frame)
         search_frame.pack(fill=tk.X, pady=(0, 5))
         
-        ttk.Label(search_frame, text="🔍 Buscar medicamento:").pack(side=tk.LEFT)
+        ttk.Label(search_frame, text="🔍 Buscar produto:").pack(side=tk.LEFT)
         search_var = tk.StringVar()
         search_entry = ttk.Entry(search_frame, textvariable=search_var, width=35)
         search_entry.pack(side=tk.LEFT, padx=5)
@@ -44889,7 +44889,7 @@ class GerenciamentoMesasWindow(tk.Toplevel):
         cb = ttk.Combobox(filtros, textvariable=self.filtro_var, values=['Todas', 'Livre', 'Ocupada', 'Reservada', 'Inativa', 'Bloqueada'], state='readonly', width=16)
         cb.pack(side=tk.LEFT, padx=6)
         cb.bind('<<ComboboxSelected>>', lambda e: self._render_cards())
-        ttk.Label(filtros, text="Buscar medicamento:").pack(side=tk.LEFT, padx=(12, 0))
+        ttk.Label(filtros, text="Buscar produto:").pack(side=tk.LEFT, padx=(12, 0))
         ttk.Entry(filtros, textvariable=self.busca_var, width=35).pack(side=tk.LEFT, padx=6)
         self.busca_var.trace_add('write', lambda *_: self._render_cards())
         self.resumo_frame = ttk.Frame(main)
@@ -45471,7 +45471,7 @@ class CadastroProdutosWindow(BaseCadastroWindow):
             
     def _print_label(self):
         if not self.selected_item_id:
-            messagebox.showwarning("Aviso", "Selecione um medicamento/produto para imprimir a etiqueta.", parent=self)
+            messagebox.showwarning("Aviso", "Selecione um produto para imprimir a etiqueta.", parent=self)
             return
         
         product_data = self.data_dict.get(self.selected_item_id)
@@ -45871,7 +45871,7 @@ class CadastroProdutosWindow(BaseCadastroWindow):
         """Clona o produto selecionado, copiando todos os dados exceto ID e código de barras."""
         try:
             if not self.selected_item_id:
-                messagebox.showwarning("Aviso", "Selecione um medicamento/produto para duplicar.", parent=self)
+                messagebox.showwarning("Aviso", "Selecione um produto para duplicar.", parent=self)
                 return
             
             # Obtém os dados do produto selecionado
@@ -47385,7 +47385,7 @@ except Exception:
 try:
     LABEL_LAYOUTS.update({
         'farmacia_validade': {
-            'nome': 'Farmácia - Lote/Validade',
+            'nome': 'Loja - Lote/Validade',
             'descricao': 'Nome + preço + barras + lote/validade',
             'elementos': [
                 {'tipo': 'nome', 'x': 50, 'y': 90, 'largura': 96, 'altura': 12, 'fonte': 8, 'alinhamento': 'centro', 'negrito': True},
@@ -47521,7 +47521,7 @@ def _quantum_label_create_advanced_tab(self):
         tools.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(12, 6))
         ttk.Button(tools, text="Usar quantidade do estoque", command=lambda: _quantum_label_set_quantity_from_stock(self), bootstyle="info-outline").pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(tools, text="Validar código de barras", command=lambda: _quantum_label_validate_barcode(self), bootstyle="warning-outline").pack(side=tk.LEFT, padx=8)
-        ttk.Button(tools, text="Aplicar layout farmácia", command=lambda: _quantum_label_apply_layout(self, 'farmacia_validade'), bootstyle="success-outline").pack(side=tk.LEFT, padx=8)
+        ttk.Button(tools, text="Aplicar layout loja", command=lambda: _quantum_label_apply_layout(self, 'farmacia_validade'), bootstyle="success-outline").pack(side=tk.LEFT, padx=8)
         ttk.Button(tools, text="Aplicar layout promoção", command=lambda: _quantum_label_apply_layout(self, 'promocao_de_por'), bootstyle="success-outline").pack(side=tk.LEFT, padx=8)
         ttk.Button(tools, text="Aplicar QR Code", command=lambda: _quantum_label_apply_layout(self, 'qrcode_produto'), bootstyle="success-outline").pack(side=tk.LEFT, padx=8)
 
@@ -47897,7 +47897,7 @@ def _qlabel_install_ultra_templates_and_layouts():
                 ]
             },
             'ultra_farmacia': {
-                'nome': 'Ultra Farmácia',
+                'nome': 'Ultra Loja',
                 'descricao': 'Produto + preço + código + controle',
                 'elementos': [
                     {'tipo': 'nome', 'x': 50, 'y': 91, 'largura': 96, 'altura': 11, 'fonte': 8, 'alinhamento': 'centro', 'negrito': True},
@@ -48155,7 +48155,7 @@ def _qlabel_create_ultra_tab(self):
         presets = tk.LabelFrame(tab, text="Presets rápidos de uso", padx=12, pady=10)
         presets.grid(row=3, column=0, columnspan=2, sticky="ew", pady=8)
         ttk.Button(presets, text="Varejo 60x40", command=lambda: (_quantum_label_apply_layout(self, 'ultra_varejo'), self.etiqueta_var.set('60x40mm - Clássica 60x40mm')), bootstyle="secondary-outline").pack(side=tk.LEFT, padx=4)
-        ttk.Button(presets, text="Farmácia", command=lambda: (_quantum_label_apply_layout(self, 'ultra_farmacia'), self.etiqueta_var.set('60x40mm - Clássica 60x40mm')), bootstyle="secondary-outline").pack(side=tk.LEFT, padx=4)
+        ttk.Button(presets, text="Loja", command=lambda: (_quantum_label_apply_layout(self, 'ultra_farmacia'), self.etiqueta_var.set('60x40mm - Clássica 60x40mm')), bootstyle="secondary-outline").pack(side=tk.LEFT, padx=4)
         ttk.Button(presets, text="Moda/TAG", command=lambda: (_quantum_label_apply_layout(self, 'ultra_moda_tag'), self.etiqueta_var.set('65x40mm - TAG GAP 65x40mm')), bootstyle="secondary-outline").pack(side=tk.LEFT, padx=4)
         ttk.Button(presets, text="Gôndola", command=lambda: (_quantum_label_apply_layout(self, 'gondola'), self.etiqueta_var.set('90x30mm - Gôndola Grande 90x30mm')), bootstyle="secondary-outline").pack(side=tk.LEFT, padx=4)
         ttk.Button(presets, text="Logística", command=lambda: (_quantum_label_apply_layout(self, 'ultra_logistica'), self.etiqueta_var.set('100x150mm - Envio 100x150mm')), bootstyle="secondary-outline").pack(side=tk.LEFT, padx=4)
@@ -50398,7 +50398,7 @@ except Exception as _e:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 💊 FARMÁCIA - CONTROLE OPCIONAL DE LOTE / VALIDADE E ALERTAS DE VENCIMENTO
+# 🏪 LOJA - CONTROLE OPCIONAL DE LOTE / VALIDADE E ALERTAS DE VENCIMENTO
 # ═══════════════════════════════════════════════════════════════════════════════
 _FARMACIA_VALIDADE_ALERTAS_EXIBIDOS_EM = None
 
@@ -50466,10 +50466,10 @@ def verificar_alertas_validade_farmacia(products=None, parent=None, forcar=False
             partes.append("🟡 PERTO DE VENCER - 15 DIAS OU MENOS:\n" + "\n".join(proximos[:30]))
         if partes:
             _FARMACIA_VALIDADE_ALERTAS_EXIBIDOS_EM = hoje
-            messagebox.showwarning("Alertas de Validade - Farmácia", "\n\n".join(partes), parent=parent)
+            messagebox.showwarning("Alertas de Validade - Loja", "\n\n".join(partes), parent=parent)
     except Exception as e:
         try:
-            print(f"[FARMÁCIA] Erro ao verificar validade/lote: {e}")
+            print(f"[LOJA] Erro ao verificar validade/lote: {e}")
         except Exception:
             pass
 
@@ -50496,7 +50496,7 @@ class EntradaNotasWindow(tk.Toplevel):
         self.nota_fiscal_var = tk.StringVar(value=str(get_next_nota_entrada_number()))
         # Data da Nota com Calendário
         self.condicao_pagamento_var = tk.StringVar(value="À Vista")
-        # Farmácia: controle opcional de lote e validade por item/produto.
+        # Loja: controle opcional de lote e validade por item/produto.
         # Se o checkbox não for marcado, lote/validade não entram no produto nem geram alertas.
         self.lote_validade_var = tk.BooleanVar(value=False)
         self.lote_var = tk.StringVar()
@@ -50573,7 +50573,7 @@ class EntradaNotasWindow(tk.Toplevel):
 
         self.chk_lote_validade = ttk.Checkbutton(
             detalhes_frame,
-            text="Controlar lote e validade deste medicamento/produto",
+            text="Controlar lote e validade deste produto",
             variable=self.lote_validade_var,
             command=self._toggle_lote_validade_campos,
             bootstyle="success-round-toggle"
@@ -50804,7 +50804,7 @@ class EntradaNotasWindow(tk.Toplevel):
             validade = self._obter_validade_item() if controlar_lote_validade else ''
             if controlar_lote_validade:
                 if not lote:
-                    messagebox.showerror("Lote obrigatório", "Informe o lote do medicamento/produto ou desmarque o controle de lote e validade.", parent=self)
+                    messagebox.showerror("Lote obrigatório", "Informe o lote do produto ou desmarque o controle de lote e validade.", parent=self)
                     return
                 validade_data = _farmacia_parse_data_validade(validade)
                 if not validade_data:
@@ -50933,7 +50933,7 @@ class EntradaNotasWindow(tk.Toplevel):
                 # Atualiza o preço de custo (preco_compra)
                 produto['preco_compra'] = format_br_float(item['custo'], 2)
 
-                # Farmácia: controle de lote e validade só é aplicado quando o checkbox foi marcado.
+                # Loja: controle de lote e validade só é aplicado quando o checkbox foi marcado.
                 if bool(item.get('controlar_lote_validade', False)):
                     produto['controlar_lote_validade'] = True
                     produto['lote'] = item.get('lote', '')
@@ -52303,7 +52303,7 @@ class CaixaWindow(tk.Toplevel):
     """Janela PROFISSIONAL para controle de abertura e fechamento de caixa com suporte a múltiplos caixas e turnos."""
     def __init__(self, master, parent_app):
         super().__init__(master)
-        self.title("💰 Controle de Caixa - Farma Quantum")
+        self.title("💰 Controle de Caixa - Loja Quantum")
         self.state('zoomed')
         self.parent_app = parent_app
         self.configure(bg='#f8f9fa')
@@ -55789,7 +55789,7 @@ class KeyboardShortcutManager:
                                    fg=ACCENT, bg=BG_DARK, padx=20, pady=20, relief='flat', highlightthickness=1, highlightbackground=CARD_BG)
         about_frame.pack(fill=tk.X, padx=30, pady=10)
         
-        desc_text = ("O Farma Quantum é uma solução de automação comercial de altíssima performance, "
+        desc_text = ("O Loja Quantum é uma solução de automação comercial de altíssima performance, "
                      "desenvolvida para oferecer segurança, velocidade e inteligência na gestão do seu negócio. "
                      "Esta edição especial Phoenix Eternal conta com tecnologia de ponta para garantir que sua "
                      "operação nunca pare.")
@@ -57427,7 +57427,7 @@ class PDVSuperApp:
         
         
         # ═══════════════════════════════════════════════════════════════════════════
-        self.root.title(f"💊 FARMA QUANTUM - FARMÁCIA & DROGARIA - Usuário: {logged_user}")
+        self.root.title(f"🏪 LOJA QUANTUM - Usuário: {logged_user}")
         # Armazena usuario logado globalmente para acesso pela StatusBar automatica
         try:
             import builtins
@@ -57878,7 +57878,7 @@ class PDVSuperApp:
         Compatível com Python 32-bit - usa Tkinter Canvas ao invés de matplotlib.
         """
         try:
-            AUDITORIA.processo("Abrindo Dashboard Farmácia")
+            AUDITORIA.processo("Abrindo Dashboard Loja")
         except Exception:
             pass
         dash_win = tk.Toplevel(self.root)
@@ -58710,10 +58710,10 @@ class PDVSuperApp:
         ]
         if check_permission_any(*cadastro_perms):
             cadastro_menu = tk.Menu(menubar, tearoff=0)
-            _add_cmd(cadastro_menu, "2.1   💊 Medicamentos / Produtos", self.open_cadastro_produtos, "produtos.acessar", accelerator="Ctrl+P")
-            _add_cmd(cadastro_menu, "2.2   🔍 Consultar Medicamentos / Produtos", self.open_consultar_produtos, "produtos.consultar", accelerator="Ctrl+Shift+Q")
+            _add_cmd(cadastro_menu, "2.1   🏪 Produtos", self.open_cadastro_produtos, "produtos.acessar", accelerator="Ctrl+P")
+            _add_cmd(cadastro_menu, "2.2   🔍 Consultar Produtos", self.open_consultar_produtos, "produtos.consultar", accelerator="Ctrl+Shift+Q")
             if bool((getattr(self, 'config_data', {}) or {}).get("submenu_importar_produtos_visivel", False)):
-                _add_cmd(cadastro_menu, "2.3   📥 Importar Medicamentos / Produtos", self.importar_produtos_planilha, "produtos.importar", accelerator="Ctrl+I")
+                _add_cmd(cadastro_menu, "2.3   📥 Importar Produtos", self.importar_produtos_planilha, "produtos.importar", accelerator="Ctrl+I")
             _add_cmd(cadastro_menu, "2.4   Classes / Categorias", self.open_cadastro_categorias, "categorias.acessar", accelerator="Ctrl+K")
             if bool((getattr(self, 'config_data', {}) or {}).get("submenu_trocar_categoria_visivel", False)):
                 _add_cmd(cadastro_menu, "2.5   🔄 Trocar Classe/Categoria em Lote", self.open_troca_categoria_lote, "produtos.trocar_categoria_lote", accelerator="Ctrl+T")
@@ -58769,7 +58769,7 @@ class PDVSuperApp:
         if check_permission_any(*relatorio_perms):
             report_menu = tk.Menu(menubar, tearoff=0)
             if bool((getattr(self, 'config_data', {}) or {}).get("submenu_relatorio_3_1_visivel", False)):
-                _add_cmd(report_menu, "3.1   🚀 Dashboard Farmácia", self.show_quantum_dashboard, "util.dashboard", accelerator="Ctrl+D")
+                _add_cmd(report_menu, "3.1   🚀 Dashboard Loja", self.show_quantum_dashboard, "util.dashboard", accelerator="Ctrl+D")
             # --- Reimpressões ---
             has_reprint = False
             if check_permission_any("vendas.reimprimir_cupom", "relatorios.reimprimir_recibo_financeiro"):
@@ -59169,7 +59169,7 @@ class PDVSuperApp:
         watermark_frame = tk.Frame(tab_frame, bg='#ffffff', bd=0, highlightthickness=0)
         watermark_icon = tk.Label(
             watermark_frame,
-            text='💊',
+            text='🏪',
             font=('Segoe UI Emoji', 82, 'bold'),
             fg='#86efac',
             bg='#ffffff'
@@ -59177,7 +59177,7 @@ class PDVSuperApp:
         watermark_icon.pack()
         watermark_text = tk.Label(
             watermark_frame,
-            text='FARMÁCIA',
+            text='LOJA',
             font=('Segoe UI', 17, 'bold'),
             fg='#d1fae5',
             bg='#ffffff'
@@ -59428,26 +59428,26 @@ class PDVSuperApp:
         except Exception:
             pass
 
-        # Cabeçalho visual fixo para farmácia/drogaria
+        # Cabeçalho visual fixo para loja/varejo
         try:
             farmacia_top = ttk.Frame(self.root, padding=(12, 10))
             farmacia_top.pack(fill=tk.X)
             farmacia_top.columnconfigure(1, weight=1)
             ttk.Label(
                 farmacia_top,
-                text="💊 FARMA QUANTUM",
+                text="🏪 LOJA QUANTUM",
                 font=("Segoe UI", scale_font_size(20, self.root), "bold"),
                 foreground="#064e3b"
             ).grid(row=0, column=0, sticky="w", padx=(0, 20))
             ttk.Label(
                 farmacia_top,
-                text="Layout para farmácia e drogaria • Venda rápida • Medicamentos • Perfumaria • Conveniência",
+                text="Layout para loja e varejo • Venda rápida • Produtos • Perfumaria • Conveniência",
                 font=("Segoe UI", scale_font_size(10, self.root)),
                 foreground="#0f766e"
             ).grid(row=0, column=1, sticky="w")
             ttk.Label(
                 farmacia_top,
-                text="⚕️",
+                text="🏪",
                 font=("Segoe UI", scale_font_size(24, self.root), "bold"),
                 foreground="#22c55e"
             ).grid(row=0, column=2, sticky="e", padx=(10, 0))
@@ -59460,13 +59460,13 @@ class PDVSuperApp:
             supermercado_top.columnconfigure(1, weight=1)
             ttk.Label(
                 supermercado_top,
-                text="💊 MODO FARMÁCIA",
+                text="🏪 MODO LOJA",
                 font=("Segoe UI", scale_font_size(18, self.root), "bold"),
                 foreground="#0d6efd"
             ).grid(row=0, column=0, sticky="w", padx=(0, 20))
             ttk.Label(
                 supermercado_top,
-                text="Venda rápida de farmácia • Código de barras ativo • F12 finaliza • F6 cliente • DEL remove item",
+                text="Venda rápida no balcão • Código de barras ativo • F12 finaliza • F6 cliente • DEL remove item",
                 font=("Segoe UI", scale_font_size(10, self.root)),
                 foreground="#555555"
             ).grid(row=0, column=1, sticky="w")
@@ -59488,7 +59488,7 @@ class PDVSuperApp:
         # Linha 1: campo principal de bipar/digitar/buscar.
         # Correção: antes tudo ficava na mesma linha (busca + categoria + 3 botões),
         # e em telas menores o campo de busca ficava espremido/oculto.
-        texto_busca = "CÓDIGO / MEDICAMENTO:" if modo_supermercado else ("Buscar medicamento:" if "Farma" in str(self.root.title()) or "FARM" in str(self.root.title()).upper() else "Buscar produto:")
+        texto_busca = "CÓDIGO / MEDICAMENTO:" if modo_supermercado else ("Buscar produto:" if "Farma" in str(self.root.title()) or "FARM" in str(self.root.title()).upper() else "Buscar produto:")
         ttk.Label(
             filter_frame,
             text=texto_busca,
@@ -59619,7 +59619,7 @@ class PDVSuperApp:
         btn_adicionar.grid(row=2, column=0, sticky="ew", pady=(10, 0), ipady=scale_value(6, self.root) if modo_supermercado else 0)
         
         # ========== PAINEL DE VISUALIZAÇÃO DE IMAGEM DO PRODUTO ==========
-        self.product_image_frame = ttk.Labelframe(left_frame, text="💊 Foto do Medicamento/Produto", padding=5)
+        self.product_image_frame = ttk.Labelframe(left_frame, text="🏪 Foto do Produto", padding=5)
         if modo_supermercado:
             # No modo supermercado, a área visual fica mais limpa e rápida para leitura por código de barras.
             self.product_image_frame.grid_remove()
@@ -59631,7 +59631,7 @@ class PDVSuperApp:
         img_container.pack(fill=tk.X, expand=True)
         
         # Label para exibir a imagem
-        self.product_image_label = ttk.Label(img_container, text="\n📷\nSelecione um medicamento/produto\n", anchor="center", font=("Segoe UI", 9))
+        self.product_image_label = ttk.Label(img_container, text="\n📷\nSelecione um produto\n", anchor="center", font=("Segoe UI", 9))
         self.product_image_label.pack(side=tk.LEFT, padx=10, pady=5)
         
         # Frame para informações do produto
@@ -59679,7 +59679,7 @@ class PDVSuperApp:
         cart_title_frame = ttk.Frame(right_frame)
         cart_title_frame.grid(row=1, column=0, sticky="ew", pady=(0, 5))
         cart_title_frame.columnconfigure(0, weight=1)
-        ttk.Label(cart_title_frame, text="CAIXA / FARMÁCIA" if modo_supermercado else "Itens da Venda", font=("Segoe UI", scale_font_size(18 if modo_supermercado else 14, self.root), "bold"), foreground="#0f766e" if modo_supermercado else "#0f766e").grid(row=0, column=0, sticky="w")
+        ttk.Label(cart_title_frame, text="CAIXA / LOJA" if modo_supermercado else "Itens da Venda", font=("Segoe UI", scale_font_size(18 if modo_supermercado else 14, self.root), "bold"), foreground="#0f766e" if modo_supermercado else "#0f766e").grid(row=0, column=0, sticky="w")
         ttk.Button(cart_title_frame, text="+", width=3, command=self.adicionar_aba_carrinho, bootstyle="success-outline").grid(row=0, column=1, padx=(0, 5))
         ttk.Button(cart_title_frame, text="-", width=3, command=self.remover_aba_carrinho_atual, bootstyle="danger-outline").grid(row=0, column=2)
         # Treeview Carrinho em múltiplas abas
@@ -59718,7 +59718,7 @@ class PDVSuperApp:
         self.lbl_total_valor = ttk.Label(total_frame, text="R$ 0,00", font=("Segoe UI", scale_font_size(34 if modo_supermercado else 16, self.root), "bold"), anchor=tk.E, foreground="#16a34a" if modo_supermercado else "#16a34a")
         self.lbl_total_valor.grid(row=0, column=1, sticky="ew")
         # Finalizar
-        btn_finalizar = ttk.Button(right_frame, text="💊 FINALIZAR / PAGAR (F12)" if modo_supermercado else "Finalizar Venda / Pagar (F12)", underline=1, command=self.iniciar_pagamento, bootstyle="success", style="Supermercado.TButton" if modo_supermercado else None)
+        btn_finalizar = ttk.Button(right_frame, text="🏪 FINALIZAR / PAGAR (F12)" if modo_supermercado else "Finalizar Venda / Pagar (F12)", underline=1, command=self.iniciar_pagamento, bootstyle="success", style="Supermercado.TButton" if modo_supermercado else None)
         btn_finalizar.grid(row=5, column=0, sticky="ew", pady=(5, 0), ipady=scale_value(16 if modo_supermercado else 8, self.root))
         self.root.bind("<F12>", lambda event: (self.iniciar_pagamento(), "break")[1])
         
@@ -62197,7 +62197,7 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
         submenu_relatorio_3_36_visivel_var = tk.BooleanVar(value=bool(self.config_data.get("submenu_relatorio_3_36_visivel", False)))
         submenu_relatorio_3_37_visivel_var = tk.BooleanVar(value=bool(self.config_data.get("submenu_relatorio_3_37_visivel", False)))
         submenu_relatorio_3_38_visivel_var = tk.BooleanVar(value=bool(self.config_data.get("submenu_relatorio_3_38_visivel", False)))
-        ttk.Checkbutton(menus_relatorios_frame, text="Tornar visível o submenu 3.1 Dashboard Farmácia", variable=submenu_relatorio_3_1_visivel_var).pack(anchor=tk.W, padx=8, pady=(6, 2))
+        ttk.Checkbutton(menus_relatorios_frame, text="Tornar visível o submenu 3.1 Dashboard Loja", variable=submenu_relatorio_3_1_visivel_var).pack(anchor=tk.W, padx=8, pady=(6, 2))
         ttk.Checkbutton(menus_relatorios_frame, text="Tornar visível o submenu 3.7 Gerenciar Vouchers", variable=submenu_relatorio_3_7_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
         ttk.Checkbutton(menus_relatorios_frame, text="Tornar visível o submenu 3.7.1 Aniversários WhatsApp/Voucher", variable=submenu_relatorio_3_7_1_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
         ttk.Checkbutton(menus_relatorios_frame, text="Tornar visível o submenu 3.8 Política de Troca", variable=submenu_relatorio_3_8_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
@@ -62276,8 +62276,8 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
             justify=tk.LEFT
         ).pack(anchor=tk.W, padx=8, pady=(0, 6))
 
-        # === 09 - Modulos Farmacia (visibilidade) ===
-        menus_farma_frame = ttk.LabelFrame(body, text="09 - Modulos Farmacia (visibilidade)")
+        # === 09 - Modulos Loja (visibilidade) ===
+        menus_farma_frame = ttk.LabelFrame(body, text="09 - Modulos Loja (visibilidade)")
         menus_farma_frame.pack(pady=8, padx=10, fill=tk.X)
         menu_relatorios_farma_visivel_var = tk.BooleanVar(value=bool(self.config_data.get("menu_relatorios_farma_visivel", False)))
         menu_farmacia_pro_visivel_var = tk.BooleanVar(value=bool(self.config_data.get("menu_farmacia_pro_visivel", False)))
@@ -62285,9 +62285,9 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
         menu_tratamento_visivel_var = tk.BooleanVar(value=bool(self.config_data.get("menu_tratamento_visivel", False)))
         menu_balanca_ultra_visivel_var = tk.BooleanVar(value=bool(self.config_data.get("menu_balanca_ultra_visivel", True)))
         menu_inventario_visivel_var = tk.BooleanVar(value=bool(self.config_data.get("menu_inventario_visivel", True)))
-        ttk.Checkbutton(menus_farma_frame, text="Tornar visivel o menu Relatorios Farma", variable=menu_relatorios_farma_visivel_var).pack(anchor=tk.W, padx=8, pady=(6, 2))
+        ttk.Checkbutton(menus_farma_frame, text="Tornar visivel o menu Relatorios Loja", variable=menu_relatorios_farma_visivel_var).pack(anchor=tk.W, padx=8, pady=(6, 2))
         ttk.Checkbutton(menus_farma_frame, text="Tornar visivel o menu Farmacia Pro", variable=menu_farmacia_pro_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
-        ttk.Checkbutton(menus_farma_frame, text="Tornar visivel o menu Ambulatorio", variable=menu_ambulatorio_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
+        ttk.Checkbutton(menus_farma_frame, text="Tornar visivel o menu Atendimento", variable=menu_ambulatorio_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
         ttk.Checkbutton(menus_farma_frame, text="Tornar visivel o menu Tratamento", variable=menu_tratamento_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
         ttk.Checkbutton(menus_farma_frame, text="Tornar visivel o menu Balanca Ultra", variable=menu_balanca_ultra_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
         ttk.Checkbutton(menus_farma_frame, text="Tornar visivel o menu Inventario", variable=menu_inventario_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
@@ -63583,7 +63583,7 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
 
     def _clear_product_image_panel(self):
         """Limpa o painel de imagem do produto."""
-        self.product_image_label.config(text="\n📷\nSelecione um medicamento/produto\n", image='')
+        self.product_image_label.config(text="\n📷\nSelecione um produto\n", image='')
         self.product_name_label.config(text="")
         self.product_price_label.config(text="")
         self.product_stock_label.config(text="")
@@ -63604,7 +63604,7 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
         selected_iid = self.tree_produtos.focus()
         if not selected_iid:
             selected_items = self.tree_produtos.selection()
-            if not selected_items: messagebox.showwarning("Seleção", "Selecione um medicamento/produto."); return
+            if not selected_items: messagebox.showwarning("Seleção", "Selecione um produto."); return
             selected_iid = selected_items[0]
         self.adicionar_produto_por_id(selected_iid)
 
@@ -68833,7 +68833,7 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
             busca_frame = ttk.Frame(cliente_frame)
             busca_frame.pack(fill=tk.X, pady=(5, 0))
             
-            ttk.Label(busca_frame, text="Buscar medicamento:", font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 5))
+            ttk.Label(busca_frame, text="Buscar produto:", font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 5))
             busca_cliente_var = tk.StringVar()
             busca_cliente_entry = ttk.Entry(busca_frame, textvariable=busca_cliente_var, width=30)
             busca_cliente_entry.pack(side=tk.LEFT, padx=(0, 5))
@@ -70714,7 +70714,7 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
             search_frame = tk.Frame(select_win, bg='white')
             search_frame.pack(fill=tk.X, padx=20, pady=5)
             
-            tk.Label(search_frame, text="Buscar medicamento:", bg='white', font=("Arial", 10)).pack(side=tk.LEFT)
+            tk.Label(search_frame, text="Buscar produto:", bg='white', font=("Arial", 10)).pack(side=tk.LEFT)
             search_var = tk.StringVar()
             search_entry = tk.Entry(search_frame, textvariable=search_var, font=("Arial", 11), width=30)
             search_entry.pack(side=tk.LEFT, padx=10, fill=tk.X, expand=True)
@@ -71067,7 +71067,7 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
             # Busca
             search_frame_v = tk.Frame(sel_win, bg='white')
             search_frame_v.pack(fill=tk.X, padx=15, pady=5)
-            tk.Label(search_frame_v, text="\U0001f50d Buscar medicamento:", bg='white', font=("Arial", 10)).pack(side=tk.LEFT)
+            tk.Label(search_frame_v, text="\U0001f50d Buscar produto:", bg='white', font=("Arial", 10)).pack(side=tk.LEFT)
             search_var_v = tk.StringVar()
             search_entry_v = tk.Entry(search_frame_v, textvariable=search_var_v, font=("Arial", 11), width=30)
             search_entry_v.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
@@ -71251,7 +71251,7 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
             tk.Label(sel_win, text="🍽️ Selecione o Garçom", bg='white', font=("Arial", 13, "bold")).pack(pady=(10, 5))
             search_frame_g = tk.Frame(sel_win, bg='white')
             search_frame_g.pack(fill=tk.X, padx=15, pady=5)
-            tk.Label(search_frame_g, text="🔍 Buscar medicamento:", bg='white', font=("Arial", 10)).pack(side=tk.LEFT)
+            tk.Label(search_frame_g, text="🔍 Buscar produto:", bg='white', font=("Arial", 10)).pack(side=tk.LEFT)
             search_var_g = tk.StringVar()
             search_entry_g = tk.Entry(search_frame_g, textvariable=search_var_g, font=("Arial", 11), width=30)
             search_entry_g.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
@@ -72368,7 +72368,7 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
             busca_frame = tk.Frame(sel_win, bg='#f0f0f0')
             busca_frame.pack(fill=tk.X, padx=10, pady=10)
             
-            tk.Label(busca_frame, text="Buscar medicamento:", bg='#f0f0f0', font=("Arial", 11, "bold")).pack(side=tk.LEFT, padx=5)
+            tk.Label(busca_frame, text="Buscar produto:", bg='#f0f0f0', font=("Arial", 11, "bold")).pack(side=tk.LEFT, padx=5)
             busca_var = tk.StringVar()
             busca_entry = tk.Entry(busca_frame, textvariable=busca_var, width=30, font=("Arial", 11))
             busca_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
@@ -76667,7 +76667,7 @@ STATUS: {status.upper()}
             if peso is not None:
                 messagebox.showinfo("Peso Lido", 
                                    f"Peso: {peso:,.3f}g\n\n"
-                                   f"Selecione um medicamento/produto para aplicar o peso.")
+                                   f"Selecione um produto para aplicar o peso.")
             return
         
         # Verifica se é produto do tipo peso
@@ -77597,7 +77597,7 @@ STATUS: {status.upper()}
             search_frame = ttk.Frame(sel_win, padding=10)
             search_frame.pack(fill=tk.X)
             
-            ttk.Label(search_frame, text="🔍 Buscar medicamento:").pack(side=tk.LEFT)
+            ttk.Label(search_frame, text="🔍 Buscar produto:").pack(side=tk.LEFT)
             search_var = tk.StringVar()
             search_entry = ttk.Entry(search_frame, textvariable=search_var, width=30)
             search_entry.pack(side=tk.LEFT, padx=5)
@@ -77740,7 +77740,7 @@ STATUS: {status.upper()}
             search_frame = ttk.Frame(sel_win, padding=10)
             search_frame.pack(fill=tk.X)
             
-            ttk.Label(search_frame, text="🔍 Buscar medicamento:").pack(side=tk.LEFT)
+            ttk.Label(search_frame, text="🔍 Buscar produto:").pack(side=tk.LEFT)
             search_var_prod = tk.StringVar()
             search_entry_prod = ttk.Entry(search_frame, textvariable=search_var_prod, width=40)
             search_entry_prod.pack(side=tk.LEFT, padx=5)
@@ -78024,7 +78024,7 @@ STATUS: {status.upper()}
             try:
                 sel = prod_search_var.get()
                 if not sel or ' - ' not in sel:
-                    messagebox.showwarning("Aviso", "Selecione um medicamento/produto!", parent=orc_win)
+                    messagebox.showwarning("Aviso", "Selecione um produto!", parent=orc_win)
                     return
                 
                 pid = sel.split(' - ')[0].strip()
@@ -78502,7 +78502,7 @@ STATUS: {status.upper()}
                                     values=["Todos", "Pendente", "Aprovado", "Convertido", "Cancelado"], width=15)
         status_combo.pack(side=tk.LEFT, padx=5)
         
-        ttk.Label(filtro_frame, text="Buscar medicamento:").pack(side=tk.LEFT, padx=(20, 5))
+        ttk.Label(filtro_frame, text="Buscar produto:").pack(side=tk.LEFT, padx=(20, 5))
         busca_var = tk.StringVar()
         busca_entry = ttk.Entry(filtro_frame, textvariable=busca_var, width=30)
         busca_entry.pack(side=tk.LEFT, padx=5)
@@ -79165,7 +79165,7 @@ STATUS: {status.upper()}
             search_frame = tk.LabelFrame(filter_bar, text="🔍 Pesquisa", padx=5, pady=5)
             search_frame.pack(side=tk.LEFT, padx=(0, 10))
             
-            ttk.Label(search_frame, text="Buscar medicamento:", font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 5))
+            ttk.Label(search_frame, text="Buscar produto:", font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 5))
             search_entry = ttk.Entry(search_frame, textvariable=pesquisa_var, width=25, font=("Segoe UI", 10))
             search_entry.pack(side=tk.LEFT, padx=(0, 5))
             search_entry.bind('<KeyRelease>', lambda e: aplicar_filtros())
@@ -81579,9 +81579,9 @@ class MonitorPesoWindowPDV(tk.Toplevel):
                                        parent=self)
                     self._on_close()
                 else:
-                    messagebox.showwarning("Aviso", "Selecione um medicamento/produto do tipo 'peso'.", parent=self)
+                    messagebox.showwarning("Aviso", "Selecione um produto do tipo 'peso'.", parent=self)
             else:
-                messagebox.showwarning("Aviso", "Selecione um medicamento/produto primeiro.", parent=self)
+                messagebox.showwarning("Aviso", "Selecione um produto primeiro.", parent=self)
         else:
             messagebox.showwarning("Aviso", "Nenhum peso válido disponível.", parent=self)
     
@@ -93895,7 +93895,7 @@ class QuantumSplashScreen:
         header_frame.pack(fill='x', padx=18, pady=(12, 2))
         
         # Ícone animado (texto Unicode como logo)
-        self.logo_label = _tk.Label(header_frame, text="💊", font=('Segoe UI', int(F['title'][1] * 1.35)),
+        self.logo_label = _tk.Label(header_frame, text="🏪", font=('Segoe UI', int(F['title'][1] * 1.35)),
                                      fg=C['accent'], bg=C['bg_dark'])
         self.logo_label.pack(side='left', padx=(0, 8))
         
@@ -93903,7 +93903,7 @@ class QuantumSplashScreen:
         title_container = _tk.Frame(header_frame, bg=C['bg_dark'])
         title_container.pack(side='left', fill='x', expand=True)
         
-        _tk.Label(title_container, text="FARMA QUANTUM", font=('Segoe UI', 18, 'bold'),
+        _tk.Label(title_container, text="LOJA QUANTUM", font=('Segoe UI', 18, 'bold'),
                   fg=C['text_primary'], bg=C['bg_dark'], anchor='w').pack(fill='x')
         _tk.Label(title_container, text="Supreme Ultra Professional - Phoenix Eternal Edition",
                   font=('Segoe UI', 8), fg=C['text_secondary'], bg=C['bg_dark'], anchor='w').pack(fill='x')
@@ -96412,7 +96412,7 @@ try:
         form = ttk.LabelFrame(win, text='Adicionar item na mesa')
         form.pack(fill=tk.X, padx=10, pady=6)
         busca_var = tk.StringVar(); produto_var = tk.StringVar(); qtd_var = tk.StringVar(value='1'); obs_var = tk.StringVar()
-        ttk.Label(form, text='Buscar medicamento:').grid(row=0, column=0, sticky='w', padx=4, pady=3)
+        ttk.Label(form, text='Buscar produto:').grid(row=0, column=0, sticky='w', padx=4, pady=3)
         busca_entry = ttk.Entry(form, textvariable=busca_var, width=34); busca_entry.grid(row=0, column=1, sticky='ew', padx=4, pady=3)
         ttk.Label(form, text='Produto:').grid(row=1, column=0, sticky='w', padx=4, pady=3)
         combo = ttk.Combobox(form, textvariable=produto_var, state='readonly', width=70); combo.grid(row=1, column=1, sticky='ew', padx=4, pady=3)
@@ -96462,7 +96462,7 @@ try:
         def adicionar():
             label = produto_var.get()
             if label not in produto_map:
-                messagebox.showwarning('Produto', 'Selecione um medicamento/produto.', parent=win); return
+                messagebox.showwarning('Produto', 'Selecione um produto.', parent=win); return
             pid, p = produto_map[label]
             qtd = _mesa_valor_float(qtd_var.get(), 1)
             if qtd <= 0:
@@ -97151,14 +97151,14 @@ except Exception as _cfg_json_only_err:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PATCH SÊNIOR - PERMISSÕES ATÔMICAS / GRANULARES / AUDITÁVEIS PARA FARMÁCIA
+# PATCH SÊNIOR - PERMISSÕES ATÔMICAS / GRANULARES / AUDITÁVEIS PARA LOJA
 # v2026.06.05 - adiciona matriz moderna por módulo, tela, botão, ação e campo
 # ═══════════════════════════════════════════════════════════════════════════════
 
 QUANTUM_ATOMIC_PERMISSION_PATCH_VERSION = "2026.06.05-PERMISSOES-ATOMICAS-FARMA"
 
 # Catálogo atômico complementar. Não remove permissões antigas: apenas acrescenta
-# chaves mais finas e compatíveis com módulos de farmácia, drogaria e ambulatório.
+# chaves mais finas e compatíveis com módulos de loja, loja e atendimento.
 ATOMIC_PERMISSION_GROUPS_FARMA = {
     "00 - Administração Mestre": {
         "admin.total": "Acesso total absoluto ao sistema",
@@ -97195,7 +97195,7 @@ ATOMIC_PERMISSION_GROUPS_FARMA = {
     },
     "02 - PDV / Venda Balcão": {
         "pdv.tela.abrir": "Abrir tela de venda balcão",
-        "pdv.produto.buscar": "Buscar medicamento/produto na venda",
+        "pdv.produto.buscar": "Buscar produto/produto na venda",
         "pdv.produto.adicionar": "Adicionar item à venda",
         "pdv.produto.remover": "Remover item da venda",
         "pdv.produto.alterar_quantidade": "Alterar quantidade do item",
@@ -97203,7 +97203,7 @@ ATOMIC_PERMISSION_GROUPS_FARMA = {
         "pdv.desconto.item": "Aplicar desconto em item",
         "pdv.desconto.total": "Aplicar desconto total",
         "pdv.acrescimo.total": "Aplicar acréscimo total",
-        "pdv.cliente.selecionar": "Selecionar cliente/paciente na venda",
+        "pdv.cliente.selecionar": "Selecionar cliente na venda",
         "pdv.pagamento.informar": "Informar forma de pagamento",
         "pdv.finalizar": "Finalizar venda",
         "pdv.cancelar": "Cancelar venda inteira",
@@ -97211,7 +97211,7 @@ ATOMIC_PERMISSION_GROUPS_FARMA = {
         "pdv.reimprimir": "Reimprimir cupom",
         "pdv.gaveta.abrir": "Abrir gaveta de dinheiro",
     },
-    "03 - Produtos / Medicamentos": {
+    "03 - Produtos": {
         "produto.tela.abrir": "Abrir cadastro de produtos/medicamentos",
         "produto.visualizar": "Visualizar produto",
         "produto.criar": "Cadastrar produto",
@@ -97225,7 +97225,7 @@ ATOMIC_PERMISSION_GROUPS_FARMA = {
         "produto.foto.editar": "Editar foto do produto",
         "produto.categoria.editar": "Editar categoria/grupo",
         "produto.controlado.marcar": "Marcar produto como controlado",
-        "produto.antibiotico.marcar": "Marcar produto como antibiótico",
+        "produto.antibiotico.marcar": "Marcar produto como especial",
         "produto.generico.marcar": "Marcar produto como genérico/referência/similar",
         "produto.lote_validade.habilitar": "Habilitar controle de lote e validade no produto",
         "produto.lote_validade.editar": "Editar lote e validade do produto",
@@ -97260,16 +97260,16 @@ ATOMIC_PERMISSION_GROUPS_FARMA = {
         "estoque.ajuste_saida": "Ajuste manual de saída",
         "estoque.perda_vencimento": "Registrar perda por vencimento",
     },
-    "06 - Receituário / Controlados / SNGPC": {
-        "controlado.tela.abrir": "Abrir receituário/controlados",
+    "06 - Encomendas / Pedidos / Reservas": {
+        "controlado.tela.abrir": "Abrir encomendas/pedidos",
         "controlado.dispensar": "Dispensar medicamento controlado",
         "controlado.receita.cadastrar": "Cadastrar dados da receita",
         "controlado.receita.editar": "Editar dados da receita",
         "controlado.receita.excluir": "Excluir receita cadastrada",
         "controlado.crm.editar": "Informar prescritor/CRM",
         "controlado.paciente.editar": "Informar paciente da receita",
-        "controlado.sngpc.marcar": "Marcar como item SNGPC",
-        "controlado.sngpc.exportar": "Exportar dados SNGPC",
+        "controlado.sngpc.marcar": "Marcar item com controle interno",
+        "controlado.sngpc.exportar": "Exportar dados de controle interno",
         "controlado.relatorio.imprimir": "Imprimir relatório de controlados",
     },
     "07 - Tratamento Contínuo / Recompra": {
@@ -97277,40 +97277,40 @@ ATOMIC_PERMISSION_GROUPS_FARMA = {
         "tratamento.criar": "Cadastrar tratamento contínuo",
         "tratamento.editar": "Editar tratamento contínuo",
         "tratamento.excluir": "Excluir tratamento contínuo",
-        "tratamento.posologia.editar": "Editar dose/posologia",
+        "tratamento.posologia.editar": "Editar descrição/observação",
         "tratamento.recompra.calcular": "Calcular próxima recompra",
         "tratamento.alertas.ver": "Ver alertas de recompra",
         "tratamento.compra.marcar": "Marcar recompra como realizada",
         "tratamento.whatsapp.enviar": "Enviar lembrete pelo WhatsApp",
         "tratamento.relatorio.imprimir": "Imprimir relatório de tratamentos",
     },
-    "08 - Ambulatório / Prontuário": {
-        "ambulatorio.tela.abrir": "Abrir prontuário ambulatorial",
-        "ambulatorio.prontuario.criar": "Criar prontuário",
-        "ambulatorio.prontuario.editar": "Editar prontuário",
-        "ambulatorio.prontuario.excluir": "Excluir prontuário",
-        "ambulatorio.prontuario.ver_historico": "Ver histórico do paciente",
+    "08 - Atendimento ao Cliente": {
+        "ambulatorio.tela.abrir": "Abrir ficha de atendimento",
+        "ambulatorio.prontuario.criar": "Criar ficha",
+        "ambulatorio.prontuario.editar": "Editar ficha",
+        "ambulatorio.prontuario.excluir": "Excluir ficha",
+        "ambulatorio.prontuario.ver_historico": "Ver histórico do cliente",
         "ambulatorio.sinais_vitais.editar": "Editar sinais vitais",
         "ambulatorio.anamnese.editar": "Editar anamnese",
         "ambulatorio.alergias.editar": "Editar alergias",
-        "ambulatorio.conduta.editar": "Editar conduta farmacêutica",
+        "ambulatorio.conduta.editar": "Editar conduta de atendimento",
         "ambulatorio.encaminhamento.editar": "Editar encaminhamento",
         "ambulatorio.termo.marcar": "Marcar termo/consentimento",
-        "ambulatorio.imprimir": "Imprimir prontuário/atendimento",
+        "ambulatorio.imprimir": "Imprimir ficha de atendimento",
         "ambulatorio.whatsapp.enviar": "Enviar orientação por WhatsApp",
     },
-    "09 - PBM / Convênios / Farmácia Popular": {
-        "pbm.tela.abrir": "Abrir PBM/convênios",
-        "pbm.autorizar": "Autorizar venda PBM/convênio",
-        "pbm.cancelar": "Cancelar autorização PBM/convênio",
-        "pbm.desconto.editar": "Editar desconto PBM/convênio",
+    "09 - Convênios / Crediário / Loja Popular": {
+        "pbm.tela.abrir": "Abrir convênios",
+        "pbm.autorizar": "Autorizar venda por convênio",
+        "pbm.cancelar": "Cancelar autorização de convênio",
+        "pbm.desconto.editar": "Editar desconto de convênio",
         "pbm.cliente.editar": "Editar dados do beneficiário",
-        "pbm.relatorio.imprimir": "Imprimir relatório PBM/convênios",
-        "farmacia_popular.autorizar": "Autorizar Farmácia Popular",
-        "farmacia_popular.cancelar": "Cancelar autorização Farmácia Popular",
+        "pbm.relatorio.imprimir": "Imprimir relatório de convênios",
+        "farmacia_popular.autorizar": "Autorizar Loja Popular",
+        "farmacia_popular.cancelar": "Cancelar autorização Loja Popular",
     },
-    "10 - Serviços Farmacêuticos": {
-        "servico_farma.tela.abrir": "Abrir serviços farmacêuticos",
+    "10 - Serviços da Loja": {
+        "servico_farma.tela.abrir": "Abrir serviços da loja",
         "servico_farma.agendar": "Agendar serviço",
         "servico_farma.editar": "Editar agendamento/serviço",
         "servico_farma.cancelar": "Cancelar serviço",
@@ -97323,12 +97323,12 @@ ATOMIC_PERMISSION_GROUPS_FARMA = {
         "servico_farma.imprimir": "Imprimir comprovante de serviço",
     },
     "11 - Clientes / CRM / Pós-venda": {
-        "cliente.tela.abrir": "Abrir cadastro de clientes/pacientes",
-        "cliente.visualizar": "Visualizar cliente/paciente",
-        "cliente.criar": "Criar cliente/paciente",
-        "cliente.editar": "Editar cliente/paciente",
-        "cliente.excluir": "Excluir cliente/paciente",
-        "cliente.dados_sensiveis.ver": "Ver dados sensíveis do paciente",
+        "cliente.tela.abrir": "Abrir cadastro de clientes",
+        "cliente.visualizar": "Visualizar cliente",
+        "cliente.criar": "Criar cliente",
+        "cliente.editar": "Editar cliente",
+        "cliente.excluir": "Excluir cliente",
+        "cliente.dados_sensiveis.ver": "Ver dados sensíveis do cliente",
         "cliente.historico_compras.ver": "Ver histórico de compras",
         "cliente.credito.ver": "Ver créditos/débitos",
         "crm.tela.abrir": "Abrir CRM/pós-venda",
@@ -97338,14 +97338,14 @@ ATOMIC_PERMISSION_GROUPS_FARMA = {
         "crm.campanha.enviar": "Enviar campanha comercial",
     },
     "12 - Relatórios / Impressões": {
-        "relatorio_farma.tela.abrir": "Abrir Central de Relatórios Farma",
+        "relatorio_farma.tela.abrir": "Abrir Central de Relatórios Loja",
         "relatorio_farma.produtos_vencidos": "Relatório de produtos vencidos/vencendo",
         "relatorio_farma.estoque_baixo": "Relatório de estoque baixo/reposição",
         "relatorio_farma.tratamentos": "Relatório de tratamentos/recompra",
-        "relatorio_farma.prontuarios": "Relatório de prontuários ambulatoriais",
-        "relatorio_farma.controlados": "Relatório de controlados/SNGPC",
-        "relatorio_farma.pbm": "Relatório PBM/convênios",
-        "relatorio_farma.servicos": "Relatório de serviços farmacêuticos",
+        "relatorio_farma.prontuarios": "Relatório de fichas de atendimento",
+        "relatorio_farma.controlados": "Relatório de itens com controle interno",
+        "relatorio_farma.pbm": "Relatório de convênios",
+        "relatorio_farma.servicos": "Relatório de serviços da loja",
         "relatorio_farma.crm": "Relatório CRM/pós-venda",
         "relatorio_farma.vendas": "Relatório de vendas comerciais",
         "relatorio_farma.a4": "Gerar/imprimir relatório A4",
@@ -97411,13 +97411,13 @@ ATOMIC_PERMISSION_ALIASES_FARMA = {
 
 ATOMIC_PROFILE_TEMPLATES_FARMA = {
     "Administrador Total": ["*"],
-    "Gerente Farmacêutico": [
+    "Gerente da Loja": [
         "pdv.*", "produto.*", "nota.*", "lote.*", "estoque.*", "controlado.*", "tratamento.*",
         "ambulatorio.*", "pbm.*", "farmacia_popular.*", "servico_farma.*", "cliente.*", "crm.*",
         "relatorio_farma.*", "ui.*", "config.sistema.backup", "config.sistema.auditoria",
         "admin.permissoes.abrir", "admin.permissoes.auditar", "admin.permissoes.exportar"
     ],
-    "Farmacêutico Responsável": [
+    "Supervisor da Loja": [
         "pdv.tela.abrir", "pdv.produto.buscar", "pdv.produto.adicionar", "pdv.finalizar",
         "produto.visualizar", "produto.controlado.marcar", "produto.antibiotico.marcar", "produto.lote_validade.editar",
         "controlado.*", "tratamento.*", "ambulatorio.*", "pbm.tela.abrir", "pbm.autorizar",
@@ -97441,7 +97441,7 @@ ATOMIC_PROFILE_TEMPLATES_FARMA = {
         "produto.lote_validade.editar", "nota.*", "lote.*", "estoque.*", "relatorio_farma.produtos_vencidos",
         "relatorio_farma.estoque_baixo", "relatorio_farma.a4", "relatorio_farma.bobina80", "relatorio_farma.exportar", "ui.*"
     ],
-    "Ambulatório": [
+    "Atendimento": [
         "ambulatorio.*", "tratamento.*", "cliente.visualizar", "cliente.criar", "cliente.editar",
         "produto.visualizar", "servico_farma.*", "relatorio_farma.prontuarios", "relatorio_farma.servicos",
         "relatorio_farma.a4", "ambulatorio.whatsapp.enviar", "ui.*"
@@ -97693,7 +97693,7 @@ class QuantumAtomicPermissionsWindow(tk.Toplevel):
     def __init__(self, app=None, master=None):
         super().__init__(master or getattr(app, 'root', None))
         self.app = app
-        self.title('🔐 Permissões Atômicas e Granulares - Farmácia/Drogaria')
+        self.title('🔐 Permissões Atômicas e Granulares - Loja/Loja')
         self.geometry('1280x780')
         try:
             self.state('zoomed')
@@ -98713,7 +98713,7 @@ _QPERM_USADAS_NO_CODIGO_20260616 = ['admin.perfis.criar', 'admin.perfis.editar',
 
 _QPERM_MODULO_NOME = {
     "admin": "Administração, Usuários e Permissões Atômicas",
-    "ambulatorio": "Ambulatório e Prontuário",
+    "ambulatorio": "Atendimento e Ficha",
     "backup": "Backup Automático FTP",
     "bairros": "Bairros e Taxa de Entrega",
     "balanca": "Balança Comercial",
@@ -98744,7 +98744,7 @@ _QPERM_MODULO_NOME = {
     "politica_troca": "Política de Troca",
     "produtos": "Produtos",
     "relatorios": "Relatórios",
-    "relatorios_farma": "Relatórios Farma",
+    "relatorios_farma": "Relatórios Loja",
     "servidor": "Servidor Web",
     "servicos": "Serviços",
     "sistema": "Sistema, Integridade e Performance",
@@ -98911,12 +98911,12 @@ _QPERM_DESCRICOES_FIEIS = {
     "tratamento.excluir": "Excluir tratamento contínuo",
     "tratamento.whatsapp.enviar": "Enviar lembrete de tratamento por WhatsApp",
     "tratamento.relatorio.imprimir": "Imprimir relatório de tratamentos contínuos",
-    "ambulatorio.tela.abrir": "Abrir módulo Ambulatorial/Prontuário",
-    "ambulatorio.acessar": "Acessar prontuário ambulatorial",
-    "ambulatorio.prontuario.criar": "Criar prontuário ambulatorial",
-    "ambulatorio.prontuario.editar": "Editar prontuário ambulatorial",
-    "ambulatorio.prontuario.excluir": "Excluir prontuário ambulatorial",
-    "ambulatorio.whatsapp.enviar": "Enviar dados/orientações do prontuário por WhatsApp",
+    "ambulatorio.tela.abrir": "Abrir módulo de Atendimento/Ficha",
+    "ambulatorio.acessar": "Acessar ficha de atendimento",
+    "ambulatorio.prontuario.criar": "Criar ficha de atendimento",
+    "ambulatorio.prontuario.editar": "Editar ficha de atendimento",
+    "ambulatorio.prontuario.excluir": "Excluir ficha de atendimento",
+    "ambulatorio.whatsapp.enviar": "Enviar dados/orientações da ficha por WhatsApp",
     "botao.pdv.finalizar": "Habilitar botão Finalizar Venda no PDV",
     "botao.pdv.cancelar": "Habilitar botão Cancelar no PDV",
     "botao.pdv.desconto": "Habilitar botão Desconto/Acréscimo no PDV",
@@ -99015,15 +99015,15 @@ def _qperm_aplicar_catalogo_fiel():
                 "botao.nota.finalizar": "Habilitar botão Finalizar Nota/Entrada",
                 "botao.tratamento.salvar": "Habilitar botão Salvar Tratamento",
                 "botao.tratamento.whatsapp": "Habilitar botão WhatsApp do Tratamento",
-                "botao.ambulatorio.salvar": "Habilitar botão Salvar Prontuário",
-                "botao.ambulatorio.excluir": "Habilitar botão Excluir Prontuário",
-                "botao.ambulatorio.whatsapp": "Habilitar botão WhatsApp do Prontuário",
+                "botao.ambulatorio.salvar": "Habilitar botão Salvar Ficha",
+                "botao.ambulatorio.excluir": "Habilitar botão Excluir Ficha",
+                "botao.ambulatorio.whatsapp": "Habilitar botão WhatsApp da Ficha",
                 "botao.relatorios.imprimir": "Habilitar botão Imprimir Relatório",
                 "campo.produto.preco": "Permitir edição dos preços do produto",
                 "campo.produto.estoque": "Permitir edição de estoque do produto",
                 "campo.nota.lote": "Permitir edição do lote na nota",
                 "campo.nota.validade": "Permitir edição da validade na nota",
-                "campo.tratamento.posologia": "Permitir edição da posologia",
+                "campo.tratamento.posologia": "Permitir edição da descrição",
                 "campo.ambulatorio.anamnese": "Permitir edição da anamnese",
                 "campo.ambulatorio.conduta": "Permitir edição da conduta",
             },
@@ -102623,7 +102623,7 @@ try:
         def _patched_create_menu_inventario(self, *args, **kwargs):
             resultado = _orig_create_menu_inventario(self, *args, **kwargs)
             try:
-                # Visibilidade controlada em Configurações > Modulos Farmacia (visibilidade).
+                # Visibilidade controlada em Configurações > Modulos Loja (visibilidade).
                 if not _quantum_inventario_visivel_cfg(self):
                     return resultado
                 menubar = self.root.nametowidget(self.root.cget('menu'))
@@ -103551,7 +103551,7 @@ try:
         def _patched_create_menu_balanca_ultra(self, *args, **kwargs):
             resultado = _orig_create_menu_balanca_ultra(self, *args, **kwargs)
             try:
-                # Visibilidade controlada em Configurações > Modulos Farmacia (visibilidade).
+                # Visibilidade controlada em Configurações > Modulos Loja (visibilidade).
                 if not bool(getattr(self, "config_data", {}).get("menu_balanca_ultra_visivel", True)):
                     return resultado
                 menubar = self.root.nametowidget(self.root.cget("menu"))
@@ -103685,9 +103685,9 @@ def quantum_aplicar_nome_empresa_sem_mudar_layout(app, default_nome="QUANTUM"):
             # Troca somente texto dos labels já existentes.
             # Não troca pack/grid/place, não recria widget e não muda fonte.
             alvos = (
-                "FARMA QUANTUM",
-                "💊 FARMA QUANTUM",
-                "⚕️ FARMA QUANTUM",
+                "LOJA QUANTUM",
+                "🏪 LOJA QUANTUM",
+                "🏪 LOJA QUANTUM",
                 "LOJA QUANTUM",
                 "🏪 LOJA QUANTUM",
                 "🛒 LOJA QUANTUM",
@@ -103718,12 +103718,12 @@ try:
         def _init_nome_empresa_sem_layout(self, *args, **kwargs):
             _orig_init_nome_empresa_sem_layout(self, *args, **kwargs)
             try:
-                quantum_aplicar_nome_empresa_sem_mudar_layout(self, "FARMA QUANTUM")
+                quantum_aplicar_nome_empresa_sem_mudar_layout(self, "LOJA QUANTUM")
             except Exception:
                 pass
             try:
-                self.root.after(300, lambda: quantum_aplicar_nome_empresa_sem_mudar_layout(self, "FARMA QUANTUM"))
-                self.root.after(1200, lambda: quantum_aplicar_nome_empresa_sem_mudar_layout(self, "FARMA QUANTUM"))
+                self.root.after(300, lambda: quantum_aplicar_nome_empresa_sem_mudar_layout(self, "LOJA QUANTUM"))
+                self.root.after(1200, lambda: quantum_aplicar_nome_empresa_sem_mudar_layout(self, "LOJA QUANTUM"))
             except Exception:
                 pass
 
@@ -103739,11 +103739,11 @@ try:
         def _save_empresa_sem_layout(self, *args, **kwargs):
             resultado = _orig_save_empresa_sem_layout(self, *args, **kwargs)
             try:
-                quantum_aplicar_nome_empresa_sem_mudar_layout(self.parent_app, "FARMA QUANTUM")
+                quantum_aplicar_nome_empresa_sem_mudar_layout(self.parent_app, "LOJA QUANTUM")
             except Exception:
                 pass
             try:
-                self.parent_app.root.after(300, lambda: quantum_aplicar_nome_empresa_sem_mudar_layout(self.parent_app, "FARMA QUANTUM"))
+                self.parent_app.root.after(300, lambda: quantum_aplicar_nome_empresa_sem_mudar_layout(self.parent_app, "LOJA QUANTUM"))
             except Exception:
                 pass
             return resultado
@@ -104130,14 +104130,14 @@ if __name__ == "__main__":
             except Exception:
                 root = None
         if root is None:
-            root = ttk.Window(themename="cosmo", title="💊 FARMA QUANTUM - FARMÁCIA & DROGARIA")
+            root = ttk.Window(themename="cosmo", title="🏪 LOJA QUANTUM")
         else:
             try:
                 ttk.Style(theme="cosmo")
             except Exception:
                 pass
             try:
-                root.title("💊 FARMA QUANTUM - FARMÁCIA & DROGARIA")
+                root.title("🏪 LOJA QUANTUM")
             except Exception:
                 pass
         _quantum_configurar_icone_windows(root)
@@ -104325,7 +104325,7 @@ if __name__ == "__main__":
         # ─── Finaliza splash com 100% ───
         splash.update_progress(100, "Inicialização completa")
         splash.log_success("Todos os módulos carregados com sucesso!")
-        splash.log_success("Sistema Farma Quantum pronto para operação.")
+        splash.log_success("Sistema Loja Quantum pronto para operação.")
         AUDITORIA.processo("Splash Screen concluída - 100% carregado")
         try:
             root.update()
@@ -104365,11 +104365,11 @@ if __name__ == "__main__":
             try:
                 _farmacia_amb_patch_app()
             except Exception as _e_amb_patch:
-                print(f"[PRONTUÁRIO AMBULATÓRIO] Patch tardio falhou: {_e_amb_patch}")
+                print(f"[FICHA DE ATENDIMENTO] Patch tardio falhou: {_e_amb_patch}")
             try:
                 _farma_pro_patch_app()
             except Exception as _e_farma_pro_patch:
-                print(f"[FARMÁCIA PRO] Patch tardio falhou: {_e_farma_pro_patch}")
+                print(f"[LOJA PRO] Patch tardio falhou: {_e_farma_pro_patch}")
             try:
                 _rf_patch_app()
             except Exception as _e_rf_patch:
