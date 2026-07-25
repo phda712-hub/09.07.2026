@@ -1,786 +1,1626 @@
 # -*- coding: utf-8 -*-
 """
-═══════════════════════════════════════════════════════════════════════════════
- REPARADOR DE ESTRUTURA DO BANCO  ·  Quantum / Farma Quantum PDV
- (Cria TABELAS e COLUNAS faltantes — corrige os erros ao cadastrar
-  Fornecedor, Tamanho e Nota de Entrada: "faltando coluna ...")
-═══════════════════════════════════════════════════════════════════════════════
+===============================================================================
+ ATUALIZADOR COMPLETO DE ESTRUTURA DO BANCO  ·  Quantum / Farma Quantum PDV
+===============================================================================
+ Cria/atualiza TODO o banco: cria TABELAS e COLUNAS faltantes e indices,
+ corrigindo os erros de "Unknown column ..." / "faltando coluna ..." ao
+ cadastrar Fornecedor, Tamanho, Nota de Entrada, Contas a Pagar/Receber,
+ Vendedores, Bairros, Produtos, Clientes, etc.
 
-POR QUE ESSES ERROS ACONTECEM
------------------------------
-As tabelas foram criadas por uma versao ANTIGA do sistema e nunca receberam as
-colunas novas que o programa passou a usar. Exemplos reais encontrados no codigo:
+ O esquema abaixo (SCHEMA) foi EXTRAIDO automaticamente do proprio codigo
+ do sistema (Quantum_CESAR2027.py), cobrindo todas as tabelas conhecidas.
 
-  • fornecedores  -> faltavam as colunas `observacao` e `updated_at`
-  • notas_entrada -> a tabela antiga tinha `numero` (o codigo usa `numero_nota`);
-                     faltavam `fornecedor_nome`, `itens`, `usuario`, `updated_at`
-  • tamanhos / tamanhos_produtos -> tabela/colunas podiam nao existir
+ SEGURANCA:
+   - NAO apaga dados. So CRIA o que falta (idempotente: pode rodar varias vezes).
+   - Colunas novas entram como NULL/!default, sem quebrar linhas existentes.
+   - Use --dry-run para apenas VER o que seria feito.
 
-Quando o programa tenta gravar/ler uma coluna que nao existe, o MySQL retorna
-"Unknown column ..." (o famoso "faltando coluna nome").
+ USO:
+   python reparar_estrutura_banco.py
+   python reparar_estrutura_banco.py --dry-run
+   python reparar_estrutura_banco.py --host 127.0.0.1 --user root --password X --database farmacia
+   python reparar_estrutura_banco.py --config-ini "C:\\Quantum\\config.ini"
+   python reparar_estrutura_banco.py --config-json "config.json"
+   python reparar_estrutura_banco.py --yes
 
-O QUE ESTE SCRIPT FAZ
----------------------
-  1. Conecta no MySQL do cliente (descobre credenciais em config.ini/config.json,
-     ou voce informa por parametro / interativamente).
-  2. Cria as TABELAS que estiverem faltando (CREATE TABLE IF NOT EXISTS).
-  3. Adiciona as COLUNAS que estiverem faltando (ALTER TABLE ADD COLUMN), sem
-     tocar nas colunas/dados que ja existem.
-  4. Cria indices uteis (ignora se ja existirem).
-  5. Mostra um relatorio do que foi criado/adicionado.
-
-SEGURANCA
----------
-  • NAO apaga dados. So CRIA o que falta (idempotente: pode rodar varias vezes).
-  • Use --dry-run para apenas VER o que seria feito, sem alterar nada.
-
-USO
----
-  python reparar_estrutura_banco.py
-  python reparar_estrutura_banco.py --dry-run
-  python reparar_estrutura_banco.py --host 127.0.0.1 --user root --password SENHA --database farmacia
-  python reparar_estrutura_banco.py --config-ini "C:\\Quantum\\config.ini"
-  python reparar_estrutura_banco.py --config-json "config.json"
-  python reparar_estrutura_banco.py --yes        (sem perguntas)
-
-Requisitos: mysql-connector-python  (ou PyMySQL).
-═══════════════════════════════════════════════════════════════════════════════
+ Requisitos: mysql-connector-python  (ou PyMySQL).
+===============================================================================
 """
 
-import os
-import sys
-import json
-import argparse
-import configparser
+import os, sys, json, argparse, configparser
+
+SCHEMA = {'aniversarios_envios': {'ano': {'a': 'INT NULL', 'c': 'INT NOT NULL', 'pk': False},
+                         'cliente_id': {'a': 'INT NULL', 'c': 'INT NOT NULL', 'pk': False},
+                         'cliente_nome': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                         'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                        'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                        'pk': False},
+                         'data_envio': {'a': 'TEXT', 'c': 'TEXT', 'pk': False},
+                         'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                         'mensagem': {'a': 'TEXT', 'c': 'TEXT', 'pk': False},
+                         'observacao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                         'status': {'a': "VARCHAR(500) DEFAULT 'Enviado'",
+                                    'c': "VARCHAR(500) DEFAULT 'Enviado'",
+                                    'pk': False},
+                         'telefone': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                         'voucher_codigo': {'a': "VARCHAR(255) DEFAULT ''",
+                                            'c': "VARCHAR(255) DEFAULT ''",
+                                            'pk': False},
+                         'voucher_valor': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False}},
+ 'bairros': {'ativo': {'a': 'TINYINT DEFAULT 1', 'c': 'TINYINT DEFAULT 1', 'pk': False},
+             'cidade': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+             'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                            'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                            'pk': False},
+             'criado_em': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                           'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                           'pk': False},
+             'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+             'nome': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+             'observacao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+             'taxa_entrega': {'a': 'DECIMAL(15,4) DEFAULT 0', 'c': 'DECIMAL(15,4) DEFAULT 0', 'pk': False},
+             'tempo_estimado': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+             'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                            'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                            'pk': False},
+             'valor_entrega': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False}},
+ 'caixa': {'caixa_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+           'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                          'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                          'pk': False},
+           'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                         'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                         'pk': False},
+           'data_abertura': {'a': 'DATETIME NULL', 'c': 'DATETIME NULL', 'pk': False},
+           'data_fechamento': {'a': 'DATETIME NULL', 'c': 'DATETIME NULL', 'pk': False},
+           'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+           'nome': {'a': "VARCHAR(120) DEFAULT 'Caixa Principal'",
+                    'c': "VARCHAR(120) DEFAULT 'Caixa Principal'",
+                    'pk': False},
+           'observacao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+           'saldo_final': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+           'saldo_inicial': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+           'status': {'a': "VARCHAR(50) DEFAULT 'aberto'", 'c': "VARCHAR(50) DEFAULT 'aberto'", 'pk': False},
+           'total_creditos': {'a': 'DECIMAL(15,4) DEFAULT 0', 'c': 'DECIMAL(15,4) DEFAULT 0', 'pk': False},
+           'total_debitos': {'a': 'DECIMAL(15,4) DEFAULT 0', 'c': 'DECIMAL(15,4) DEFAULT 0', 'pk': False},
+           'transacoes': {'a': 'LONGTEXT NULL', 'c': 'LONGTEXT NULL', 'pk': False},
+           'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                          'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                          'pk': False},
+           'usuario_abertura': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+           'usuario_fechamento': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False}},
+ 'caixa_movimentos': {'caixa': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                      'caixa_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                      'data': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                               'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                               'pk': False},
+                      'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                      'forma_pagamento': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                      'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                      'tipo': {'a': "VARCHAR(60) DEFAULT ''", 'c': "VARCHAR(60) DEFAULT ''", 'pk': False},
+                      'usuario': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+                      'valor': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                      'venda_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False}},
+ 'caixas_pdv': {'agencia': {'a': "VARCHAR(60) DEFAULT ''", 'c': "VARCHAR(60) DEFAULT ''", 'pk': False},
+                'ativo': {'a': 'TINYINT(1) DEFAULT 1', 'c': 'TINYINT(1) DEFAULT 1', 'pk': False},
+                'banco': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                'conta': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+                'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                               'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                               'pk': False},
+                'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                              'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                              'pk': False},
+                'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                'local': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                'nome': {'a': 'VARCHAR(120) NULL', 'c': 'VARCHAR(120) NOT NULL', 'pk': False},
+                'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                               'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                               'pk': False}},
+ 'campanhas_farmacia': {'ativo': {'a': 'TINYINT(1) DEFAULT 1', 'c': 'TINYINT(1) DEFAULT 1', 'pk': False},
+                        'canal': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                        'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                       'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                       'pk': False},
+                        'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                      'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                      'pk': False},
+                        'data_fim': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                        'data_inicio': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                        'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                        'fim': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                        'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                        'inicio': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                        'nome': {'a': 'VARCHAR(255) NULL', 'c': 'VARCHAR(255) NOT NULL', 'pk': False},
+                        'status': {'a': "VARCHAR(80) DEFAULT 'Ativa'", 'c': "VARCHAR(80) DEFAULT 'Ativa'", 'pk': False},
+                        'tipo': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                        'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                       'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                       'pk': False}},
+ 'cartoes': {'ativo': {'a': 'INT DEFAULT 1', 'c': 'INT DEFAULT 1', 'pk': False},
+             'bandeira': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+             'codigo_operadora': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+             'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                            'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                            'pk': False},
+             'criado_em': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                           'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                           'pk': False},
+             'dias_recebimento': {'a': 'INT DEFAULT 30', 'c': 'INT DEFAULT 30', 'pk': False},
+             'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+             'max_parcelas': {'a': 'INT DEFAULT 1', 'c': 'INT DEFAULT 1', 'pk': False},
+             'nome': {'a': 'TEXT NULL', 'c': 'TEXT NOT NULL', 'pk': False},
+             'observacao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+             'operadora': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+             'taxa': {'a': 'DECIMAL(15,2) DEFAULT 0', 'c': 'DECIMAL(15,2) DEFAULT 0', 'pk': False},
+             'taxa_credito': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+             'taxa_credito_parcelado': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+             'taxa_debito': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+             'tipo': {'a': "VARCHAR(500) DEFAULT 'Crédito'", 'c': "VARCHAR(500) DEFAULT 'Crédito'", 'pk': False},
+             'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                            'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                            'pk': False}},
+ 'categorias': {'ativo': {'a': 'TINYINT(1) DEFAULT 1', 'c': 'TINYINT(1) DEFAULT 1', 'pk': False},
+                'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                               'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                               'pk': False},
+                'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                              'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                              'pk': False},
+                'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                'nome': {'a': 'VARCHAR(160) NULL', 'c': 'VARCHAR(160) NOT NULL', 'pk': False},
+                'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                               'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                               'pk': False}},
+ 'centros_custo': {'ativo': {'a': 'TINYINT(1) DEFAULT 1', 'c': 'TINYINT(1) DEFAULT 1', 'pk': False},
+                   'codigo': {'a': 'VARCHAR(255) NULL UNIQUE', 'c': 'VARCHAR(255) NOT NULL UNIQUE', 'pk': False},
+                   'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                  'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                  'pk': False},
+                   'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                 'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                 'pk': False},
+                   'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                   'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                   'nome': {'a': 'VARCHAR(160) NULL', 'c': 'VARCHAR(160) NOT NULL', 'pk': False},
+                   'orcamento_mensal': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                   'tipo': {'a': "VARCHAR(500) DEFAULT 'despesa'", 'c': "VARCHAR(500) DEFAULT 'despesa'", 'pk': False},
+                   'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                  'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                  'pk': False}},
+ 'clientes': {'alergias': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+              'ativo': {'a': 'TINYINT(1) DEFAULT 1', 'c': 'TINYINT(1) DEFAULT 1', 'pk': False},
+              'atualizado_em': {'a': 'DATETIME NULL', 'c': 'DATETIME NULL', 'pk': False},
+              'bairro': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+              'cep': {'a': "VARCHAR(20) DEFAULT ''", 'c': "VARCHAR(20) DEFAULT ''", 'pk': False},
+              'cidade': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+              'cnpj': {'a': 'VARCHAR(40)', 'c': 'VARCHAR(40)', 'pk': False},
+              'codigo': {'a': 'VARCHAR(80)', 'c': 'VARCHAR(80)', 'pk': False},
+              'convenio': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+              'cpf': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+              'cpf_cnpj': {'a': "VARCHAR(32) DEFAULT ''", 'c': "VARCHAR(32) DEFAULT ''", 'pk': False},
+              'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'pk': False},
+              'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                            'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                            'pk': False},
+              'data_nascimento': {'a': "VARCHAR(20) DEFAULT ''", 'c': "VARCHAR(20) DEFAULT ''", 'pk': False},
+              'data_ultima_compra': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+              'email': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+              'endereco': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+              'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+              'lgpd_consentimento': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+              'limite_credito': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+              'medicamentos_uso': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+              'nome': {'a': 'VARCHAR(255) NULL', 'c': 'VARCHAR(255) NOT NULL', 'pk': False},
+              'numero': {'a': "VARCHAR(30) DEFAULT ''", 'c': "VARCHAR(30) DEFAULT ''", 'pk': False},
+              'observacao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+              'plano_saude': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+              'rg_ie': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+              'saldo_credito': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+              'saldo_fidelidade': {'a': 'DECIMAL(15,4) DEFAULT 0', 'c': 'DECIMAL(15,4) DEFAULT 0', 'pk': False},
+              'telefone': {'a': "VARCHAR(60) DEFAULT ''", 'c': "VARCHAR(60) DEFAULT ''", 'pk': False},
+              'uf': {'a': "VARCHAR(5) DEFAULT ''", 'c': "VARCHAR(5) DEFAULT ''", 'pk': False},
+              'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                             'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                             'pk': False},
+              'whatsapp': {'a': "VARCHAR(60) DEFAULT ''", 'c': "VARCHAR(60) DEFAULT ''", 'pk': False}},
+ 'comandas': {'atualizado_em': {'a': 'DATETIME NULL', 'c': 'DATETIME NULL', 'pk': False},
+              'cliente': {'a': "VARCHAR(500) DEFAULT 'Consumidor Final'",
+                          'c': "VARCHAR(500) DEFAULT 'Consumidor Final'",
+                          'pk': False},
+              'cliente_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+              'cliente_nome': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+              'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'pk': False},
+              'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                            'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                            'pk': False},
+              'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+              'itens': {'a': 'LONGTEXT NULL', 'c': 'LONGTEXT NULL', 'pk': False},
+              'mesa': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+              'mesa_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+              'mesa_nome': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'mesa_numero': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'motivo_reabertura': {'a': 'VARCHAR(500) DEFAULT NULL', 'c': 'VARCHAR(500) DEFAULT NULL', 'pk': False},
+              'nome': {'a': 'VARCHAR(255)', 'c': 'VARCHAR(255)', 'pk': False},
+              'numero': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+              'obs_cozinha_geral': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'obs_cozinha_geral_em': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'obs_cozinha_geral_por': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'observacao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+              'oculto_cozinha': {'a': 'INT DEFAULT 0', 'c': 'INT DEFAULT 0', 'pk': False},
+              'oculto_cozinha_em': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'oculto_cozinha_por': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'reaberta_em': {'a': 'TIMESTAMP DEFAULT NULL', 'c': 'TIMESTAMP DEFAULT NULL', 'pk': False},
+              'reaberta_por': {'a': 'VARCHAR(500) DEFAULT NULL', 'c': 'VARCHAR(500) DEFAULT NULL', 'pk': False},
+              'sinalizada_para_fechar': {'a': 'INT DEFAULT 0', 'c': 'INT DEFAULT 0', 'pk': False},
+              'sinalizada_por': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'status': {'a': "VARCHAR(60) DEFAULT 'aberta'", 'c': "VARCHAR(60) DEFAULT 'aberta'", 'pk': False},
+              'total': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+              'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                             'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                             'pk': False},
+              'vezes_reaberta': {'a': 'INT DEFAULT 0', 'c': 'INT DEFAULT 0', 'pk': False}},
+ 'comandas_itens': {'comanda_id': {'a': 'INT NOT NULL DEFAULT 0', 'c': 'INT NOT NULL DEFAULT 0', 'pk': False},
+                    'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                  'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                  'pk': False},
+                    'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                    'observacao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                    'preco_unitario': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                    'produto': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+                    'produto_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                    'quantidade': {'a': 'DECIMAL(12,3) DEFAULT 0', 'c': 'DECIMAL(12,3) DEFAULT 0', 'pk': False},
+                    'subtotal': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False}},
+ 'configuracoes': {'atualizado_em': {'a': 'DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                     'c': 'DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                     'pk': False},
+                   'categoria': {'a': "VARCHAR(120) DEFAULT 'geral'", 'c': "VARCHAR(120) DEFAULT 'geral'", 'pk': False},
+                   'chave': {'a': 'VARCHAR(191) NULL UNIQUE', 'c': 'VARCHAR(191) NOT NULL UNIQUE', 'pk': False},
+                   'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                  'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                  'pk': False},
+                   'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                 'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                 'pk': False},
+                   'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                   'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                   'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                  'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                  'pk': False},
+                   'valor': {'a': 'LONGTEXT NULL', 'c': 'LONGTEXT NULL', 'pk': False}},
+ 'contas_pagar': {'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                 'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                 'pk': False},
+                  'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                'pk': False},
+                  'data_pagamento': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                  'data_vencimento': {'a': 'TEXT', 'c': 'TEXT', 'pk': False},
+                  'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                  'forma_pagamento': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                  'fornecedor_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                  'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                  'observacao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                  'pagamento': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                  'pago': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+                  'status': {'a': "VARCHAR(60) DEFAULT 'aberto'", 'c': "VARCHAR(60) DEFAULT 'aberto'", 'pk': False},
+                  'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                 'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                 'pk': False},
+                  'valor': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                  'vencimento': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False}},
+ 'contas_receber': {'cliente_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                    'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                   'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                   'pk': False},
+                    'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                  'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                  'pk': False},
+                    'data_recebimento': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'data_vencimento': {'a': 'TEXT', 'c': 'TEXT', 'pk': False},
+                    'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                    'forma_pagamento': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                    'observacao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'recebido': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+                    'recebimento': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                    'status': {'a': "VARCHAR(60) DEFAULT 'aberto'", 'c': "VARCHAR(60) DEFAULT 'aberto'", 'pk': False},
+                    'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                   'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                   'pk': False},
+                    'valor': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                    'vencimento': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                    'venda_id': {'a': 'INT', 'c': 'INT', 'pk': False}},
+ 'creditos_clientes': {'ativo': {'a': 'TINYINT(1) DEFAULT 1', 'c': 'TINYINT(1) DEFAULT 1', 'pk': False},
+                       'cliente_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                       'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                      'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                      'pk': False},
+                       'data': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                'pk': False},
+                       'data_criacao': {'a': 'TEXT', 'c': 'TEXT', 'pk': False},
+                       'data_utilizacao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                       'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                       'devolucao_id': {'a': 'INT', 'c': 'INT', 'pk': False},
+                       'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                       'observacao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                       'origem': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                       'status': {'a': "VARCHAR(500) DEFAULT 'Disponível'",
+                                  'c': "VARCHAR(500) DEFAULT 'Disponível'",
+                                  'pk': False},
+                       'valor': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                       'valor_original': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                       'venda_id': {'a': 'INT', 'c': 'INT', 'pk': False}},
+ 'crm_farmacia': {'cliente': {'a': 'VARCHAR(255)', 'c': 'VARCHAR(255)', 'pk': False},
+                  'cliente_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                  'cliente_nome': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                  'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                 'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                 'pk': False},
+                  'criado_em': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                'pk': False},
+                  'data': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                           'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                           'pk': False},
+                  'data_retorno': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                  'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                  'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                  'mensagem': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                  'observacao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                  'status': {'a': "VARCHAR(60) DEFAULT 'aberto'", 'c': "VARCHAR(60) DEFAULT 'aberto'", 'pk': False},
+                  'telefone': {'a': 'VARCHAR(80)', 'c': 'VARCHAR(80)', 'pk': False},
+                  'telefone_whatsapp': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+                  'tipo': {'a': 'VARCHAR(120)', 'c': 'VARCHAR(120)', 'pk': False},
+                  'tipo_acao': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                  'titulo': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+                  'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                 'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                 'pk': False}},
+ 'customers': {'bairro': {'a': 'VARCHAR(120)', 'c': 'VARCHAR(120)', 'pk': False},
+               'cpf': {'a': 'VARCHAR(40)', 'c': 'VARCHAR(40)', 'pk': False},
+               'criado_em': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'pk': False},
+               'endereco': {'a': 'VARCHAR(255)', 'c': 'VARCHAR(255)', 'pk': False},
+               'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+               'name': {'a': 'VARCHAR(255)', 'c': 'VARCHAR(255)', 'pk': False},
+               'nome': {'a': 'VARCHAR(255)', 'c': 'VARCHAR(255)', 'pk': False},
+               'observacao': {'a': 'TEXT', 'c': 'TEXT', 'pk': False},
+               'phone': {'a': 'VARCHAR(80)', 'c': 'VARCHAR(80)', 'pk': False},
+               'telefone': {'a': 'VARCHAR(80)', 'c': 'VARCHAR(80)', 'pk': False},
+               'whatsapp': {'a': 'VARCHAR(80)', 'c': 'VARCHAR(80)', 'pk': False}},
+ 'devolucoes': {'cliente_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                'cliente_nome': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                               'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                               'pk': False},
+                'credito_gerado_id': {'a': 'INT', 'c': 'INT', 'pk': False},
+                'cupom_original': {'a': 'INT', 'c': 'INT', 'pk': False},
+                'data': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                         'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                         'pk': False},
+                'data_devolucao': {'a': 'TEXT', 'c': 'TEXT', 'pk': False},
+                'data_estorno': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                'estornado': {'a': 'INT DEFAULT 0', 'c': 'INT DEFAULT 0', 'pk': False},
+                'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                'itens_devolvidos': {'a': "VARCHAR(500) DEFAULT '[]'", 'c': "VARCHAR(500) DEFAULT '[]'", 'pk': False},
+                'motivo': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                'motivo_estorno': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                'status': {'a': "VARCHAR(60) DEFAULT 'finalizada'",
+                           'c': "VARCHAR(60) DEFAULT 'finalizada'",
+                           'pk': False},
+                'tipo_devolucao': {'a': "VARCHAR(500) DEFAULT 'reembolso'",
+                                   'c': "VARCHAR(500) DEFAULT 'reembolso'",
+                                   'pk': False},
+                'usuario': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+                'usuario_estorno': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                'valor': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                'valor_total': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                'venda_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False}},
+ 'empresa': {'atualizado_em': {'a': 'DATETIME NULL', 'c': 'DATETIME NULL', 'pk': False},
+             'autorizacao_anvisa': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+             'bairro': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+             'cep': {'a': "VARCHAR(20) DEFAULT ''", 'c': "VARCHAR(20) DEFAULT ''", 'pk': False},
+             'chave_pix': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+             'cidade': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+             'cnpj': {'a': "VARCHAR(32) DEFAULT ''", 'c': "VARCHAR(32) DEFAULT ''", 'pk': False},
+             'cpf': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+             'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                            'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                            'pk': False},
+             'crf_responsavel': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+             'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                           'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                           'pk': False},
+             'email': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+             'endereco': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+             'estado': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+             'fantasia': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+             'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+             'ie': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+             'inscricao_estadual': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+             'inscricao_municipal': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+             'logo_path': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+             'nome': {'a': "VARCHAR(255) DEFAULT 'Minha Empresa'",
+                      'c': "VARCHAR(255) DEFAULT 'Minha Empresa'",
+                      'pk': False},
+             'nome_fantasia': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+             'observacao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+             'pix_banco': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+             'pix_chave': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+             'pix_titular': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+             'politica_troca': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+             'razao_social': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+             'responsavel_tecnico': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+             'telefone': {'a': "VARCHAR(60) DEFAULT ''", 'c': "VARCHAR(60) DEFAULT ''", 'pk': False},
+             'uf': {'a': "VARCHAR(5) DEFAULT ''", 'c': "VARCHAR(5) DEFAULT ''", 'pk': False},
+             'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                            'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                            'pk': False},
+             'whatsapp': {'a': "VARCHAR(60) DEFAULT ''", 'c': "VARCHAR(60) DEFAULT ''", 'pk': False}},
+ 'entregadores': {'ativo': {'a': 'TINYINT DEFAULT 1', 'c': 'TINYINT DEFAULT 1', 'pk': False},
+                  'bairro': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                  'cnh': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                  'cpf': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                  'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                 'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                 'pk': False},
+                  'criado_em': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                'pk': False},
+                  'data_admissao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                  'endereco': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                  'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                  'nome': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+                  'observacao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                  'pix': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                  'placa': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                  'status': {'a': "VARCHAR(500) DEFAULT 'Ativo'", 'c': "VARCHAR(500) DEFAULT 'Ativo'", 'pk': False},
+                  'taxa_entrega': {'a': 'DECIMAL(15,4) DEFAULT 0', 'c': 'DECIMAL(15,4) DEFAULT 0', 'pk': False},
+                  'telefone': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+                  'telefone2': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                  'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                 'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                 'pk': False},
+                  'valor_entrega': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                  'veiculo': {'a': "VARCHAR(500) DEFAULT 'Moto'", 'c': "VARCHAR(500) DEFAULT 'Moto'", 'pk': False},
+                  'whatsapp': {'a': 'VARCHAR(80)', 'c': 'VARCHAR(80)', 'pk': False}},
+ 'estoque_lotes': {'alerta_15_dias': {'a': 'TINYINT DEFAULT 1', 'c': 'TINYINT DEFAULT 1', 'pk': False},
+                   'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                  'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                  'pk': False},
+                   'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                 'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                 'pk': False},
+                   'data_validade': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                   'fornecedor_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                   'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                   'lote': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                   'nota_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                   'origem': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                   'produto_codigo': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                   'produto_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                   'produto_nome': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                   'quantidade': {'a': 'DECIMAL(12,3) DEFAULT 0', 'c': 'DECIMAL(12,3) DEFAULT 0', 'pk': False},
+                   'status': {'a': "VARCHAR(80) DEFAULT 'Ativo'", 'c': "VARCHAR(80) DEFAULT 'Ativo'", 'pk': False},
+                   'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                  'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                  'pk': False},
+                   'validade': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False}},
+ 'fechamentos_caixa': {'caixa_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                       'caixa_nome': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                       'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                      'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                      'pk': False},
+                       'data_abertura': {'a': 'DATETIME NULL', 'c': 'DATETIME NULL', 'pk': False},
+                       'data_fechamento': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                           'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                           'pk': False},
+                       'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                       'observacao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                       'saldo_final': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                       'saldo_inicial': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                       'total_creditos': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                       'total_debitos': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                       'total_entradas': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                       'total_saidas': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                       'transacoes': {'a': 'LONGTEXT', 'c': 'LONGTEXT', 'pk': False},
+                       'usuario': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                       'usuario_abertura': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+                       'usuario_fechamento': {'a': "VARCHAR(80) DEFAULT ''",
+                                              'c': "VARCHAR(80) DEFAULT ''",
+                                              'pk': False}},
+ 'fornecedores': {'ativo': {'a': 'TINYINT(1) DEFAULT 1', 'c': 'TINYINT(1) DEFAULT 1', 'pk': False},
+                  'cnpj': {'a': "VARCHAR(32) DEFAULT ''", 'c': "VARCHAR(32) DEFAULT ''", 'pk': False},
+                  'contato': {'a': "VARCHAR(160) DEFAULT ''", 'c': "VARCHAR(160) DEFAULT ''", 'pk': False},
+                  'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                 'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                 'pk': False},
+                  'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                'pk': False},
+                  'email': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                  'endereco': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                  'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                  'nome': {'a': 'VARCHAR(255) NULL', 'c': 'VARCHAR(255) NOT NULL', 'pk': False},
+                  'observacao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                  'telefone': {'a': "VARCHAR(60) DEFAULT ''", 'c': "VARCHAR(60) DEFAULT ''", 'pk': False},
+                  'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                 'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                 'pk': False},
+                  'whatsapp': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False}},
+ 'garcons': {'ativo': {'a': 'INT DEFAULT 1', 'c': 'INT DEFAULT 1', 'pk': False},
+             'cpf': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+             'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                            'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                            'pk': False},
+             'data_admissao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+             'email': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+             'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+             'nome': {'a': 'TEXT NULL', 'c': 'TEXT NOT NULL', 'pk': False},
+             'observacao': {'a': 'TEXT', 'c': 'TEXT', 'pk': False},
+             'percentual_taxa': {'a': 'DOUBLE DEFAULT 10.0', 'c': 'DOUBLE DEFAULT 10.0', 'pk': False},
+             'pix': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+             'status': {'a': "VARCHAR(500) DEFAULT 'Ativo'", 'c': "VARCHAR(500) DEFAULT 'Ativo'", 'pk': False},
+             'telefone': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+             'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                            'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                            'pk': False}},
+ 'itens_venda': {'codigo': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                 'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                               'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                               'pk': False},
+                 'desconto': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                 'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                 'preco_unitario': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                 'produto': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+                 'produto_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                 'quantidade': {'a': 'DECIMAL(12,3) DEFAULT 0', 'c': 'DECIMAL(12,3) DEFAULT 0', 'pk': False},
+                 'subtotal': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                 'unidade': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+                 'venda_id': {'a': 'INT NOT NULL DEFAULT 0', 'c': 'INT NOT NULL DEFAULT 0', 'pk': False}},
+ 'lancamentos_centro_custo': {'centro_custo_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                              'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                             'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                             'pk': False},
+                              'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                            'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                            'pk': False},
+                              'data': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                       'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                       'pk': False},
+                              'data_competencia': {'a': 'TEXT', 'c': 'TEXT', 'pk': False},
+                              'data_lancamento': {'a': 'TEXT', 'c': 'TEXT', 'pk': False},
+                              'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                              'documento': {'a': "VARCHAR(500) DEFAULT ''",
+                                            'c': "VARCHAR(500) DEFAULT ''",
+                                            'pk': False},
+                              'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                              'observacao': {'a': "VARCHAR(500) DEFAULT ''",
+                                             'c': "VARCHAR(500) DEFAULT ''",
+                                             'pk': False},
+                              'tipo': {'a': "VARCHAR(60) DEFAULT ''", 'c': "VARCHAR(60) DEFAULT ''", 'pk': False},
+                              'usuario': {'a': 'TEXT', 'c': 'TEXT', 'pk': False},
+                              'valor': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False}},
+ 'mesas': {'ambiente': {'a': "VARCHAR(500) DEFAULT 'Salão'", 'c': "VARCHAR(500) DEFAULT 'Salão'", 'pk': False},
+           'ativo': {'a': 'INT DEFAULT 1', 'c': 'INT DEFAULT 1', 'pk': False},
+           'capacidade': {'a': 'INT DEFAULT 4', 'c': 'INT DEFAULT 4', 'pk': False},
+           'comanda_numero': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+           'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                          'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                          'pk': False},
+           'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+           'nome': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+           'numero': {'a': 'VARCHAR(255) NULL UNIQUE', 'c': 'VARCHAR(255) NOT NULL UNIQUE', 'pk': False},
+           'observacao': {'a': 'TEXT', 'c': 'TEXT', 'pk': False},
+           'reservado_em': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+           'reservado_para': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+           'status': {'a': "VARCHAR(500) DEFAULT 'Livre'", 'c': "VARCHAR(500) DEFAULT 'Livre'", 'pk': False},
+           'taxa_servico': {'a': 'DOUBLE DEFAULT 10.0', 'c': 'DOUBLE DEFAULT 10.0', 'pk': False},
+           'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                          'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                          'pk': False}},
+ 'movimentacoes_caixa': {'caixa_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                         'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                       'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                       'pk': False},
+                         'data': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                  'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                  'pk': False},
+                         'data_hora': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                       'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                       'pk': False},
+                         'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                         'forma_pagamento': {'a': "VARCHAR(120) DEFAULT ''",
+                                             'c': "VARCHAR(120) DEFAULT ''",
+                                             'pk': False},
+                         'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                         'observacao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                         'saldo_final': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                         'saldo_inicial': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                         'tipo': {'a': "VARCHAR(60) DEFAULT ''", 'c': "VARCHAR(60) DEFAULT ''", 'pk': False},
+                         'turno_id': {'a': 'INT DEFAULT 1', 'c': 'INT DEFAULT 1', 'pk': False},
+                         'usuario': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+                         'valor': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                         'venda_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False}},
+ 'notas_entrada': {'chave_nfe': {'a': "VARCHAR(100) DEFAULT ''", 'c': "VARCHAR(100) DEFAULT ''", 'pk': False},
+                   'controlar_lote_validade': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+                   'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                  'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                  'pk': False},
+                   'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                 'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                 'pk': False},
+                   'danfe_path': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                   'data_emissao': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                   'data_entrada': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                    'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                    'pk': False},
+                   'data_validade': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                   'fornecedor': {'a': 'VARCHAR(255)', 'c': 'VARCHAR(255)', 'pk': False},
+                   'fornecedor_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                   'fornecedor_nome': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                   'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                   'itens': {'a': 'LONGTEXT NULL', 'c': 'LONGTEXT NULL', 'pk': False},
+                   'lote': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                   'modelo': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+                   'numero': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                   'numero_nota': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                   'observacao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                   'produto_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                   'produto_nome': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                   'quantidade': {'a': 'DECIMAL(15,3) DEFAULT 0', 'c': 'DECIMAL(15,3) DEFAULT 0', 'pk': False},
+                   'serie': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+                   'status_conferencia': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+                   'total': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                   'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                  'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                  'pk': False},
+                   'usuario': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+                   'usuario_conferencia': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+                   'validade': {'a': "VARCHAR(20) DEFAULT ''", 'c': "VARCHAR(20) DEFAULT ''", 'pk': False},
+                   'valor_total': {'a': 'DECIMAL(15,4) DEFAULT 0', 'c': 'DECIMAL(15,4) DEFAULT 0', 'pk': False},
+                   'valor_unitario': {'a': 'DECIMAL(15,4) DEFAULT 0', 'c': 'DECIMAL(15,4) DEFAULT 0', 'pk': False},
+                   'xml_path': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False}},
+ 'orcamentos': {'cliente_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                'cliente_nome': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+                'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                               'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                               'pk': False},
+                'data': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                         'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                         'pk': False},
+                'desconto': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                'itens': {'a': 'LONGTEXT NULL', 'c': 'LONGTEXT NULL', 'pk': False},
+                'numero': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+                'observacao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                'status': {'a': "VARCHAR(60) DEFAULT 'aberto'", 'c': "VARCHAR(60) DEFAULT 'aberto'", 'pk': False},
+                'subtotal': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                'total': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                               'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                               'pk': False},
+                'usuario': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                'validade': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                'venda_id': {'a': 'INT', 'c': 'INT', 'pk': False}},
+ 'orcamentos_itens': {'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                      'orcamento_id': {'a': 'INT NOT NULL DEFAULT 0', 'c': 'INT NOT NULL DEFAULT 0', 'pk': False},
+                      'preco_unitario': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                      'produto': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+                      'produto_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                      'quantidade': {'a': 'DECIMAL(12,3) DEFAULT 0', 'c': 'DECIMAL(12,3) DEFAULT 0', 'pk': False},
+                      'subtotal': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False}},
+ 'ordens_servico': {'acessorios': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'cliente_email': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'cliente_endereco': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'cliente_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                    'cliente_nome': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+                    'cliente_telefone': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'cor': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                   'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                   'pk': False},
+                    'data_abertura': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                      'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                      'pk': False},
+                    'data_conclusao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'data_entrega': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'data_fechamento': {'a': 'DATETIME NULL', 'c': 'DATETIME NULL', 'pk': False},
+                    'data_garantia_fim': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'data_previsao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'data_ultima_alteracao': {'a': "VARCHAR(500) DEFAULT ''",
+                                              'c': "VARCHAR(500) DEFAULT ''",
+                                              'pk': False},
+                    'defeito_constatado': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'defeito_relatado': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'desconto': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                    'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                    'forma_pagamento': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'garantia_dias': {'a': 'INT DEFAULT 0', 'c': 'INT DEFAULT 0', 'pk': False},
+                    'historico': {'a': 'JSON DEFAULT NULL', 'c': 'JSON DEFAULT NULL', 'pk': False},
+                    'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                    'itens': {'a': 'LONGTEXT NULL', 'c': 'LONGTEXT NULL', 'pk': False},
+                    'marca': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'modelo': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'numero': {'a': 'VARCHAR(255) NULL UNIQUE', 'c': 'VARCHAR(255) NOT NULL UNIQUE', 'pk': False},
+                    'numero_serie': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'observacoes': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'observacoes_internas': {'a': "VARCHAR(500) DEFAULT ''",
+                                             'c': "VARCHAR(500) DEFAULT ''",
+                                             'pk': False},
+                    'pecas': {'a': "VARCHAR(500) DEFAULT '[]'", 'c': "VARCHAR(500) DEFAULT '[]'", 'pk': False},
+                    'prioridade': {'a': "VARCHAR(500) DEFAULT 'Normal'",
+                                   'c': "VARCHAR(500) DEFAULT 'Normal'",
+                                   'pk': False},
+                    'senha_equipamento': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'servicos': {'a': "VARCHAR(500) DEFAULT '[]'", 'c': "VARCHAR(500) DEFAULT '[]'", 'pk': False},
+                    'status': {'a': "VARCHAR(60) DEFAULT 'aberta'", 'c': "VARCHAR(60) DEFAULT 'aberta'", 'pk': False},
+                    'tecnico_nome': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'tipo_equipamento': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'total': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                    'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                   'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                   'pk': False},
+                    'usuario_criacao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                    'usuario_ultima_alteracao': {'a': "VARCHAR(500) DEFAULT ''",
+                                                 'c': "VARCHAR(500) DEFAULT ''",
+                                                 'pk': False},
+                    'valor_pago': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                    'valor_pecas': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                    'valor_pendente': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                    'valor_servicos': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                    'valor_total': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False}},
+ 'pbm_convenios': {'ativo': {'a': 'TINYINT(1) DEFAULT 1', 'c': 'TINYINT(1) DEFAULT 1', 'pk': False},
+                   'autorizacao': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                   'beneficio': {'a': 'VARCHAR(255)', 'c': 'VARCHAR(255)', 'pk': False},
+                   'cliente': {'a': 'VARCHAR(255)', 'c': 'VARCHAR(255)', 'pk': False},
+                   'cliente_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                   'cliente_nome': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                   'convenio': {'a': 'VARCHAR(255)', 'c': 'VARCHAR(255)', 'pk': False},
+                   'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                  'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                  'pk': False},
+                   'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                 'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                 'pk': False},
+                   'desconto': {'a': 'DECIMAL(15,2) DEFAULT 0', 'c': 'DECIMAL(15,2) DEFAULT 0', 'pk': False},
+                   'desconto_percentual': {'a': 'DECIMAL(10,4) DEFAULT 0', 'c': 'DECIMAL(10,4) DEFAULT 0', 'pk': False},
+                   'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                   'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                   'medicamento': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                   'nome': {'a': 'VARCHAR(255) NULL', 'c': 'VARCHAR(255) NOT NULL', 'pk': False},
+                   'observacao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                   'produto_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                   'tipo': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                   'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                  'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                  'pk': False},
+                   'validade': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                   'validade_beneficio': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False}},
+ 'produto_tamanhos': {'ativo': {'a': 'TINYINT DEFAULT 1', 'c': 'TINYINT DEFAULT 1', 'pk': False},
+                      'codigo_barras': {'a': 'VARCHAR(80)', 'c': 'VARCHAR(80)', 'pk': False},
+                      'criado_em': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                    'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                    'pk': False},
+                      'estoque': {'a': 'DECIMAL(15,3) DEFAULT 0', 'c': 'DECIMAL(15,3) DEFAULT 0', 'pk': False},
+                      'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                      'preco': {'a': 'DECIMAL(15,2) DEFAULT 0', 'c': 'DECIMAL(15,2) DEFAULT 0', 'pk': False},
+                      'preco_venda': {'a': 'DECIMAL(15,2) DEFAULT 0', 'c': 'DECIMAL(15,2) DEFAULT 0', 'pk': False},
+                      'produto_id': {'a': 'INT', 'c': 'INT', 'pk': False},
+                      'tamanho': {'a': 'VARCHAR(120)', 'c': 'VARCHAR(120)', 'pk': False},
+                      'tamanho_id': {'a': 'INT', 'c': 'INT', 'pk': False}},
+ 'produtos': {'aliquota_cofins': {'a': 'DECIMAL(10,4) DEFAULT 0', 'c': 'DECIMAL(10,4) DEFAULT 0', 'pk': False},
+              'aliquota_icms': {'a': 'DECIMAL(10,4) DEFAULT 0', 'c': 'DECIMAL(10,4) DEFAULT 0', 'pk': False},
+              'aliquota_pis': {'a': 'DECIMAL(10,4) DEFAULT 0', 'c': 'DECIMAL(10,4) DEFAULT 0', 'pk': False},
+              'antibiotico': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+              'atacado_qtd_minima': {'a': 'DOUBLE DEFAULT 10.0', 'c': 'DOUBLE DEFAULT 10.0', 'pk': False},
+              'ativo': {'a': 'TINYINT(1) DEFAULT 1', 'c': 'TINYINT(1) DEFAULT 1', 'pk': False},
+              'atualizado_em': {'a': 'DATETIME NULL', 'c': 'DATETIME NULL', 'pk': False},
+              'categoria': {'a': "VARCHAR(160) DEFAULT ''", 'c': "VARCHAR(160) DEFAULT ''", 'pk': False},
+              'categoria_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+              'cest': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+              'cfop': {'a': "VARCHAR(20) DEFAULT ''", 'c': "VARCHAR(20) DEFAULT ''", 'pk': False},
+              'codigo': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+              'codigo_barras': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+              'controlado': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+              'controlar_lote_validade': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+              'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'pk': False},
+              'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                            'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                            'pk': False},
+              'curva_abc': {'a': "VARCHAR(10) DEFAULT ''", 'c': "VARCHAR(10) DEFAULT ''", 'pk': False},
+              'data_validade': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+              'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+              'estoque': {'a': 'DECIMAL(12,3) DEFAULT 0', 'c': 'DECIMAL(12,3) DEFAULT 0', 'pk': False},
+              'estoque_inicial': {'a': 'DECIMAL(12,3) DEFAULT 0', 'c': 'DECIMAL(12,3) DEFAULT 0', 'pk': False},
+              'estoque_minimo': {'a': 'DECIMAL(12,3) DEFAULT 0', 'c': 'DECIMAL(12,3) DEFAULT 0', 'pk': False},
+              'farmacia_popular': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+              'fidelidade_pontos': {'a': 'INT DEFAULT 0', 'c': 'INT DEFAULT 0', 'pk': False},
+              'fornecedor_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+              'grupo': {'a': 'VARCHAR(120)', 'c': 'VARCHAR(120)', 'pk': False},
+              'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+              'imagem': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+              'laboratorio': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+              'localizacao': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+              'lote': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+              'margem_lucro': {'a': 'DECIMAL(10,4) DEFAULT 0', 'c': 'DECIMAL(10,4) DEFAULT 0', 'pk': False},
+              'medicamento': {'a': 'TINYINT DEFAULT 1', 'c': 'TINYINT DEFAULT 1', 'pk': False},
+              'ncm': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+              'nome': {'a': 'VARCHAR(255) NULL', 'c': 'VARCHAR(255) NOT NULL', 'pk': False},
+              'pbm': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+              'preco': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+              'preco_atacado': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+              'preco_compra': {'a': 'DECIMAL(15,4) DEFAULT 0', 'c': 'DECIMAL(15,4) DEFAULT 0', 'pk': False},
+              'preco_custo': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+              'preco_promocional': {'a': 'DECIMAL(15,4) DEFAULT 0', 'c': 'DECIMAL(15,4) DEFAULT 0', 'pk': False},
+              'preco_venda': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+              'principio_ativo': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'promocao_ativa': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+              'promocao_fim': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'promocao_inicio': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'psicotropico': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+              'registro_ms': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+              'tamanho_id': {'a': 'INT DEFAULT NULL', 'c': 'INT DEFAULT NULL', 'pk': False},
+              'tarja': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+              'tipo': {'a': "VARCHAR(80) DEFAULT 'unidade'", 'c': "VARCHAR(80) DEFAULT 'unidade'", 'pk': False},
+              'tipo_medicamento': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+              'ultima_compra': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+              'ultima_venda': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+              'unidade': {'a': "VARCHAR(40) DEFAULT 'unidade'", 'c': "VARCHAR(40) DEFAULT 'unidade'", 'pk': False},
+              'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                             'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                             'pk': False},
+              'uso_continuo': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+              'validade': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False}},
+ 'prontuario_ambulatorial': {'alergias': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                             'altura': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+                             'anamnese': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                             'avaliacao_farmaceutica': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                             'classificacao_risco': {'a': "VARCHAR(120) DEFAULT ''",
+                                                     'c': "VARCHAR(120) DEFAULT ''",
+                                                     'pk': False},
+                             'cliente_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                             'cliente_nome': {'a': "VARCHAR(500) DEFAULT ''",
+                                              'c': "VARCHAR(500) DEFAULT ''",
+                                              'pk': False},
+                             'condicoes_conhecidas': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                             'conduta': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                             'consentimento': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+                             'cpf': {'a': 'VARCHAR(40)', 'c': 'VARCHAR(40)', 'pk': False},
+                             'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                            'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                            'pk': False},
+                             'data': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                      'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                      'pk': False},
+                             'data_atendimento': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                                  'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                                  'pk': False},
+                             'data_hora': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                           'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                           'pk': False},
+                             'diagnostico': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                             'encaminhamento': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                             'frequencia_cardiaca': {'a': "VARCHAR(40) DEFAULT ''",
+                                                     'c': "VARCHAR(40) DEFAULT ''",
+                                                     'pk': False},
+                             'glicemia': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+                             'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                             'imc': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+                             'medicamentos_uso': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                             'observacao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                             'observacoes_internas': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                             'orientacoes': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                             'paciente': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+                             'paciente_nome': {'a': "VARCHAR(500) DEFAULT ''",
+                                               'c': "VARCHAR(500) DEFAULT ''",
+                                               'pk': False},
+                             'peso': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+                             'pressao': {'a': 'VARCHAR(40)', 'c': 'VARCHAR(40)', 'pk': False},
+                             'pressao_arterial': {'a': "VARCHAR(40) DEFAULT ''",
+                                                  'c': "VARCHAR(40) DEFAULT ''",
+                                                  'pk': False},
+                             'procedimento': {'a': "VARCHAR(500) DEFAULT ''",
+                                              'c': "VARCHAR(500) DEFAULT ''",
+                                              'pk': False},
+                             'profissional': {'a': "VARCHAR(255) DEFAULT ''",
+                                              'c': "VARCHAR(255) DEFAULT ''",
+                                              'pk': False},
+                             'queixa': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                             'queixa_principal': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                             'registro_profissional': {'a': "VARCHAR(80) DEFAULT ''",
+                                                       'c': "VARCHAR(80) DEFAULT ''",
+                                                       'pk': False},
+                             'responsavel': {'a': "VARCHAR(255) DEFAULT ''",
+                                             'c': "VARCHAR(255) DEFAULT ''",
+                                             'pk': False},
+                             'retorno_monitoramento': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                             'spo2': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+                             'telefone': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+                             'temperatura': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+                             'tipo_atendimento': {'a': "VARCHAR(120) DEFAULT ''",
+                                                  'c': "VARCHAR(120) DEFAULT ''",
+                                                  'pk': False},
+                             'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                            'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                            'pk': False},
+                             'whatsapp': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False}},
+ 'quantum_backup_automatico_ftp': {'ativo': {'a': 'TINYINT(1) NOT NULL DEFAULT 0',
+                                             'c': 'TINYINT(1) NOT NULL DEFAULT 0',
+                                             'pk': False},
+                                   'atualizado_em': {'a': 'DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE '
+                                                          'CURRENT_TIMESTAMP',
+                                                     'c': 'DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE '
+                                                          'CURRENT_TIMESTAMP',
+                                                     'pk': False},
+                                   'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                                  'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                                  'pk': False},
+                                   'criado_em': {'a': 'DATETIME NULL DEFAULT CURRENT_TIMESTAMP',
+                                                 'c': 'DATETIME NULL DEFAULT CURRENT_TIMESTAMP',
+                                                 'pk': False},
+                                   'host_ftp': {'a': 'VARCHAR(255) NULL', 'c': 'VARCHAR(255) NULL', 'pk': False},
+                                   'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                                   'intervalo_minutos': {'a': 'INT NOT NULL DEFAULT 60',
+                                                         'c': 'INT NOT NULL DEFAULT 60',
+                                                         'pk': False},
+                                   'pasta_remota': {'a': 'VARCHAR(500) NULL', 'c': 'VARCHAR(500) NULL', 'pk': False},
+                                   'senha_ftp': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                                   'ultimo_arquivo': {'a': 'VARCHAR(500) NULL', 'c': 'VARCHAR(500) NULL', 'pk': False},
+                                   'ultimo_backup': {'a': 'DATETIME NULL', 'c': 'DATETIME NULL', 'pk': False},
+                                   'ultimo_backup_em': {'a': 'DATETIME NULL', 'c': 'DATETIME NULL', 'pk': False},
+                                   'ultimo_status': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                                   'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE '
+                                                       'CURRENT_TIMESTAMP',
+                                                  'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE '
+                                                       'CURRENT_TIMESTAMP',
+                                                  'pk': False},
+                                   'usuario_ftp': {'a': 'VARCHAR(255) NULL', 'c': 'VARCHAR(255) NULL', 'pk': False}},
+ 'quantum_configuracoes_automaticas': {'atualizado_em': {'a': 'DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE '
+                                                              'CURRENT_TIMESTAMP',
+                                                         'c': 'DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE '
+                                                              'CURRENT_TIMESTAMP',
+                                                         'pk': False},
+                                       'categoria': {'a': "VARCHAR(120) DEFAULT 'sistema'",
+                                                     'c': "VARCHAR(120) DEFAULT 'sistema'",
+                                                     'pk': False},
+                                       'chave': {'a': 'VARCHAR(191) NULL UNIQUE',
+                                                 'c': 'VARCHAR(191) NOT NULL UNIQUE',
+                                                 'pk': False},
+                                       'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                                      'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                                      'pk': False},
+                                       'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                                       'grupo': {'a': "VARCHAR(80) NULL DEFAULT 'geral'",
+                                                 'c': "VARCHAR(80) NULL DEFAULT 'geral'",
+                                                 'pk': False},
+                                       'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                                       'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE '
+                                                           'CURRENT_TIMESTAMP',
+                                                      'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE '
+                                                           'CURRENT_TIMESTAMP',
+                                                      'pk': False},
+                                       'valor': {'a': 'LONGTEXT NULL', 'c': 'LONGTEXT NULL', 'pk': False}},
+ 'quantum_envio_mysql_externo': {'ativo': {'a': 'TINYINT(1) NOT NULL DEFAULT 0',
+                                           'c': 'TINYINT(1) NOT NULL DEFAULT 0',
+                                           'pk': False},
+                                 'atualizado_em': {'a': 'DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE '
+                                                        'CURRENT_TIMESTAMP',
+                                                   'c': 'DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE '
+                                                        'CURRENT_TIMESTAMP',
+                                                   'pk': False},
+                                 'criado_em': {'a': 'DATETIME NULL DEFAULT CURRENT_TIMESTAMP',
+                                               'c': 'DATETIME NULL DEFAULT CURRENT_TIMESTAMP',
+                                               'pk': False},
+                                 'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                                 'nome_banco_mysql': {'a': 'VARCHAR(255) NULL', 'c': 'VARCHAR(255) NULL', 'pk': False},
+                                 'senha_mysql': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                                 'servidor_mysql': {'a': 'VARCHAR(255) NULL', 'c': 'VARCHAR(255) NULL', 'pk': False},
+                                 'usuario_mysql': {'a': 'VARCHAR(255) NULL', 'c': 'VARCHAR(255) NULL', 'pk': False}},
+ 'quantum_permissoes_revisoes_usuarios': {'aplicado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                                          'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                                          'pk': False},
+                                          'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                                          'revisao': {'a': 'VARCHAR(80) NULL',
+                                                      'c': 'VARCHAR(80) NOT NULL',
+                                                      'pk': False},
+                                          'usuario': {'a': 'VARCHAR(120) NULL',
+                                                      'c': 'VARCHAR(120) NOT NULL',
+                                                      'pk': False}},
+ 'receituario_controlados': {'cliente_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                             'cliente_nome': {'a': "VARCHAR(500) DEFAULT ''",
+                                              'c': "VARCHAR(500) DEFAULT ''",
+                                              'pk': False},
+                             'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                            'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                            'pk': False},
+                             'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                           'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                           'pk': False},
+                             'crm': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+                             'data_receita': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                             'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                             'lote': {'a': 'VARCHAR(120)', 'c': 'VARCHAR(120)', 'pk': False},
+                             'lote_dispensado': {'a': "VARCHAR(120) DEFAULT ''",
+                                                 'c': "VARCHAR(120) DEFAULT ''",
+                                                 'pk': False},
+                             'medicamento': {'a': "VARCHAR(255) DEFAULT ''",
+                                             'c': "VARCHAR(255) DEFAULT ''",
+                                             'pk': False},
+                             'numero_receita': {'a': "VARCHAR(120) DEFAULT ''",
+                                                'c': "VARCHAR(120) DEFAULT ''",
+                                                'pk': False},
+                             'observacao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                             'paciente': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+                             'prescritor': {'a': "VARCHAR(255) DEFAULT ''",
+                                            'c': "VARCHAR(255) DEFAULT ''",
+                                            'pk': False},
+                             'produto_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                             'quantidade': {'a': 'DECIMAL(15,3) DEFAULT 0',
+                                            'c': 'DECIMAL(15,3) DEFAULT 0',
+                                            'pk': False},
+                             'sngpc': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+                             'tipo': {'a': 'VARCHAR(120)', 'c': 'VARCHAR(120)', 'pk': False},
+                             'tipo_receita': {'a': "VARCHAR(120) DEFAULT ''",
+                                              'c': "VARCHAR(120) DEFAULT ''",
+                                              'pk': False},
+                             'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                            'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                            'pk': False},
+                             'validade': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                             'validade_receita': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False}},
+ 'schema_migrations': {'aplicado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                       'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                       'pk': False},
+                       'detalhes': {'a': 'TEXT', 'c': 'TEXT', 'pk': False},
+                       'executado_em': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                        'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                        'pk': False},
+                       'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                       'migration': {'a': "VARCHAR(191) DEFAULT ''", 'c': "VARCHAR(191) DEFAULT ''", 'pk': False},
+                       'nome': {'a': "VARCHAR(191) DEFAULT ''", 'c': "VARCHAR(191) DEFAULT ''", 'pk': False}},
+ 'sequencias': {'atualizado_em': {'a': 'DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                  'c': 'DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                  'pk': False},
+                'chave': {'a': 'VARCHAR(160) NULL UNIQUE', 'c': 'VARCHAR(160) NOT NULL UNIQUE', 'pk': False},
+                'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                'nome': {'a': 'VARCHAR(255) NULL UNIQUE', 'c': 'VARCHAR(255) NOT NULL UNIQUE', 'pk': False},
+                'valor': {'a': 'BIGINT DEFAULT 0', 'c': 'BIGINT DEFAULT 0', 'pk': False}},
+ 'servicos': {'ativo': {'a': 'TINYINT(1) DEFAULT 1', 'c': 'TINYINT(1) DEFAULT 1', 'pk': False},
+              'categoria': {'a': "VARCHAR(500) DEFAULT 'Outros'", 'c': "VARCHAR(500) DEFAULT 'Outros'", 'pk': False},
+              'codigo': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'pk': False},
+              'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                            'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                            'pk': False},
+              'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+              'duracao_estimada': {'a': "VARCHAR(500) DEFAULT 'A combinar'",
+                                   'c': "VARCHAR(500) DEFAULT 'A combinar'",
+                                   'pk': False},
+              'garantia': {'a': "VARCHAR(500) DEFAULT 'Sem garantia'",
+                           'c': "VARCHAR(500) DEFAULT 'Sem garantia'",
+                           'pk': False},
+              'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+              'nome': {'a': 'VARCHAR(255) NULL', 'c': 'VARCHAR(255) NOT NULL', 'pk': False},
+              'observacao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'preco': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+              'status': {'a': "VARCHAR(500) DEFAULT 'Ativo'", 'c': "VARCHAR(500) DEFAULT 'Ativo'", 'pk': False},
+              'unidade_cobranca': {'a': "VARCHAR(500) DEFAULT 'Por serviço'",
+                                   'c': "VARCHAR(500) DEFAULT 'Por serviço'",
+                                   'pk': False},
+              'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'pk': False},
+              'valor': {'a': 'DECIMAL(15,2) DEFAULT 0', 'c': 'DECIMAL(15,2) DEFAULT 0', 'pk': False}},
+ 'servicos_farmaceuticos': {'ativo': {'a': 'TINYINT(1) DEFAULT 1', 'c': 'TINYINT(1) DEFAULT 1', 'pk': False},
+                            'cliente': {'a': 'VARCHAR(255)', 'c': 'VARCHAR(255)', 'pk': False},
+                            'cliente_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                            'cliente_nome': {'a': "VARCHAR(500) DEFAULT ''",
+                                             'c': "VARCHAR(500) DEFAULT ''",
+                                             'pk': False},
+                            'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                           'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                           'pk': False},
+                            'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                          'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                          'pk': False},
+                            'data_agendada': {'a': 'DATETIME NULL', 'c': 'DATETIME NULL', 'pk': False},
+                            'data_hora': {'a': 'DATETIME NULL', 'c': 'DATETIME NULL', 'pk': False},
+                            'descricao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                            'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                            'nome': {'a': 'VARCHAR(255) NULL', 'c': 'VARCHAR(255) NOT NULL', 'pk': False},
+                            'observacao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                            'preco': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                            'profissional': {'a': "VARCHAR(255) DEFAULT ''",
+                                             'c': "VARCHAR(255) DEFAULT ''",
+                                             'pk': False},
+                            'servico': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+                            'status': {'a': "VARCHAR(80) DEFAULT 'Agendado'",
+                                       'c': "VARCHAR(80) DEFAULT 'Agendado'",
+                                       'pk': False},
+                            'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                           'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                           'pk': False},
+                            'valor': {'a': 'DECIMAL(15,4) DEFAULT 0', 'c': 'DECIMAL(15,4) DEFAULT 0', 'pk': False}},
+ 'sync_events': {'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                'pk': False},
+                 'data_key': {'a': 'VARCHAR(120) NULL', 'c': 'VARCHAR(120) NOT NULL', 'pk': False},
+                 'details': {'a': 'TEXT', 'c': 'TEXT', 'pk': False},
+                 'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                 'operation': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+                 'origin': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False}},
+ 'tamanhos': {'ativo': {'a': 'INT DEFAULT 1', 'c': 'INT DEFAULT 1', 'pk': False},
+              'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'pk': False},
+              'criado_em': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                            'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                            'pk': False},
+              'descricao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+              'nome': {'a': 'TEXT NULL', 'c': 'TEXT NOT NULL', 'pk': False},
+              'ordem': {'a': 'INT DEFAULT 0', 'c': 'INT DEFAULT 0', 'pk': False},
+              'sigla': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'tipo': {'a': "VARCHAR(500) DEFAULT 'Roupa'", 'c': "VARCHAR(500) DEFAULT 'Roupa'", 'pk': False},
+              'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'pk': False}},
+ 'tamanhos_produtos': {'ativo': {'a': 'TINYINT DEFAULT 1', 'c': 'TINYINT DEFAULT 1', 'pk': False},
+                       'criado_em': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                     'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                     'pk': False},
+                       'descricao': {'a': 'VARCHAR(255)', 'c': 'VARCHAR(255)', 'pk': False},
+                       'estoque': {'a': 'DECIMAL(15,3) DEFAULT 0', 'c': 'DECIMAL(15,3) DEFAULT 0', 'pk': False},
+                       'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                       'nome': {'a': 'VARCHAR(120)', 'c': 'VARCHAR(120)', 'pk': False},
+                       'preco': {'a': 'DECIMAL(15,2) DEFAULT 0', 'c': 'DECIMAL(15,2) DEFAULT 0', 'pk': False},
+                       'preco_venda': {'a': 'DECIMAL(15,2) DEFAULT 0', 'c': 'DECIMAL(15,2) DEFAULT 0', 'pk': False},
+                       'produto_id': {'a': 'INT', 'c': 'INT', 'pk': False},
+                       'tamanho': {'a': 'VARCHAR(120)', 'c': 'VARCHAR(120)', 'pk': False}},
+ 'tratamentos_continuos': {'ativo': {'a': 'TINYINT(1) DEFAULT 1', 'c': 'TINYINT(1) DEFAULT 1', 'pk': False},
+                           'cliente_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                           'cliente_nome': {'a': "VARCHAR(500) DEFAULT ''",
+                                            'c': "VARCHAR(500) DEFAULT ''",
+                                            'pk': False},
+                           'consumo_dia': {'a': 'DECIMAL(15,3) DEFAULT 1', 'c': 'DECIMAL(15,3) DEFAULT 1', 'pk': False},
+                           'consumo_por_dia': {'a': 'DECIMAL(15,3) DEFAULT 1',
+                                               'c': 'DECIMAL(15,3) DEFAULT 1',
+                                               'pk': False},
+                           'continuo': {'a': 'TINYINT DEFAULT 1', 'c': 'TINYINT DEFAULT 1', 'pk': False},
+                           'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                          'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                          'pk': False},
+                           'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                         'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                         'pk': False},
+                           'dados': {'a': 'LONGTEXT NULL', 'c': 'LONGTEXT NULL', 'pk': False},
+                           'data_compra': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                           'data_inicio': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                           'data_lembrete': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                           'data_previsao_fim': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                           'data_prevista_fim': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                           'dias_antes_avisar': {'a': 'INT DEFAULT 5', 'c': 'INT DEFAULT 5', 'pk': False},
+                           'dose': {'a': 'VARCHAR(255)', 'c': 'VARCHAR(255)', 'pk': False},
+                           'dose_posologia': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                           'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                           'intervalo_dias': {'a': 'INT DEFAULT 30', 'c': 'INT DEFAULT 30', 'pk': False},
+                           'lembrete': {'a': 'DATETIME NULL', 'c': 'DATETIME NULL', 'pk': False},
+                           'medicamento': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+                           'medicamento_nome': {'a': "VARCHAR(500) DEFAULT ''",
+                                                'c': "VARCHAR(500) DEFAULT ''",
+                                                'pk': False},
+                           'observacao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                           'paciente': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+                           'posologia': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+                           'produto_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                           'quantidade_comprada': {'a': 'DECIMAL(15,3) DEFAULT 0',
+                                                   'c': 'DECIMAL(15,3) DEFAULT 0',
+                                                   'pk': False},
+                           'telefone': {'a': 'VARCHAR(80)', 'c': 'VARCHAR(80)', 'pk': False},
+                           'telefone_whatsapp': {'a': "VARCHAR(80) DEFAULT ''",
+                                                 'c': "VARCHAR(80) DEFAULT ''",
+                                                 'pk': False},
+                           'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                          'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                                          'pk': False}},
+ 'turnos': {'ativo': {'a': 'TINYINT(1) DEFAULT 1', 'c': 'TINYINT(1) DEFAULT 1', 'pk': False},
+            'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                           'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                           'pk': False},
+            'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                          'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                          'pk': False},
+            'descricao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+            'hora_fim': {'a': "VARCHAR(10) DEFAULT ''", 'c': "VARCHAR(10) DEFAULT ''", 'pk': False},
+            'hora_inicio': {'a': "VARCHAR(10) DEFAULT ''", 'c': "VARCHAR(10) DEFAULT ''", 'pk': False},
+            'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+            'nome': {'a': 'VARCHAR(120) NULL', 'c': 'VARCHAR(120) NOT NULL', 'pk': False}},
+ 'user_log': {'acao': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+              'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'pk': False},
+              'data': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                       'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                       'pk': False},
+              'datahora': {'a': 'TEXT', 'c': 'TEXT', 'pk': False},
+              'detalhes': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+              'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+              'usuario': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False}},
+ 'usuarios': {'admin_original': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+              'ativo': {'a': 'TINYINT(1) DEFAULT 1', 'c': 'TINYINT(1) DEFAULT 1', 'pk': False},
+              'atualizado_em': {'a': 'DATETIME NULL', 'c': 'DATETIME NULL', 'pk': False},
+              'bloqueado': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+              'created_at': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                             'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                             'pk': False},
+              'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                            'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                            'pk': False},
+              'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+              'nivel': {'a': "VARCHAR(50) DEFAULT 'caixa'", 'c': "VARCHAR(50) DEFAULT 'caixa'", 'pk': False},
+              'nivel_acesso': {'a': "VARCHAR(50) DEFAULT 'caixa'", 'c': "VARCHAR(50) DEFAULT 'caixa'", 'pk': False},
+              'nome': {'a': "VARCHAR(160) DEFAULT ''", 'c': "VARCHAR(160) DEFAULT ''", 'pk': False},
+              'password': {'a': 'VARCHAR(255)', 'c': 'VARCHAR(255)', 'pk': False},
+              'password_hash': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+              'perfil': {'a': "VARCHAR(120) DEFAULT 'Operador'", 'c': "VARCHAR(120) DEFAULT 'Operador'", 'pk': False},
+              'permissoes': {'a': 'LONGTEXT NULL', 'c': 'LONGTEXT NULL', 'pk': False},
+              'protegido': {'a': 'TINYINT(1) DEFAULT 0', 'c': 'TINYINT(1) DEFAULT 0', 'pk': False},
+              'senha': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+              'updated_at': {'a': 'DATETIME NULL', 'c': 'DATETIME NULL', 'pk': False},
+              'username': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+              'usuario': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+              'vinculos': {'a': 'LONGTEXT', 'c': 'LONGTEXT', 'pk': False}},
+ 'vendas': {'acrescimo': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+            'caixa': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+            'caixa_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+            'caixa_nome': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+            'canal_venda': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+            'cliente_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+            'cliente_nome': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+            'coupon_number': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+            'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                           'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                           'pk': False},
+            'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                          'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                          'pk': False},
+            'cupom': {'a': 'VARCHAR(80)', 'c': 'VARCHAR(80)', 'pk': False},
+            'data': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP', 'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP', 'pk': False},
+            'data_entrega_concluida': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+            'data_venda': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                           'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                           'pk': False},
+            'delivery': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+            'desconto': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+            'entrega_concluida': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+            'entregador_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+            'entregador_nome': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+            'forma_pagamento': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+            'formas_pagamento': {'a': 'LONGTEXT NULL', 'c': 'LONGTEXT NULL', 'pk': False},
+            'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+            'is_delivery': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+            'itens': {'a': 'LONGTEXT NULL', 'c': 'LONGTEXT NULL', 'pk': False},
+            'numero': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+            'numero_cupom': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+            'observacao': {'a': 'TEXT NULL', 'c': 'TEXT NULL', 'pk': False},
+            'operador': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+            'pbm_autorizacao': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+            'prescricao_obrigatoria': {'a': 'TINYINT DEFAULT 0', 'c': 'TINYINT DEFAULT 0', 'pk': False},
+            'status': {'a': "VARCHAR(60) DEFAULT 'finalizada'", 'c': "VARCHAR(60) DEFAULT 'finalizada'", 'pk': False},
+            'subtotal': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+            'taxa_entrega': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+            'timestamp': {'a': "VARCHAR(60) DEFAULT ''", 'c': "VARCHAR(60) DEFAULT ''", 'pk': False},
+            'tipo': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+            'total': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+            'troco': {'a': 'DECIMAL(15,4) DEFAULT 0', 'c': 'DECIMAL(15,4) DEFAULT 0', 'pk': False},
+            'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                           'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                           'pk': False},
+            'usuario': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+            'valor_pago': {'a': 'DECIMAL(15,4) DEFAULT 0', 'c': 'DECIMAL(15,4) DEFAULT 0', 'pk': False},
+            'valor_total': {'a': 'DECIMAL(15,4) DEFAULT 0', 'c': 'DECIMAL(15,4) DEFAULT 0', 'pk': False},
+            'vendedor_id': {'a': "VARCHAR(80) DEFAULT ''", 'c': "VARCHAR(80) DEFAULT ''", 'pk': False},
+            'vendedor_nome': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False}},
+ 'vendas_itens': {'codigo': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                  'codigo_barras': {'a': "VARCHAR(160) DEFAULT ''", 'c': "VARCHAR(160) DEFAULT ''", 'pk': False},
+                  'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                 'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                 'pk': False},
+                  'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                'pk': False},
+                  'data_validade': {'a': 'DATE NULL', 'c': 'DATE NULL', 'pk': False},
+                  'desconto': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                  'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                  'lote': {'a': "VARCHAR(120) DEFAULT ''", 'c': "VARCHAR(120) DEFAULT ''", 'pk': False},
+                  'preco_unitario': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                  'produto': {'a': "VARCHAR(255) DEFAULT ''", 'c': "VARCHAR(255) DEFAULT ''", 'pk': False},
+                  'produto_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                  'produto_nome': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                  'quantidade': {'a': 'DECIMAL(12,3) DEFAULT 0', 'c': 'DECIMAL(12,3) DEFAULT 0', 'pk': False},
+                  'subtotal': {'a': 'DECIMAL(12,2) DEFAULT 0', 'c': 'DECIMAL(12,2) DEFAULT 0', 'pk': False},
+                  'unidade': {'a': "VARCHAR(40) DEFAULT ''", 'c': "VARCHAR(40) DEFAULT ''", 'pk': False},
+                  'validade': {'a': "VARCHAR(20) DEFAULT ''", 'c': "VARCHAR(20) DEFAULT ''", 'pk': False},
+                  'valor_total': {'a': 'DECIMAL(15,4) DEFAULT 0', 'c': 'DECIMAL(15,4) DEFAULT 0', 'pk': False},
+                  'valor_unitario': {'a': 'DECIMAL(15,4) DEFAULT 0', 'c': 'DECIMAL(15,4) DEFAULT 0', 'pk': False},
+                  'venda_id': {'a': 'INT NOT NULL DEFAULT 0', 'c': 'INT NOT NULL DEFAULT 0', 'pk': False}},
+ 'vendedores': {'ativo': {'a': 'INT DEFAULT 1', 'c': 'INT DEFAULT 1', 'pk': False},
+                'bairro': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                'cidade': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                'comissao': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                'cpf': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                               'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                               'pk': False},
+                'criado_em': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                              'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                              'pk': False},
+                'data_admissao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                'data_demissao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                'email': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                'endereco': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                'meta_mensal': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                'nome': {'a': 'TEXT NULL', 'c': 'TEXT NOT NULL', 'pk': False},
+                'observacao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                'pix': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                'rg': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                'salario_base': {'a': 'DOUBLE DEFAULT 0.0', 'c': 'DOUBLE DEFAULT 0.0', 'pk': False},
+                'status': {'a': "VARCHAR(500) DEFAULT 'Ativo'", 'c': "VARCHAR(500) DEFAULT 'Ativo'", 'pk': False},
+                'telefone': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                'telefone2': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+                'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                               'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                               'pk': False}},
+ 'vinculos_usuario_caixa_turno': {'ativo': {'a': 'TINYINT(1) DEFAULT 1', 'c': 'TINYINT(1) DEFAULT 1', 'pk': False},
+                                  'caixa_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                                  'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                                 'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                                 'pk': False},
+                                  'criado_em': {'a': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                                'c': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                                                'pk': False},
+                                  'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+                                  'turno_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False},
+                                  'updated_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                                 'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                                                 'pk': False},
+                                  'username': {'a': 'VARCHAR(255) NULL', 'c': 'VARCHAR(255) NOT NULL', 'pk': False},
+                                  'usuario': {'a': "VARCHAR(80) DEFAULT ''",
+                                              'c': "VARCHAR(80) DEFAULT ''",
+                                              'pk': False},
+                                  'usuario_id': {'a': 'INT NULL', 'c': 'INT NULL', 'pk': False}},
+ 'vouchers': {'cliente_id': {'a': 'INT', 'c': 'INT', 'pk': False},
+              'cliente_nome': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'codigo': {'a': 'VARCHAR(255) NULL UNIQUE', 'c': 'VARCHAR(255) NOT NULL UNIQUE', 'pk': False},
+              'created_at': {'a': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'c': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                             'pk': False},
+              'cupom_utilizado': {'a': 'INT', 'c': 'INT', 'pk': False},
+              'data_criacao': {'a': 'TEXT', 'c': 'TEXT', 'pk': False},
+              'data_utilizacao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'id': {'a': None, 'c': 'INT AUTO_INCREMENT PRIMARY KEY', 'pk': True},
+              'motivo': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'observacao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'status': {'a': "VARCHAR(500) DEFAULT 'Ativo'", 'c': "VARCHAR(500) DEFAULT 'Ativo'", 'pk': False},
+              'usuario_criacao': {'a': "VARCHAR(500) DEFAULT ''", 'c': "VARCHAR(500) DEFAULT ''", 'pk': False},
+              'valor_original': {'a': 'DOUBLE NOT NULL DEFAULT 0.0', 'c': 'DOUBLE NOT NULL DEFAULT 0.0', 'pk': False},
+              'valor_restante': {'a': 'DOUBLE NOT NULL DEFAULT 0.0', 'c': 'DOUBLE NOT NULL DEFAULT 0.0', 'pk': False},
+              'venda_id': {'a': 'INT', 'c': 'INT', 'pk': False}}}
+
+INDICES = [('produtos', 'idx_produtos_nome', 'nome(191)'),
+ ('produtos', 'idx_produtos_barras', 'codigo_barras'),
+ ('clientes', 'idx_clientes_nome', 'nome(191)'),
+ ('fornecedores', 'idx_fornecedores_nome', 'nome(191)'),
+ ('notas_entrada', 'idx_notas_numero', 'numero_nota'),
+ ('tamanhos', 'idx_tamanhos_nome', 'nome(191)'),
+ ('vendas', 'idx_vendas_coupon', 'coupon_number'),
+ ('vendas_itens', 'idx_vitens_venda', 'venda_id'),
+ ('contas_pagar', 'idx_cpagar_venc', 'data_vencimento'),
+ ('contas_receber', 'idx_creceber_venc', 'data_vencimento')]
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# ESQUEMA ESPERADO (extraido de verificar_integridade_banco do Quantum)
-# Cada tabela: (CREATE TABLE MySQL, { coluna: "DEFINICAO MYSQL PARA ADD COLUMN" })
-# Tipos usados: INT / DOUBLE / VARCHAR(n) / TEXT / LONGTEXT / DATE / DATETIME /
-#               TIMESTAMP. As colunas TIMESTAMP entram como NULL para nao exigir
-#               valor default incompativel em tabelas ja populadas.
-# ══════════════════════════════════════════════════════════════════════════
-ENGINE = "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-TS = "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP"
-TS_UPD = "TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
-
-SCHEMA = {
-    # ─────────────────────────── CATEGORIAS ───────────────────────────
-    "categorias": (
-        f"""CREATE TABLE IF NOT EXISTS categorias (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            nome VARCHAR(255) NOT NULL,
-            descricao TEXT NULL,
-            ativo TINYINT(1) DEFAULT 1,
-            created_at {TS},
-            updated_at {TS_UPD}
-        ) {ENGINE}""",
-        {
-            "nome": "VARCHAR(255) NOT NULL DEFAULT ''",
-            "descricao": "TEXT NULL",
-            "ativo": "TINYINT(1) DEFAULT 1",
-            "created_at": TS,
-            "updated_at": TS_UPD,
-        },
-    ),
-
-    # ─────────────────────────── PRODUTOS ───────────────────────────
-    "produtos": (
-        f"""CREATE TABLE IF NOT EXISTS produtos (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            nome VARCHAR(500) NOT NULL,
-            codigo_barras VARCHAR(500) DEFAULT '',
-            categoria_id INT DEFAULT 1,
-            preco DOUBLE DEFAULT 0.0,
-            preco_atacado DOUBLE DEFAULT 0.0,
-            atacado_qtd_minima DOUBLE DEFAULT 10.0,
-            preco_promocional DOUBLE DEFAULT 0.0,
-            promocao_ativa INT DEFAULT 0,
-            promocao_inicio VARCHAR(500) DEFAULT '',
-            promocao_fim VARCHAR(500) DEFAULT '',
-            preco_compra DOUBLE DEFAULT 0.0,
-            tipo VARCHAR(500) DEFAULT 'unidade',
-            estoque DOUBLE DEFAULT 0.0,
-            estoque_minimo DOUBLE DEFAULT 5.0,
-            fidelidade_pontos INT DEFAULT 0,
-            tamanho_id INT DEFAULT NULL,
-            controlar_lote_validade INT DEFAULT 0,
-            lote VARCHAR(500) DEFAULT '',
-            validade VARCHAR(500) DEFAULT '',
-            data_validade VARCHAR(500) DEFAULT '',
-            imagem LONGTEXT NULL,
-            ativo INT DEFAULT 1,
-            created_at {TS},
-            updated_at {TS_UPD}
-        ) {ENGINE}""",
-        {
-            "nome": "VARCHAR(500) NOT NULL DEFAULT ''",
-            "codigo_barras": "VARCHAR(500) DEFAULT ''",
-            "codigo": "VARCHAR(120) DEFAULT ''",
-            "categoria_id": "INT DEFAULT 1",
-            "categoria": "VARCHAR(255) DEFAULT ''",
-            "preco": "DOUBLE DEFAULT 0.0",
-            "preco_venda": "DOUBLE DEFAULT 0.0",
-            "preco_custo": "DOUBLE DEFAULT 0.0",
-            "preco_atacado": "DOUBLE DEFAULT 0.0",
-            "atacado_qtd_minima": "DOUBLE DEFAULT 10.0",
-            "preco_promocional": "DOUBLE DEFAULT 0.0",
-            "promocao_ativa": "INT DEFAULT 0",
-            "promocao_inicio": "VARCHAR(500) DEFAULT ''",
-            "promocao_fim": "VARCHAR(500) DEFAULT ''",
-            "preco_compra": "DOUBLE DEFAULT 0.0",
-            "tipo": "VARCHAR(500) DEFAULT 'unidade'",
-            "unidade": "VARCHAR(40) DEFAULT 'unidade'",
-            "estoque": "DOUBLE DEFAULT 0.0",
-            "estoque_inicial": "DOUBLE DEFAULT 0.0",
-            "estoque_minimo": "DOUBLE DEFAULT 5.0",
-            "fidelidade_pontos": "INT DEFAULT 0",
-            "tamanho_id": "INT DEFAULT NULL",
-            "controlar_lote_validade": "INT DEFAULT 0",
-            "lote": "VARCHAR(500) DEFAULT ''",
-            "validade": "VARCHAR(500) DEFAULT ''",
-            "data_validade": "VARCHAR(500) DEFAULT ''",
-            "fornecedor_id": "INT NULL",
-            "imagem": "LONGTEXT NULL",
-            "descricao": "TEXT NULL",
-            "ativo": "INT DEFAULT 1",
-            "created_at": TS,
-            "updated_at": TS_UPD,
-        },
-    ),
-
-    # ─────────────────────────── CLIENTES ───────────────────────────
-    "clientes": (
-        f"""CREATE TABLE IF NOT EXISTS clientes (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            nome VARCHAR(500) NOT NULL,
-            cpf VARCHAR(500) DEFAULT '',
-            telefone VARCHAR(500) DEFAULT '',
-            endereco VARCHAR(500) DEFAULT '',
-            bairro VARCHAR(500) DEFAULT '',
-            observacao VARCHAR(500) DEFAULT '',
-            saldo_fidelidade DOUBLE DEFAULT 0.0,
-            saldo_credito DOUBLE DEFAULT 0.0,
-            email VARCHAR(500) DEFAULT '',
-            data_nascimento VARCHAR(500) DEFAULT '',
-            ativo INT DEFAULT 1,
-            created_at {TS},
-            updated_at {TS_UPD}
-        ) {ENGINE}""",
-        {
-            "nome": "VARCHAR(500) NOT NULL DEFAULT ''",
-            "cpf": "VARCHAR(500) DEFAULT ''",
-            "cpf_cnpj": "VARCHAR(32) DEFAULT ''",
-            "telefone": "VARCHAR(500) DEFAULT ''",
-            "whatsapp": "VARCHAR(60) DEFAULT ''",
-            "endereco": "VARCHAR(500) DEFAULT ''",
-            "numero": "VARCHAR(30) DEFAULT ''",
-            "bairro": "VARCHAR(500) DEFAULT ''",
-            "cidade": "VARCHAR(120) DEFAULT ''",
-            "uf": "VARCHAR(5) DEFAULT ''",
-            "cep": "VARCHAR(20) DEFAULT ''",
-            "observacao": "VARCHAR(500) DEFAULT ''",
-            "limite_credito": "DOUBLE DEFAULT 0.0",
-            "saldo_fidelidade": "DOUBLE DEFAULT 0.0",
-            "saldo_credito": "DOUBLE DEFAULT 0.0",
-            "email": "VARCHAR(500) DEFAULT ''",
-            "data_nascimento": "VARCHAR(500) DEFAULT ''",
-            "ativo": "INT DEFAULT 1",
-            "created_at": TS,
-            "updated_at": TS_UPD,
-        },
-    ),
-
-    # ─────────────────────────── FORNECEDORES ───────────────────────────
-    "fornecedores": (
-        f"""CREATE TABLE IF NOT EXISTS fornecedores (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            nome VARCHAR(500) NOT NULL,
-            cnpj VARCHAR(500) DEFAULT '',
-            contato VARCHAR(500) DEFAULT '',
-            telefone VARCHAR(500) DEFAULT '',
-            email VARCHAR(500) DEFAULT '',
-            endereco VARCHAR(500) DEFAULT '',
-            observacao VARCHAR(500) DEFAULT '',
-            ativo INT DEFAULT 1,
-            created_at {TS},
-            updated_at {TS_UPD}
-        ) {ENGINE}""",
-        {
-            "nome": "VARCHAR(500) NOT NULL DEFAULT ''",
-            "cnpj": "VARCHAR(500) DEFAULT ''",
-            "contato": "VARCHAR(500) DEFAULT ''",
-            "telefone": "VARCHAR(500) DEFAULT ''",
-            "email": "VARCHAR(500) DEFAULT ''",
-            "endereco": "VARCHAR(500) DEFAULT ''",
-            "observacao": "VARCHAR(500) DEFAULT ''",   # <- faltava (erro ao cadastrar fornecedor)
-            "ativo": "INT DEFAULT 1",
-            "created_at": TS,
-            "updated_at": TS_UPD,                       # <- faltava
-        },
-    ),
-
-    # ─────────────────────────── TAMANHOS ───────────────────────────
-    "tamanhos": (
-        f"""CREATE TABLE IF NOT EXISTS tamanhos (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            nome VARCHAR(500) NOT NULL,
-            sigla VARCHAR(500) DEFAULT '',
-            ordem INT DEFAULT 0,
-            tipo VARCHAR(500) DEFAULT 'Roupa',
-            descricao VARCHAR(500) DEFAULT '',
-            ativo INT DEFAULT 1,
-            created_at {TS},
-            updated_at {TS_UPD}
-        ) {ENGINE}""",
-        {
-            "nome": "VARCHAR(500) NOT NULL DEFAULT ''",
-            "sigla": "VARCHAR(500) DEFAULT ''",
-            "ordem": "INT DEFAULT 0",
-            "tipo": "VARCHAR(500) DEFAULT 'Roupa'",
-            "descricao": "VARCHAR(500) DEFAULT ''",
-            "ativo": "INT DEFAULT 1",
-            "created_at": TS,
-            "updated_at": TS_UPD,
-        },
-    ),
-
-    # ─────────────────────── TAMANHOS x PRODUTOS ───────────────────────
-    "tamanhos_produtos": (
-        f"""CREATE TABLE IF NOT EXISTS tamanhos_produtos (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            produto_id INT,
-            nome VARCHAR(120) DEFAULT '',
-            tamanho VARCHAR(120) DEFAULT '',
-            descricao VARCHAR(255) DEFAULT '',
-            estoque DECIMAL(15,3) DEFAULT 0,
-            preco DECIMAL(15,2) DEFAULT 0,
-            preco_venda DECIMAL(15,2) DEFAULT 0,
-            ativo INT DEFAULT 1,
-            created_at {TS},
-            updated_at {TS_UPD}
-        ) {ENGINE}""",
-        {
-            "produto_id": "INT NULL",
-            "nome": "VARCHAR(120) DEFAULT ''",
-            "tamanho": "VARCHAR(120) DEFAULT ''",
-            "descricao": "VARCHAR(255) DEFAULT ''",
-            "estoque": "DECIMAL(15,3) DEFAULT 0",
-            "preco": "DECIMAL(15,2) DEFAULT 0",
-            "preco_venda": "DECIMAL(15,2) DEFAULT 0",
-            "ativo": "INT DEFAULT 1",
-            "created_at": TS,
-            "updated_at": TS_UPD,
-        },
-    ),
-
-    # ─────────────────────────── NOTAS DE ENTRADA ───────────────────────────
-    "notas_entrada": (
-        f"""CREATE TABLE IF NOT EXISTS notas_entrada (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            numero_nota VARCHAR(500) DEFAULT '',
-            fornecedor_id INT NULL,
-            fornecedor_nome VARCHAR(500) DEFAULT '',
-            data_entrada VARCHAR(500) NULL,
-            total DOUBLE DEFAULT 0.0,
-            itens LONGTEXT NULL,
-            usuario VARCHAR(500) DEFAULT '',
-            created_at {TS},
-            updated_at {TS_UPD}
-        ) {ENGINE}""",
-        {
-            "numero_nota": "VARCHAR(500) DEFAULT ''",    # <- codigo usa numero_nota (tabela antiga tinha 'numero')
-            "fornecedor_id": "INT NULL",
-            "fornecedor_nome": "VARCHAR(500) DEFAULT ''",  # <- faltava
-            "data_emissao": "VARCHAR(500) NULL",
-            "data_entrada": "VARCHAR(500) NULL",
-            "total": "DOUBLE DEFAULT 0.0",
-            "itens": "LONGTEXT NULL",                    # <- faltava (guarda os itens da nota em JSON)
-            "usuario": "VARCHAR(500) DEFAULT ''",        # <- faltava
-            "observacao": "TEXT NULL",
-            "created_at": TS,
-            "updated_at": TS_UPD,
-        },
-    ),
-
-    # ─────────────────────────── ENTREGADORES ───────────────────────────
-    "entregadores": (
-        f"""CREATE TABLE IF NOT EXISTS entregadores (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            nome VARCHAR(500) NOT NULL,
-            cpf VARCHAR(500) DEFAULT '',
-            telefone VARCHAR(500) DEFAULT '',
-            telefone2 VARCHAR(500) DEFAULT '',
-            whatsapp VARCHAR(80) DEFAULT '',
-            veiculo VARCHAR(500) DEFAULT 'Moto',
-            placa VARCHAR(500) DEFAULT '',
-            cnh VARCHAR(500) DEFAULT '',
-            endereco VARCHAR(500) DEFAULT '',
-            bairro VARCHAR(500) DEFAULT '',
-            pix VARCHAR(500) DEFAULT '',
-            valor_entrega DOUBLE DEFAULT 0.0,
-            taxa_entrega DECIMAL(15,4) DEFAULT 0,
-            status VARCHAR(500) DEFAULT 'Ativo',
-            data_admissao VARCHAR(500) DEFAULT '',
-            observacao VARCHAR(500) DEFAULT '',
-            ativo INT DEFAULT 1,
-            created_at {TS},
-            updated_at {TS_UPD}
-        ) {ENGINE}""",
-        {
-            "nome": "VARCHAR(500) NOT NULL DEFAULT ''", "cpf": "VARCHAR(500) DEFAULT ''",
-            "telefone": "VARCHAR(500) DEFAULT ''", "telefone2": "VARCHAR(500) DEFAULT ''",
-            "whatsapp": "VARCHAR(80) DEFAULT ''", "veiculo": "VARCHAR(500) DEFAULT 'Moto'",
-            "placa": "VARCHAR(500) DEFAULT ''", "cnh": "VARCHAR(500) DEFAULT ''",
-            "endereco": "VARCHAR(500) DEFAULT ''", "bairro": "VARCHAR(500) DEFAULT ''",
-            "pix": "VARCHAR(500) DEFAULT ''", "valor_entrega": "DOUBLE DEFAULT 0.0",
-            "taxa_entrega": "DECIMAL(15,4) DEFAULT 0", "status": "VARCHAR(500) DEFAULT 'Ativo'",
-            "data_admissao": "VARCHAR(500) DEFAULT ''", "observacao": "VARCHAR(500) DEFAULT ''",
-            "ativo": "INT DEFAULT 1", "created_at": TS, "updated_at": TS_UPD,
-        },
-    ),
-
-    # ─────────────────────────── VENDEDORES ───────────────────────────
-    "vendedores": (
-        f"""CREATE TABLE IF NOT EXISTS vendedores (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            nome VARCHAR(500) NOT NULL,
-            cpf VARCHAR(500) DEFAULT '',
-            rg VARCHAR(500) DEFAULT '',
-            telefone VARCHAR(500) DEFAULT '',
-            telefone2 VARCHAR(500) DEFAULT '',
-            email VARCHAR(500) DEFAULT '',
-            endereco VARCHAR(500) DEFAULT '',
-            bairro VARCHAR(500) DEFAULT '',
-            cidade VARCHAR(500) DEFAULT '',
-            comissao DOUBLE DEFAULT 0.0,
-            meta_mensal DOUBLE DEFAULT 0.0,
-            salario_base DOUBLE DEFAULT 0.0,
-            pix VARCHAR(500) DEFAULT '',
-            status VARCHAR(500) DEFAULT 'Ativo',
-            data_admissao VARCHAR(500) DEFAULT '',
-            data_demissao VARCHAR(500) DEFAULT '',
-            observacao VARCHAR(500) DEFAULT '',
-            ativo INT DEFAULT 1,
-            created_at {TS},
-            updated_at {TS_UPD}
-        ) {ENGINE}""",
-        {
-            "nome": "VARCHAR(500) NOT NULL DEFAULT ''", "cpf": "VARCHAR(500) DEFAULT ''",
-            "rg": "VARCHAR(500) DEFAULT ''", "telefone": "VARCHAR(500) DEFAULT ''",
-            "telefone2": "VARCHAR(500) DEFAULT ''", "email": "VARCHAR(500) DEFAULT ''",
-            "endereco": "VARCHAR(500) DEFAULT ''", "bairro": "VARCHAR(500) DEFAULT ''",
-            "cidade": "VARCHAR(500) DEFAULT ''", "comissao": "DOUBLE DEFAULT 0.0",
-            "meta_mensal": "DOUBLE DEFAULT 0.0", "salario_base": "DOUBLE DEFAULT 0.0",
-            "pix": "VARCHAR(500) DEFAULT ''", "status": "VARCHAR(500) DEFAULT 'Ativo'",
-            "data_admissao": "VARCHAR(500) DEFAULT ''", "data_demissao": "VARCHAR(500) DEFAULT ''",
-            "observacao": "VARCHAR(500) DEFAULT ''", "ativo": "INT DEFAULT 1",
-            "created_at": TS, "updated_at": TS_UPD,
-        },
-    ),
-
-    # ─────────────────────────── BAIRROS ───────────────────────────
-    "bairros": (
-        f"""CREATE TABLE IF NOT EXISTS bairros (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            nome VARCHAR(500) NOT NULL,
-            cidade VARCHAR(500) DEFAULT '',
-            valor_entrega DOUBLE DEFAULT 0.0,
-            taxa_entrega DECIMAL(15,4) DEFAULT 0,
-            tempo_estimado VARCHAR(500) DEFAULT '',
-            observacao VARCHAR(500) DEFAULT '',
-            ativo INT DEFAULT 1,
-            created_at {TS},
-            updated_at {TS_UPD}
-        ) {ENGINE}""",
-        {
-            "nome": "VARCHAR(500) NOT NULL DEFAULT ''", "cidade": "VARCHAR(500) DEFAULT ''",
-            "valor_entrega": "DOUBLE DEFAULT 0.0", "taxa_entrega": "DECIMAL(15,4) DEFAULT 0",
-            "tempo_estimado": "VARCHAR(500) DEFAULT ''", "observacao": "VARCHAR(500) DEFAULT ''",
-            "ativo": "INT DEFAULT 1", "created_at": TS, "updated_at": TS_UPD,
-        },
-    ),
-
-    # ─────────────────────────── CARTOES ───────────────────────────
-    "cartoes": (
-        f"""CREATE TABLE IF NOT EXISTS cartoes (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            nome VARCHAR(500) NOT NULL,
-            bandeira VARCHAR(500) DEFAULT '',
-            tipo VARCHAR(500) DEFAULT 'Crédito',
-            taxa_debito DOUBLE DEFAULT 0.0,
-            taxa_credito DOUBLE DEFAULT 0.0,
-            taxa_credito_parcelado DOUBLE DEFAULT 0.0,
-            dias_recebimento INT DEFAULT 30,
-            max_parcelas INT DEFAULT 1,
-            operadora VARCHAR(500) DEFAULT '',
-            codigo_operadora VARCHAR(500) DEFAULT '',
-            ativo INT DEFAULT 1,
-            observacao VARCHAR(500) DEFAULT '',
-            created_at {TS},
-            updated_at {TS_UPD}
-        ) {ENGINE}""",
-        {
-            "nome": "VARCHAR(500) NOT NULL DEFAULT ''", "bandeira": "VARCHAR(500) DEFAULT ''",
-            "tipo": "VARCHAR(500) DEFAULT 'Crédito'", "taxa_debito": "DOUBLE DEFAULT 0.0",
-            "taxa_credito": "DOUBLE DEFAULT 0.0", "taxa_credito_parcelado": "DOUBLE DEFAULT 0.0",
-            "dias_recebimento": "INT DEFAULT 30", "max_parcelas": "INT DEFAULT 1",
-            "operadora": "VARCHAR(500) DEFAULT ''", "codigo_operadora": "VARCHAR(500) DEFAULT ''",
-            "ativo": "INT DEFAULT 1", "observacao": "VARCHAR(500) DEFAULT ''",
-            "created_at": TS, "updated_at": TS_UPD,
-        },
-    ),
-
-    # ─────────────────────────── SERVICOS ───────────────────────────
-    "servicos": (
-        f"""CREATE TABLE IF NOT EXISTS servicos (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            nome VARCHAR(500) NOT NULL,
-            descricao VARCHAR(500) DEFAULT '',
-            categoria VARCHAR(500) DEFAULT 'Outros',
-            preco DOUBLE DEFAULT 0.0,
-            duracao_estimada VARCHAR(500) DEFAULT 'A combinar',
-            unidade_cobranca VARCHAR(500) DEFAULT 'Por serviço',
-            status VARCHAR(500) DEFAULT 'Ativo',
-            codigo VARCHAR(500) DEFAULT '',
-            garantia VARCHAR(500) DEFAULT 'Sem garantia',
-            observacao VARCHAR(500) DEFAULT '',
-            ativo INT DEFAULT 1,
-            created_at {TS},
-            updated_at {TS_UPD}
-        ) {ENGINE}""",
-        {
-            "nome": "VARCHAR(500) NOT NULL DEFAULT ''", "descricao": "VARCHAR(500) DEFAULT ''",
-            "categoria": "VARCHAR(500) DEFAULT 'Outros'", "preco": "DOUBLE DEFAULT 0.0",
-            "duracao_estimada": "VARCHAR(500) DEFAULT 'A combinar'",
-            "unidade_cobranca": "VARCHAR(500) DEFAULT 'Por serviço'",
-            "status": "VARCHAR(500) DEFAULT 'Ativo'", "codigo": "VARCHAR(500) DEFAULT ''",
-            "garantia": "VARCHAR(500) DEFAULT 'Sem garantia'", "observacao": "VARCHAR(500) DEFAULT ''",
-            "ativo": "INT DEFAULT 1", "created_at": TS, "updated_at": TS_UPD,
-        },
-    ),
-
-    # ─────────────────────────── CONTAS A PAGAR ───────────────────────────
-    "contas_pagar": (
-        f"""CREATE TABLE IF NOT EXISTS contas_pagar (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            descricao VARCHAR(500) NOT NULL,
-            valor DOUBLE DEFAULT 0.0,
-            data_vencimento VARCHAR(500) NULL,
-            fornecedor_id INT NULL,
-            status VARCHAR(500) DEFAULT 'Pendente',
-            data_pagamento VARCHAR(500) DEFAULT '',
-            forma_pagamento VARCHAR(500) DEFAULT '',
-            observacao VARCHAR(500) DEFAULT '',
-            created_at {TS}
-        ) {ENGINE}""",
-        {
-            "descricao": "VARCHAR(500) NOT NULL DEFAULT ''", "valor": "DOUBLE DEFAULT 0.0",
-            "data_vencimento": "VARCHAR(500) NULL", "fornecedor_id": "INT NULL",
-            "status": "VARCHAR(500) DEFAULT 'Pendente'", "data_pagamento": "VARCHAR(500) DEFAULT ''",
-            "forma_pagamento": "VARCHAR(500) DEFAULT ''", "observacao": "VARCHAR(500) DEFAULT ''",
-            "created_at": TS,
-        },
-    ),
-
-    # ─────────────────────────── CONTAS A RECEBER ───────────────────────────
-    "contas_receber": (
-        f"""CREATE TABLE IF NOT EXISTS contas_receber (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            descricao VARCHAR(500) NOT NULL,
-            valor DOUBLE DEFAULT 0.0,
-            data_vencimento VARCHAR(500) NULL,
-            cliente_id INT NULL,
-            status VARCHAR(500) DEFAULT 'Pendente',
-            data_recebimento VARCHAR(500) DEFAULT '',
-            forma_pagamento VARCHAR(500) DEFAULT '',
-            observacao VARCHAR(500) DEFAULT '',
-            venda_id INT NULL,
-            created_at {TS}
-        ) {ENGINE}""",
-        {
-            "descricao": "VARCHAR(500) NOT NULL DEFAULT ''", "valor": "DOUBLE DEFAULT 0.0",
-            "data_vencimento": "VARCHAR(500) NULL", "cliente_id": "INT NULL",
-            "status": "VARCHAR(500) DEFAULT 'Pendente'", "data_recebimento": "VARCHAR(500) DEFAULT ''",
-            "forma_pagamento": "VARCHAR(500) DEFAULT ''", "observacao": "VARCHAR(500) DEFAULT ''",
-            "venda_id": "INT NULL", "created_at": TS,
-        },
-    ),
-
-    # ─────────────────────────── EMPRESA ───────────────────────────
-    "empresa": (
-        f"""CREATE TABLE IF NOT EXISTS empresa (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            nome VARCHAR(255) DEFAULT 'Minha Empresa',
-            razao_social VARCHAR(255) DEFAULT '',
-            cnpj VARCHAR(32) DEFAULT '',
-            telefone VARCHAR(60) DEFAULT '',
-            email VARCHAR(120) DEFAULT '',
-            endereco TEXT NULL,
-            cidade VARCHAR(120) DEFAULT '',
-            uf VARCHAR(5) DEFAULT '',
-            cep VARCHAR(20) DEFAULT '',
-            updated_at {TS_UPD}
-        ) {ENGINE}""",
-        {
-            "nome": "VARCHAR(255) DEFAULT 'Minha Empresa'", "razao_social": "VARCHAR(255) DEFAULT ''",
-            "cnpj": "VARCHAR(32) DEFAULT ''", "telefone": "VARCHAR(60) DEFAULT ''",
-            "email": "VARCHAR(120) DEFAULT ''", "endereco": "TEXT NULL",
-            "cidade": "VARCHAR(120) DEFAULT ''", "uf": "VARCHAR(5) DEFAULT ''",
-            "cep": "VARCHAR(20) DEFAULT ''", "updated_at": TS_UPD,
-        },
-    ),
-}
-
-# Indices uteis (tabela, nome_indice, colunas). Criados se ainda nao existirem.
-INDICES = [
-    ("produtos", "idx_produtos_nome", "nome"),
-    ("produtos", "idx_produtos_barras", "codigo_barras"),
-    ("clientes", "idx_clientes_nome", "nome"),
-    ("fornecedores", "idx_fornecedores_nome", "nome"),
-    ("notas_entrada", "idx_notas_numero", "numero_nota"),
-    ("tamanhos", "idx_tamanhos_nome", "nome"),
-]
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Conexao MySQL
+# Conexao MySQL (mysql-connector-python ou PyMySQL)
 # ══════════════════════════════════════════════════════════════════════════
 def conectar(cfg):
-    host = cfg["host"]; port = int(cfg.get("port", 3306))
-    user = cfg["user"]; password = cfg.get("password", ""); database = cfg["database"]
-    erro = None
+    host=cfg["host"]; port=int(cfg.get("port",3306)); user=cfg["user"]
+    password=cfg.get("password",""); database=cfg["database"]; erro=None
     try:
-        import mysql.connector  # type: ignore
-        return mysql.connector.connect(host=host, port=port, user=user,
-                                       password=password, database=database,
-                                       charset="utf8mb4", autocommit=False,
-                                       connection_timeout=30), "mysql.connector"
-    except Exception as e:
-        erro = e
+        import mysql.connector
+        return mysql.connector.connect(host=host,port=port,user=user,password=password,
+                database=database,charset="utf8mb4",autocommit=False,connection_timeout=30), "mysql.connector"
+    except Exception as e: erro=e
     try:
-        import pymysql  # type: ignore
-        return pymysql.connect(host=host, port=port, user=user, password=password,
-                               database=database, charset="utf8mb4", autocommit=False,
-                               connect_timeout=30,
-                               cursorclass=pymysql.cursors.DictCursor), "pymysql"
-    except Exception as e:
-        erro = e
-    raise RuntimeError(
-        "Falha ao conectar no MySQL. Verifique host/usuario/senha/banco.\n"
-        f"Ultimo erro: {erro}\n"
-        "Instale o conector:  pip install mysql-connector-python"
-    )
+        import pymysql
+        return pymysql.connect(host=host,port=port,user=user,password=password,database=database,
+                charset="utf8mb4",autocommit=False,connect_timeout=30,
+                cursorclass=pymysql.cursors.DictCursor), "pymysql"
+    except Exception as e: erro=e
+    raise RuntimeError("Falha ao conectar no MySQL: %s\nInstale: pip install mysql-connector-python" % erro)
 
 
 # ══════════════════════════════════════════════════════════════════════════
 # Descoberta de credenciais (mesma logica do sistema)
 # ══════════════════════════════════════════════════════════════════════════
 def candidatos_ini():
-    cands = [r"C:\Quantum\config.ini",
-             os.path.join(os.getcwd(), "config.ini"),
-             os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.ini")]
-    vis, out = set(), []
-    for c in cands:
-        cn = os.path.abspath(c)
-        if cn not in vis and os.path.exists(cn):
-            vis.add(cn); out.append(cn)
+    c=[r"C:\Quantum\config.ini", os.path.join(os.getcwd(),"config.ini"),
+       os.path.join(os.path.dirname(os.path.abspath(__file__)),"config.ini")]
+    vis=set(); out=[]
+    for x in c:
+        xn=os.path.abspath(x)
+        if xn not in vis and os.path.exists(xn): vis.add(xn); out.append(xn)
     return out
 
+def ler_ini(p):
+    cp=configparser.ConfigParser(); cp.read(p,encoding="utf-8")
+    if not cp.has_section("mysql"): return None
+    return {"host":cp.get("mysql","host",fallback="127.0.0.1").strip() or "127.0.0.1",
+            "port":cp.getint("mysql","port",fallback=3306),
+            "user":cp.get("mysql","user",fallback="").strip(),
+            "password":cp.get("mysql","password",fallback=""),
+            "database":cp.get("mysql","database",fallback="").strip()}
 
-def ler_ini(caminho):
-    cp = configparser.ConfigParser(); cp.read(caminho, encoding="utf-8")
-    if not cp.has_section("mysql"):
-        return None
-    return {"host": cp.get("mysql", "host", fallback="127.0.0.1").strip() or "127.0.0.1",
-            "port": cp.getint("mysql", "port", fallback=3306),
-            "user": cp.get("mysql", "user", fallback="").strip(),
-            "password": cp.get("mysql", "password", fallback=""),
-            "database": cp.get("mysql", "database", fallback="").strip()}
-
-
-def ler_json_externo(caminho):
-    with open(caminho, "r", encoding="utf-8") as f:
-        d = json.load(f)
-    host = d.get("envio_mysql_externo_servidor", "").strip()
-    if not host:
-        return None
-    return {"host": host, "port": int(d.get("envio_mysql_externo_porta", 3306) or 3306),
-            "user": d.get("envio_mysql_externo_usuario", "").strip(),
-            "password": d.get("envio_mysql_externo_senha", ""),
-            "database": d.get("envio_mysql_externo_banco", "").strip()}
-
+def ler_json_externo(p):
+    d=json.load(open(p,encoding="utf-8"))
+    host=d.get("envio_mysql_externo_servidor","").strip()
+    if not host: return None
+    return {"host":host,"port":int(d.get("envio_mysql_externo_porta",3306) or 3306),
+            "user":d.get("envio_mysql_externo_usuario","").strip(),
+            "password":d.get("envio_mysql_externo_senha",""),
+            "database":d.get("envio_mysql_externo_banco","").strip()}
 
 def perguntar(campo, atual, oculto=False):
-    suf = f" [{atual}]" if atual not in (None, "") else ""
-    if oculto and atual:
-        suf = " [***definida***]"
-    try:
-        v = input(f"  {campo}{suf}: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        v = ""
+    suf=f" [{atual}]" if atual not in (None,"") else ""
+    if oculto and atual: suf=" [***definida***]"
+    try: v=input(f"  {campo}{suf}: ").strip()
+    except (EOFError,KeyboardInterrupt): v=""
     return v or (atual if atual is not None else "")
 
-
 def resolver_credenciais(args):
-    cfg = {"host": "", "port": 3306, "user": "", "password": "", "database": ""}
+    cfg={"host":"","port":3306,"user":"","password":"","database":""}
     if args.config_json:
         try:
-            j = ler_json_externo(args.config_json)
-            if j:
-                cfg.update({k: v for k, v in j.items() if v not in (None, "")})
-                print(f"[i] Credenciais base de {args.config_json} (envio_mysql_externo_*).")
-        except Exception as e:
-            print(f"[!] Nao li {args.config_json}: {e}")
+            j=ler_json_externo(args.config_json)
+            if j: cfg.update({k:v for k,v in j.items() if v not in (None,"")}); print(f"[i] Credenciais base de {args.config_json}.")
+        except Exception as e: print(f"[!] Nao li {args.config_json}: {e}")
     for ini in ([args.config_ini] if args.config_ini else candidatos_ini()):
         if ini and os.path.exists(ini):
             try:
-                d = ler_ini(ini)
-                if d:
-                    cfg.update({k: v for k, v in d.items() if v not in (None, "")})
-                    print(f"[i] Credenciais de {ini} (secao [mysql]).")
-                    break
-            except Exception as e:
-                print(f"[!] Falha ao ler {ini}: {e}")
-    for k in ("host", "port", "user", "password", "database"):
-        v = getattr(args, k, None)
-        if v not in (None, ""):
-            cfg[k] = v
-    faltando = [k for k in ("host", "user", "database") if not cfg.get(k)]
-    if faltando and not args.yes:
+                d=ler_ini(ini)
+                if d: cfg.update({k:v for k,v in d.items() if v not in (None,"")}); print(f"[i] Credenciais de {ini}."); break
+            except Exception as e: print(f"[!] Falha ao ler {ini}: {e}")
+    for k in ("host","port","user","password","database"):
+        v=getattr(args,k,None)
+        if v not in (None,""): cfg[k]=v
+    if [k for k in ("host","user","database") if not cfg.get(k)] and not args.yes:
         print("\nInforme os dados de conexao MySQL (Enter mantem o valor entre colchetes):")
-        cfg["host"] = perguntar("Host", cfg.get("host") or "127.0.0.1")
-        cfg["port"] = perguntar("Porta", cfg.get("port") or 3306)
-        cfg["user"] = perguntar("Usuario", cfg.get("user"))
-        cfg["password"] = perguntar("Senha", cfg.get("password"), oculto=True)
-        cfg["database"] = perguntar("Banco (database)", cfg.get("database"))
-    try:
-        cfg["port"] = int(cfg.get("port", 3306) or 3306)
-    except Exception:
-        cfg["port"] = 3306
+        cfg["host"]=perguntar("Host",cfg.get("host") or "127.0.0.1")
+        cfg["port"]=perguntar("Porta",cfg.get("port") or 3306)
+        cfg["user"]=perguntar("Usuario",cfg.get("user"))
+        cfg["password"]=perguntar("Senha",cfg.get("password"),oculto=True)
+        cfg["database"]=perguntar("Banco (database)",cfg.get("database"))
+    try: cfg["port"]=int(cfg.get("port",3306) or 3306)
+    except Exception: cfg["port"]=3306
     return cfg
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# Reparo da estrutura
-# ══════════════════════════════════════════════════════════════════════════
+ENGINE = "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+
+def build_create(table, cols):
+    # Cria a tabela de forma MINIMA (apenas id). As demais colunas sao
+    # adicionadas uma a uma via ADD COLUMN, para que uma eventual definicao
+    # problematica nao impeca a criacao da tabela inteira.
+    return f"CREATE TABLE IF NOT EXISTS `{table}` (\n  `id` INT AUTO_INCREMENT PRIMARY KEY\n) {ENGINE}"
+
+
 def main():
-    ap = argparse.ArgumentParser(
-        description="Cria tabelas/colunas faltantes no MySQL do Quantum PDV.",
-        formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--host"); ap.add_argument("--port", type=int)
+    ap=argparse.ArgumentParser(description="Cria/atualiza TODAS as tabelas e colunas do Quantum PDV no MySQL.",
+                               formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--host"); ap.add_argument("--port",type=int)
     ap.add_argument("--user"); ap.add_argument("--password"); ap.add_argument("--database")
     ap.add_argument("--config-ini"); ap.add_argument("--config-json")
-    ap.add_argument("--dry-run", action="store_true", help="So mostra o que faria.")
-    ap.add_argument("--yes", action="store_true", help="Nao pergunta nada.")
-    args = ap.parse_args()
+    ap.add_argument("--dry-run",action="store_true"); ap.add_argument("--yes",action="store_true")
+    args=ap.parse_args()
 
-    print("╔" + "═" * 68 + "╗")
-    print("║  REPARADOR DE ESTRUTURA DO BANCO — Quantum / Farma Quantum PDV     ║")
-    print("║  Cria TABELAS e COLUNAS faltantes (fornecedor, tamanho, nota...)  ║")
-    print("╚" + "═" * 68 + "╝")
-    if args.dry_run:
-        print(">>> MODO SIMULACAO (--dry-run): nada sera alterado. <<<")
+    print("+"+"="*68+"+")
+    print("|  ATUALIZADOR COMPLETO DE ESTRUTURA DO BANCO - Quantum / Farma PDV   |")
+    print("+"+"="*68+"+")
+    if args.dry_run: print(">>> MODO SIMULACAO (--dry-run): nada sera alterado. <<<")
 
-    cfg = resolver_credenciais(args)
+    cfg=resolver_credenciais(args)
     if not (cfg.get("host") and cfg.get("user") and cfg.get("database")):
-        print("[X] Dados de conexao incompletos (host/usuario/banco).")
-        sys.exit(1)
+        print("[X] Dados de conexao incompletos (host/usuario/banco)."); sys.exit(1)
 
     print(f"\n[i] Conectando em {cfg['user']}@{cfg['host']}:{cfg['port']}/{cfg['database']} ...")
-    conn, driver = conectar(cfg)
-    print(f"[✓] Conectado ({driver}).")
-    dbname = cfg["database"]
+    conn,driver=conectar(cfg); print(f"[OK] Conectado ({driver}).")
+    dbname=cfg["database"]
 
-    def q(sql, params=None):
-        cur = conn.cursor(dictionary=True) if driver == "mysql.connector" else conn.cursor()
-        cur.execute(sql, params or ()); rows = cur.fetchall(); cur.close(); return rows
+    def q(sql,p=None):
+        cur=conn.cursor(dictionary=True) if driver=="mysql.connector" else conn.cursor()
+        cur.execute(sql,p or ()); r=cur.fetchall(); cur.close(); return r
+    def ex(sql,p=None):
+        cur=conn.cursor(); cur.execute(sql,p or ()); cur.close()
+    def tab_existe(t):
+        return bool(q("SELECT 1 FROM information_schema.tables WHERE table_schema=%s AND table_name=%s",(dbname,t)))
+    def cols_de(t):
+        rows=q("SELECT COLUMN_NAME c FROM information_schema.columns WHERE table_schema=%s AND table_name=%s",(dbname,t))
+        return {(r["c"] if isinstance(r,dict) else r[0]).lower() for r in rows}
+    def idx_existe(t,idx):
+        return bool(q("SELECT 1 FROM information_schema.statistics WHERE table_schema=%s AND table_name=%s AND index_name=%s",(dbname,t,idx)))
 
-    def ex(sql, params=None):
-        cur = conn.cursor(); cur.execute(sql, params or ()); cur.close()
-
-    def tabela_existe(t):
-        return bool(q("SELECT 1 FROM information_schema.tables "
-                      "WHERE table_schema=%s AND table_name=%s", (dbname, t)))
-
-    def colunas_de(t):
-        rows = q("SELECT COLUMN_NAME AS c FROM information_schema.columns "
-                 "WHERE table_schema=%s AND table_name=%s", (dbname, t))
-        return {(r["c"] if isinstance(r, dict) else r[0]).lower() for r in rows}
-
-    def indice_existe(t, idx):
-        return bool(q("SELECT 1 FROM information_schema.statistics "
-                      "WHERE table_schema=%s AND table_name=%s AND index_name=%s",
-                      (dbname, t, idx)))
-
-    tabelas_criadas, colunas_add, indices_add, avisos = [], [], [], []
+    tabelas_criadas=[]; colunas_add=[]; indices_add=[]; avisos=[]
 
     try:
-        for tabela, (create_sql, colunas) in SCHEMA.items():
-            novo = not tabela_existe(tabela)
+        for tabela in sorted(SCHEMA.keys()):
+            cols=SCHEMA[tabela]
+            novo=not tab_existe(tabela)
             if novo:
-                print(f"\n[+] Tabela FALTANDO: {tabela}  ->  criando...")
+                print(f"\n[+] Tabela FALTANDO: {tabela} -> criando ({len(cols)} colunas)")
                 if not args.dry_run:
-                    ex(create_sql)
+                    try: ex(build_create(tabela,cols))
+                    except Exception as e: avisos.append(f"CREATE {tabela}: {e}"); print(f"    [!] {e}")
                 tabelas_criadas.append(tabela)
+                existentes=set() if args.dry_run else cols_de(tabela)
             else:
-                print(f"\n[i] Tabela existe: {tabela}  ->  conferindo colunas...")
-
-            existentes = set() if (novo and args.dry_run) else colunas_de(tabela)
-            for col, definicao in colunas.items():
-                if col.lower() not in existentes:
-                    print(f"    [+] coluna faltando: {tabela}.{col}  ->  ADD COLUMN {definicao}")
+                existentes=cols_de(tabela)
+            faltantes=[c for c,m in cols.items() if (not m["pk"]) and c.lower() not in existentes]
+            if faltantes:
+                if not novo: print(f"\n[i] {tabela}: adicionando {len(faltantes)} coluna(s) faltante(s)")
+                for c in faltantes:
+                    defn=cols[c]["a"]
                     if not args.dry_run:
-                        try:
-                            ex(f"ALTER TABLE `{tabela}` ADD COLUMN `{col}` {definicao}")
-                        except Exception as e:
-                            avisos.append(f"{tabela}.{col}: {e}")
-                            print(f"        [!] aviso: {e}")
-                    colunas_add.append(f"{tabela}.{col}")
+                        try: ex(f"ALTER TABLE `{tabela}` ADD COLUMN `{c}` {defn}")
+                        except Exception as e: avisos.append(f"{tabela}.{c}: {e}"); print(f"    [!] {tabela}.{c}: {e}"); continue
+                    colunas_add.append(f"{tabela}.{c}")
+                    print(f"    [+] {tabela}.{c}  ({defn})")
 
-        # Indices
-        for tabela, idx, cols in INDICES:
-            if tabela_existe(tabela) and not indice_existe(tabela, idx):
-                print(f"[+] indice faltando: {idx} em {tabela}({cols})")
+        for tabela,idx,colsql in INDICES:
+            if tab_existe(tabela) and not idx_existe(tabela,idx):
                 if not args.dry_run:
-                    try:
-                        ex(f"CREATE INDEX `{idx}` ON `{tabela}` (`{cols}`)")
-                    except Exception as e:
-                        avisos.append(f"indice {idx}: {e}")
-                indices_add.append(idx)
+                    try: ex(f"CREATE INDEX `{idx}` ON `{tabela}` ({colsql if '(' in colsql else '`'+colsql+'`'})")
+                    except Exception as e: avisos.append(f"indice {idx}: {e}"); continue
+                indices_add.append(idx); print(f"[+] indice {idx} em {tabela}({colsql})")
 
-        if not args.dry_run:
-            conn.commit()
+        if not args.dry_run: conn.commit()
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        try: conn.close()
+        except Exception: pass
 
-    # Relatorio
-    print("\n" + "=" * 70)
-    print(" RESUMO DO REPARO" + (" (SIMULACAO)" if args.dry_run else ""))
-    print("=" * 70)
-    print(f"  Tabelas criadas .....: {len(tabelas_criadas)}" +
-          (f"  -> {', '.join(tabelas_criadas)}" if tabelas_criadas else ""))
-    print(f"  Colunas adicionadas .: {len(colunas_add)}")
-    for c in colunas_add:
-        print(f"      + {c}")
-    print(f"  Indices criados .....: {len(indices_add)}" +
-          (f"  -> {', '.join(indices_add)}" if indices_add else ""))
+    print("\n"+"="*70)
+    print(" RESUMO"+(" (SIMULACAO)" if args.dry_run else ""))
+    print("="*70)
+    print(f"  Tabelas verificadas ..: {len(SCHEMA)}")
+    print(f"  Tabelas criadas ......: {len(tabelas_criadas)}" + (f"  -> {', '.join(tabelas_criadas)}" if tabelas_criadas else ""))
+    print(f"  Colunas adicionadas ..: {len(colunas_add)}")
+    for c in colunas_add: print(f"      + {c}")
+    print(f"  Indices criados ......: {len(indices_add)}" + (f"  -> {', '.join(indices_add)}" if indices_add else ""))
     if avisos:
         print(f"\n  Avisos ({len(avisos)}):")
-        for a in avisos:
-            print(f"      ! {a}")
+        for a in avisos: print(f"      ! {a}")
     if not tabelas_criadas and not colunas_add and not indices_add:
-        print("\n  [✓] Nada faltando: a estrutura do banco ja estava completa.")
+        print("\n  [OK] Nada faltando: a estrutura do banco ja estava completa.")
     else:
-        print("\n  [✓] Estrutura corrigida." if not args.dry_run
-              else "\n  [i] Rode sem --dry-run para aplicar as mudancas acima.")
-    print("=" * 70)
-    print(" Reabra o sistema e teste cadastrar Fornecedor, Tamanho e Nota de Entrada.")
-    print("=" * 70)
+        print("\n  [OK] Estrutura atualizada." if not args.dry_run else "\n  [i] Rode sem --dry-run para aplicar.")
+    print("="*70)
+    print(" Reabra o sistema e teste os cadastros (fornecedor, tamanho, nota,")
+    print(" contas a pagar/receber, vendedores, bairros, produtos, clientes).")
+    print("="*70)
 
 
 if __name__ == "__main__":
