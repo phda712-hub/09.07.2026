@@ -40007,6 +40007,7 @@ DEFAULT_CONFIG = {
     "submenu_util_6_2_visivel": False,
     "submenu_util_6_3_visivel": False,
     "submenu_util_6_6_visivel": False,
+    "submenu_util_reparar_estrutura_visivel": False,
     "menu_balanca_9_visivel": False,
     "menu_os_10_visivel": False,
     "menu_orcamento_11_visivel": False,
@@ -40072,6 +40073,7 @@ CONFIG_CHECKBOX_KEYS_DEFAULT_FALSE = [
     "submenu_util_6_2_visivel",
     "submenu_util_6_3_visivel",
     "submenu_util_6_6_visivel",
+    "submenu_util_reparar_estrutura_visivel",
     "menu_balanca_9_visivel",
     "menu_os_10_visivel",
     "menu_orcamento_11_visivel",
@@ -60193,6 +60195,57 @@ class PDVSuperApp:
         
         period_win.wait_window()
 
+    def _quantum_reparar_estrutura_ui(self):
+        """Menu 6.7 - Reparar Estrutura do Banco: cria tabelas/colunas faltantes sob demanda.
+        Usa a funcao embutida quantum_garantir_estrutura_completa_banco (idempotente,
+        nao apaga dados). Aparece somente quando o checkbox correspondente esta marcado
+        em Configuracoes."""
+        try:
+            from tkinter import messagebox
+        except Exception:
+            messagebox = None
+        try:
+            if messagebox and not messagebox.askyesno(
+                "Reparar Estrutura do Banco",
+                "Isto vai verificar e CRIAR as tabelas e colunas que estiverem faltando "
+                "no banco de dados (fornecedores, tamanhos, notas de entrada, contas a "
+                "pagar/receber, vendedores, bairros, etc.).\n\n"
+                "Nenhum dado e apagado. Deseja continuar?", parent=self.root):
+                return
+            ok = False
+            try:
+                ok = bool(quantum_garantir_estrutura_completa_banco(forcar=True))
+            except Exception as _e_run:
+                ok = False
+                if messagebox:
+                    messagebox.showerror("Reparar Estrutura do Banco",
+                                         f"Erro ao reparar: {_e_run}", parent=self.root)
+                    return
+            try:
+                if hasattr(self, "registrar_log"):
+                    self.registrar_log("Sistema", "Reparo de estrutura do banco executado (menu 6.7)")
+            except Exception:
+                pass
+            if messagebox:
+                if ok:
+                    messagebox.showinfo(
+                        "Reparar Estrutura do Banco",
+                        "Estrutura verificada e atualizada com sucesso.\n"
+                        "As tabelas e colunas que faltavam foram criadas (se havia).",
+                        parent=self.root)
+                else:
+                    messagebox.showwarning(
+                        "Reparar Estrutura do Banco",
+                        "Nao foi possivel concluir o reparo. Verifique a conexao com o "
+                        "banco de dados e tente novamente.", parent=self.root)
+        except Exception as _e_ui:
+            if messagebox:
+                try:
+                    messagebox.showerror("Reparar Estrutura do Banco",
+                                         f"Erro: {_e_ui}", parent=self.root)
+                except Exception:
+                    pass
+
     def _create_menu(self):
         menubar = tk.Menu(self.root)
         self.root.config(menu=menubar)
@@ -60497,6 +60550,9 @@ class PDVSuperApp:
             if check_permission("config.vencimento") and bool((getattr(self, 'config_data', {}) or {}).get("submenu_util_6_6_visivel", False)):
                 util_menu.add_separator()
                 _add_cmd(util_menu, "6.6  🔐 Vencimento do Sistema", self.gerenciar_vencimento_sistema, "config.vencimento", accelerator="Ctrl+Alt+V")
+            if check_permission("config.backup") and bool((getattr(self, 'config_data', {}) or {}).get("submenu_util_reparar_estrutura_visivel", False)):
+                util_menu.add_separator()
+                _add_cmd(util_menu, "6.7  🧱 Reparar Estrutura do Banco", self._quantum_reparar_estrutura_ui, "config.backup", accelerator="Ctrl+Alt+R")
             menubar.add_cascade(label="6. 🛠️ Utilitários", menu=util_menu)
 
         # =====================================================================
@@ -63785,7 +63841,9 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
         modulos_utilitarios_frame.pack(pady=6, padx=8, fill=tk.X)
         ttk.Checkbutton(modulos_utilitarios_frame, text="Tornar visível o submenu 6.2 Testador Robusto", variable=submenu_util_6_2_visivel_var).pack(anchor=tk.W, padx=8, pady=(6, 2))
         ttk.Checkbutton(modulos_utilitarios_frame, text="Tornar visível o submenu 6.3 Backup e Restauração", variable=submenu_util_6_3_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
-        ttk.Checkbutton(modulos_utilitarios_frame, text="Tornar visível o submenu 6.6 Vencimento do Sistema", variable=submenu_util_6_6_visivel_var).pack(anchor=tk.W, padx=8, pady=(2, 6))
+        ttk.Checkbutton(modulos_utilitarios_frame, text="Tornar visível o submenu 6.6 Vencimento do Sistema", variable=submenu_util_6_6_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
+        submenu_util_reparar_estrutura_visivel_var = tk.BooleanVar(value=bool(self.config_data.get("submenu_util_reparar_estrutura_visivel", False)))
+        ttk.Checkbutton(modulos_utilitarios_frame, text="Tornar visível o submenu 6.7 Reparar Estrutura do Banco", variable=submenu_util_reparar_estrutura_visivel_var).pack(anchor=tk.W, padx=8, pady=(2, 6))
 
         modulos_ajuda_frame = ttk.LabelFrame(menus_extras_frame, text="08.7 - Ajuda / Aparência")
         modulos_ajuda_frame.pack(pady=6, padx=8, fill=tk.X)
@@ -63952,6 +64010,7 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
             self.config_data["submenu_util_6_2_visivel"] = submenu_util_6_2_visivel_var.get()
             self.config_data["submenu_util_6_3_visivel"] = submenu_util_6_3_visivel_var.get()
             self.config_data["submenu_util_6_6_visivel"] = submenu_util_6_6_visivel_var.get()
+            self.config_data["submenu_util_reparar_estrutura_visivel"] = submenu_util_reparar_estrutura_visivel_var.get()
             self.config_data["menu_balanca_9_visivel"] = menu_balanca_9_visivel_var.get()
             self.config_data["menu_os_10_visivel"] = menu_os_10_visivel_var.get()
             self.config_data["menu_orcamento_11_visivel"] = menu_orcamento_11_visivel_var.get()
