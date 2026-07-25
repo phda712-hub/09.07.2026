@@ -7,9 +7,14 @@ Executa em sequencia, usando as mesmas conexoes:
     2) TPRODUTOS        (Firebird)  ->  produtos   (MySQL 'quantum')
     3) THOSPEDES        (Firebird)  ->  clientes   (MySQL 'quantum')
 
+GERACAO DE LOG:
+    Todo o processo (sucessos, avisos, erros e detalhes) e gravado em um
+    arquivo de log com data/hora no nome, ex.: migracao_20260725_143012.log,
+    criado na mesma pasta do script/executavel. O mesmo conteudo tambem e
+    exibido no console.
+
 Mapeamento clientes  (<- THOSPEDES):
     id         -> proximo id (ultimo + 1, ou 1) apenas em novos registros
-                  (mesma logica de id usada em categorias e produtos)
     nome       -> NOME
     cpf        -> CPF
     telefone   -> TELEFONE ; se vazio, usa CELULAR
@@ -21,46 +26,28 @@ Mapeamento clientes  (<- THOSPEDES):
     updated_at -> data/hora atual
     (chave de upsert: nome)
 
-Comportamento UPSERT (nos dois casos):
+Comportamento UPSERT:
     - Se o registro ja existir, ele e ATUALIZADO (id e created_at preservados).
     - Caso contrario, e inserido um novo registro.
     - Chave "ja existe":
         * categorias -> coluna 'descricao' (= ID_GRUPO_PRODUTO)
-        * produtos   -> coluna 'codigo' (= CODIGO interno do Firebird, estavel).
-          Como fallback, tambem procura por 'codigo_barras' para adotar registros
-          de execucoes antigas que ainda nao tinham a coluna 'codigo' preenchida.
+        * produtos   -> coluna 'codigo' (= CODIGO interno do Firebird, estavel),
+                        com fallback por 'codigo_barras'.
+        * clientes   -> coluna 'nome'
 
 Mapeamento categorias  (<- TGRUPOS_PRODUTOS):
-    id         -> proximo id (ultimo + 1, ou 1) apenas em novos registros
-    nome       -> DESCRICAO
-    descricao  -> ID_GRUPO_PRODUTO
-    ativo      -> 1
-    created_at -> data/hora atual (so em novos)
-    updated_at -> data/hora atual
+    id -> proximo id ; nome -> DESCRICAO ; descricao -> ID_GRUPO_PRODUTO ;
+    ativo -> 1 ; created_at/updated_at -> data/hora atual
 
 Mapeamento produtos  (<- TPRODUTOS):
-    id                 -> proximo id (ultimo + 1, ou 1) apenas em novos registros
-    nome               -> DESCRICAO
-    codigo             -> CODIGO (codigo interno do Firebird - chave estavel)
-    codigo_barras      -> CODIGO_BARRAS ; se vazio, usa CODIGO
-    categoria          -> ID_GRUPO_PRODUTO (texto)
-    categoria_id       -> id da categoria cujo 'descricao' == ID_GRUPO_PRODUTO
-                          (se nao achar, usa CATEGORIA_ID_PADRAO)
-    preco              -> PRECO_VENDA
-    preco_atacado      -> 0
-    atacado_qtd_minima -> 0
-    preco_promocional  -> 0
-    promocao_inicio    -> data/hora atual
-    promocao_fim       -> data/hora atual
-    preco_compra       -> PRECO_CUSTO
-    tipo               -> "unidade"
-    estoque            -> ESTOQUE
-    estoque_minimo     -> ESTOQUE_MINIMO
-    fidelidade_pontos  -> 0
-    ativo              -> 1
-    created_at         -> data/hora atual (so em novos)
-    updated_at         -> data/hora atual
-    unidade            -> "unid."
+    id -> proximo id ; nome -> DESCRICAO ; codigo -> CODIGO ;
+    codigo_barras -> CODIGO_BARRAS (ou CODIGO se vazio) ;
+    categoria -> ID_GRUPO_PRODUTO ; categoria_id -> id da categoria correspondente ;
+    preco -> PRECO_VENDA ; preco_compra -> PRECO_CUSTO ;
+    estoque -> ESTOQUE ; estoque_minimo -> ESTOQUE_MINIMO ;
+    preco_atacado/atacado_qtd_minima/preco_promocional/fidelidade_pontos -> 0 ;
+    tipo -> "unidade" ; unidade -> "unid." ; ativo -> 1 ;
+    promocao_inicio/promocao_fim/created_at/updated_at -> data/hora atual
 
 Dependencias (instale antes de rodar):
     pip install fdb mysql-connector-python
@@ -69,7 +56,9 @@ Obs.: 'fdb' precisa da client library do Firebird (fbclient.dll) instalada,
       na mesma arquitetura do Python (32/64 bits).
 """
 
+import os
 import sys
+import logging
 from datetime import datetime
 
 # ----------------------------------------------------------------------------
@@ -116,6 +105,49 @@ COL_CREATED_AT = "created_at"
 COL_UPDATED_AT = "updated_at"
 COL_UNIDADE = "unidade"
 
+# Logger global do script.
+log = logging.getLogger("migracao")
+
+
+# ----------------------------------------------------------------------------
+# Configuracao do log
+# ----------------------------------------------------------------------------
+def _base_dir():
+    """Pasta onde o log sera gravado (ao lado do .py ou do .exe)."""
+    if getattr(sys, "frozen", False):        # rodando como .exe (PyInstaller)
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def configurar_log():
+    """Configura o log para gravar em arquivo e exibir no console.
+
+    Retorna o caminho do arquivo de log criado.
+    """
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    caminho_log = os.path.join(_base_dir(), f"migracao_{ts}.log")
+
+    log.setLevel(logging.DEBUG)
+    log.handlers.clear()
+
+    formato = logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
+
+    # Handler de arquivo (grava tudo, em UTF-8).
+    fh = logging.FileHandler(caminho_log, mode="w", encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(formato)
+    log.addHandler(fh)
+
+    # Handler de console.
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(formato)
+    log.addHandler(ch)
+
+    return caminho_log
+
 
 # ----------------------------------------------------------------------------
 # Conexoes
@@ -124,8 +156,8 @@ def conectar_firebird():
     try:
         import fdb
     except ImportError:
-        print("ERRO: modulo 'fdb' nao encontrado. Instale com: pip install fdb")
-        sys.exit(1)
+        log.error("Modulo 'fdb' nao encontrado. Instale com: pip install fdb")
+        raise
     try:
         con = fdb.connect(
             dsn=FIREBIRD_CONFIG["dsn"],
@@ -133,20 +165,20 @@ def conectar_firebird():
             password=FIREBIRD_CONFIG["password"],
             charset=FIREBIRD_CONFIG["charset"],
         )
-        print("[OK] Conectado ao Firebird.")
+        log.info("Conectado ao Firebird (%s).", FIREBIRD_CONFIG["dsn"])
         return con
-    except Exception as e:
-        print(f"ERRO ao conectar no Firebird: {e}")
-        sys.exit(1)
+    except Exception:
+        log.exception("Falha ao conectar no Firebird.")
+        raise
 
 
 def conectar_mysql():
     try:
         import mysql.connector
     except ImportError:
-        print("ERRO: modulo 'mysql-connector-python' nao encontrado. "
-              "Instale com: pip install mysql-connector-python")
-        sys.exit(1)
+        log.error("Modulo 'mysql-connector-python' nao encontrado. "
+                  "Instale com: pip install mysql-connector-python")
+        raise
     try:
         con = mysql.connector.connect(
             host=MYSQL_CONFIG["host"],
@@ -154,11 +186,12 @@ def conectar_mysql():
             password=MYSQL_CONFIG["password"],
             database=MYSQL_CONFIG["database"],
         )
-        print("[OK] Conectado ao MySQL.")
+        log.info("Conectado ao MySQL (%s/%s).",
+                 MYSQL_CONFIG["host"], MYSQL_CONFIG["database"])
         return con
-    except Exception as e:
-        print(f"ERRO ao conectar no MySQL: {e}")
-        sys.exit(1)
+    except Exception:
+        log.exception("Falha ao conectar no MySQL.")
+        raise
 
 
 # ----------------------------------------------------------------------------
@@ -209,7 +242,7 @@ def obter_colunas_tabela(con_my, tabela):
 # ETAPA 1 - Grupos -> categorias
 # ----------------------------------------------------------------------------
 def migrar_categorias(con_fb, con_my):
-    print("\n=== ETAPA 1: TGRUPOS_PRODUTOS -> categorias ===")
+    log.info("=== ETAPA 1: TGRUPOS_PRODUTOS -> categorias ===")
     cur_fb = con_fb.cursor()
     cur_fb.execute("SELECT DESCRICAO, ID_GRUPO_PRODUTO FROM TGRUPOS_PRODUTOS")
     grupos = []
@@ -219,16 +252,16 @@ def migrar_categorias(con_fb, con_my):
         if nome:
             grupos.append((nome, id_grupo_txt))
     cur_fb.close()
-    print(f"[OK] {len(grupos)} registro(s) lido(s) de TGRUPOS_PRODUTOS.")
+    log.info("%d registro(s) lido(s) de TGRUPOS_PRODUTOS.", len(grupos))
 
     if not grupos:
-        print("[AVISO] Nenhum grupo encontrado. Nada a fazer na etapa 1.")
+        log.warning("Nenhum grupo encontrado. Nada a fazer na etapa 1.")
         return
 
     ultimo_id = obter_ultimo_id(con_my, "categorias")
     id_atual = ultimo_id + 1 if ultimo_id >= 1 else 1
-    print(f"[INFO] Ultimo id em 'categorias': {ultimo_id}. "
-          f"Novos registros a partir do id {id_atual}.")
+    log.info("Ultimo id em 'categorias': %d. Novos registros a partir do id %d.",
+             ultimo_id, id_atual)
 
     agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     sql_insert = (
@@ -251,14 +284,18 @@ def migrar_categorias(con_fb, con_my):
         if existente_id is not None:
             cur.execute(sql_update, (nome, agora, existente_id))
             atualizados += 1
+            log.debug("Categoria ATUALIZADA (id=%s): nome='%s' grupo='%s'",
+                      existente_id, nome, id_grupo_produto)
         else:
             cur.execute(sql_insert, (id_atual, nome, id_grupo_produto, 1, agora, agora))
+            log.debug("Categoria INSERIDA (id=%s): nome='%s' grupo='%s'",
+                      id_atual, nome, id_grupo_produto)
             inseridos += 1
             id_atual += 1
 
     con_my.commit()
     cur.close()
-    print(f"[OK] Categorias: {inseridos} inserida(s), {atualizados} atualizada(s).")
+    log.info("Categorias: %d inserida(s), %d atualizada(s).", inseridos, atualizados)
 
 
 # ----------------------------------------------------------------------------
@@ -289,7 +326,7 @@ def obter_produtos_firebird(con_fb):
             "estoque_minimo": _numero(estoque_minimo),
         })
     cur.close()
-    print(f"[OK] {len(produtos)} registro(s) lido(s) de TPRODUTOS.")
+    log.info("%d registro(s) lido(s) de TPRODUTOS.", len(produtos))
     return produtos
 
 
@@ -304,15 +341,15 @@ def obter_mapa_categorias(con_my):
 
 
 def migrar_produtos(con_fb, con_my):
-    print("\n=== ETAPA 2: TPRODUTOS -> produtos ===")
+    log.info("=== ETAPA 2: TPRODUTOS -> produtos ===")
     produtos = obter_produtos_firebird(con_fb)
     if not produtos:
-        print("[AVISO] Nenhum produto encontrado. Nada a fazer na etapa 2.")
+        log.warning("Nenhum produto encontrado. Nada a fazer na etapa 2.")
         return
 
     # Resolve categoria_id via lookup em categorias (descricao == ID_GRUPO_PRODUTO).
     mapa_categorias = obter_mapa_categorias(con_my)
-    print(f"[INFO] {len(mapa_categorias)} categoria(s) carregada(s) para vinculo.")
+    log.info("%d categoria(s) carregada(s) para vinculo.", len(mapa_categorias))
 
     nao_encontrados = set()
     for p in produtos:
@@ -323,8 +360,8 @@ def migrar_produtos(con_fb, con_my):
                 nao_encontrados.add(p["grupo_chave"])
         p["categoria_id"] = cat_id
     if nao_encontrados:
-        print(f"[AVISO] Grupo(s) sem categoria correspondente (usando padrao "
-              f"id={CATEGORIA_ID_PADRAO}): {', '.join(sorted(nao_encontrados))}")
+        log.warning("Grupo(s) sem categoria correspondente (usando padrao id=%d): %s",
+                    CATEGORIA_ID_PADRAO, ", ".join(sorted(nao_encontrados)))
 
     colunas_existentes = obter_colunas_tabela(con_my, "produtos")
     agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -356,8 +393,8 @@ def migrar_produtos(con_fb, con_my):
     mapeamento_ativo = [(c, f) for (c, f) in mapeamento if c in colunas_existentes]
     ignoradas = [c for (c, _) in mapeamento if c not in colunas_existentes]
     if ignoradas:
-        print(f"[AVISO] Colunas inexistentes em 'produtos' (ignoradas): "
-              f"{', '.join(ignoradas)}")
+        log.warning("Colunas inexistentes em 'produtos' (ignoradas): %s",
+                    ", ".join(ignoradas))
 
     colunas_ins = [c for (c, _) in mapeamento_ativo]
     funcoes_ins = [f for (_, f) in mapeamento_ativo]
@@ -373,8 +410,8 @@ def migrar_produtos(con_fb, con_my):
 
     ultimo_id = obter_ultimo_id(con_my, "produtos")
     id_atual = ultimo_id + 1 if ultimo_id >= 1 else 1
-    print(f"[INFO] Ultimo id em 'produtos': {ultimo_id}. "
-          f"Novos registros a partir do id {id_atual}.")
+    log.info("Ultimo id em 'produtos': %d. Novos registros a partir do id %d.",
+             ultimo_id, id_atual)
 
     def localizar_existente(cur, p):
         """Localiza o id de um produto ja existente usando chave estavel.
@@ -384,8 +421,6 @@ def migrar_produtos(con_fb, con_my):
           2) codigo_barras == CODIGO_BARRAS         (registro que ja tem o codigo de barras)
           3) codigo_barras == CODIGO                (registro antigo, criado quando o
                                                       codigo de barras ainda estava vazio)
-        As opcoes 2 e 3 servem para "adotar" registros de execucoes anteriores
-        que ainda nao tinham a coluna 'codigo' preenchida.
         """
         cod = p["codigo"]
         cb = p["codigo_barras"]
@@ -415,15 +450,19 @@ def migrar_produtos(con_fb, con_my):
             valores.append(existente_id)
             cur.execute(sql_update, tuple(valores))
             atualizados += 1
+            log.debug("Produto ATUALIZADO (id=%s): nome='%s' codigo='%s' cb='%s'",
+                      existente_id, p["nome"], p["codigo"], p["codigo_barras"])
         else:
             valores = tuple(f(p, id_atual) for f in funcoes_ins)
             cur.execute(sql_insert, valores)
+            log.debug("Produto INSERIDO (id=%s): nome='%s' codigo='%s' cb='%s'",
+                      id_atual, p["nome"], p["codigo"], p["codigo_barras"])
             inseridos += 1
             id_atual += 1
 
     con_my.commit()
     cur.close()
-    print(f"[OK] Produtos: {inseridos} inserido(s), {atualizados} atualizado(s).")
+    log.info("Produtos: %d inserido(s), %d atualizado(s).", inseridos, atualizados)
 
 
 # ----------------------------------------------------------------------------
@@ -453,15 +492,15 @@ def obter_clientes_firebird(con_fb):
             "observacao": _texto(observacao),
         })
     cur.close()
-    print(f"[OK] {len(clientes)} registro(s) lido(s) de THOSPEDES.")
+    log.info("%d registro(s) lido(s) de THOSPEDES.", len(clientes))
     return clientes
 
 
 def migrar_clientes(con_fb, con_my):
-    print("\n=== ETAPA 3: THOSPEDES -> clientes ===")
+    log.info("=== ETAPA 3: THOSPEDES -> clientes ===")
     clientes = obter_clientes_firebird(con_fb)
     if not clientes:
-        print("[AVISO] Nenhum cliente encontrado. Nada a fazer na etapa 3.")
+        log.warning("Nenhum cliente encontrado. Nada a fazer na etapa 3.")
         return
 
     colunas_existentes = obter_colunas_tabela(con_my, "clientes")
@@ -483,8 +522,8 @@ def migrar_clientes(con_fb, con_my):
     mapeamento_ativo = [(col, f) for (col, f) in mapeamento if col in colunas_existentes]
     ignoradas = [col for (col, _) in mapeamento if col not in colunas_existentes]
     if ignoradas:
-        print(f"[AVISO] Colunas inexistentes em 'clientes' (ignoradas): "
-              f"{', '.join(ignoradas)}")
+        log.warning("Colunas inexistentes em 'clientes' (ignoradas): %s",
+                    ", ".join(ignoradas))
 
     colunas_ins = [col for (col, _) in mapeamento_ativo]
     funcoes_ins = [f for (_, f) in mapeamento_ativo]
@@ -501,8 +540,8 @@ def migrar_clientes(con_fb, con_my):
 
     ultimo_id = obter_ultimo_id(con_my, "clientes")
     id_atual = ultimo_id + 1 if ultimo_id >= 1 else 1
-    print(f"[INFO] Ultimo id em 'clientes': {ultimo_id}. "
-          f"Novos registros a partir do id {id_atual}.")
+    log.info("Ultimo id em 'clientes': %d. Novos registros a partir do id %d.",
+             ultimo_id, id_atual)
 
     cur = con_my.cursor()
     inseridos = atualizados = 0
@@ -518,36 +557,73 @@ def migrar_clientes(con_fb, con_my):
             valores.append(existente_id)
             cur.execute(sql_update, tuple(valores))
             atualizados += 1
+            log.debug("Cliente ATUALIZADO (id=%s): nome='%s'", existente_id, c["nome"])
         else:
             valores = tuple(f(c, id_atual) for f in funcoes_ins)
             cur.execute(sql_insert, valores)
+            log.debug("Cliente INSERIDO (id=%s): nome='%s'", id_atual, c["nome"])
             inseridos += 1
             id_atual += 1
 
     con_my.commit()
     cur.close()
-    print(f"[OK] Clientes: {inseridos} inserido(s), {atualizados} atualizado(s).")
+    log.info("Clientes: %d inserido(s), %d atualizado(s).", inseridos, atualizados)
 
 
 # ----------------------------------------------------------------------------
 # Fluxo principal
 # ----------------------------------------------------------------------------
 def main():
-    con_fb = conectar_firebird()
-    con_my = conectar_mysql()
+    caminho_log = configurar_log()
+    inicio = datetime.now()
+    log.info("==================================================")
+    log.info("INICIO DA MIGRACAO Firebird -> MySQL")
+    log.info("Arquivo de log: %s", caminho_log)
+    log.info("==================================================")
+
+    con_fb = con_my = None
+    houve_erro = False
     try:
+        con_fb = conectar_firebird()
+        con_my = conectar_mysql()
+
         migrar_categorias(con_fb, con_my)   # 1) grupos -> categorias
         migrar_produtos(con_fb, con_my)     # 2) produtos -> produtos
         migrar_clientes(con_fb, con_my)     # 3) hospedes -> clientes
-        print("\n[OK] Migracao concluida com sucesso.")
+
+        log.info("MIGRACAO CONCLUIDA COM SUCESSO.")
     except Exception as e:
-        con_my.rollback()
-        print(f"\nERRO durante a migracao: {e}")
-        raise
+        houve_erro = True
+        # Registra o erro completo (com traceback) no log e no console.
+        log.error("FALHA NA MIGRACAO: %s", e)
+        log.exception("Detalhes do erro (traceback):")
+        if con_my is not None:
+            try:
+                con_my.rollback()
+                log.info("Rollback efetuado no MySQL (nenhuma alteracao pendente salva).")
+            except Exception:
+                log.exception("Falha ao tentar rollback no MySQL.")
     finally:
-        con_fb.close()
-        con_my.close()
-        print("[OK] Conexoes encerradas.")
+        if con_fb is not None:
+            try:
+                con_fb.close()
+            except Exception:
+                log.exception("Falha ao fechar conexao Firebird.")
+        if con_my is not None:
+            try:
+                con_my.close()
+            except Exception:
+                log.exception("Falha ao fechar conexao MySQL.")
+
+        duracao = (datetime.now() - inicio).total_seconds()
+        status = "COM ERRO" if houve_erro else "OK"
+        log.info("Conexoes encerradas.")
+        log.info("FIM DA MIGRACAO (%s) - duracao: %.1f s", status, duracao)
+        log.info("Log salvo em: %s", caminho_log)
+        print(f"\nLog completo salvo em: {caminho_log}")
+
+    # Codigo de saida: 1 em caso de erro, 0 em caso de sucesso.
+    sys.exit(1 if houve_erro else 0)
 
 
 if __name__ == "__main__":
