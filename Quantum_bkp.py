@@ -1480,6 +1480,26 @@ def _quantum_preboot_total_schema_antes_de_tudo():
         _log("Não foi possível conectar no banco '%s': %s" % (_database_safe, _e))
         return False
 
+    # OTIMIZAÇÃO DE BOOT: pré-carrega o catálogo do banco (tabelas/colunas/índices)
+    # em poucas queries, para que as milhares de verificações de existência abaixo
+    # sejam feitas em memória (antes: ~1 query por tabela e por coluna).
+    _existing_tables = set()
+    _existing_cols = set()
+    _existing_idx = set()
+    try:
+        _cur.execute("SELECT LOWER(table_name) FROM information_schema.tables WHERE table_schema=%s", (_database_safe,))
+        for _r in _cur.fetchall():
+            _existing_tables.add(_r[0])
+        _cur.execute("SELECT LOWER(table_name), LOWER(column_name) FROM information_schema.columns WHERE table_schema=%s", (_database_safe,))
+        for _r in _cur.fetchall():
+            _existing_cols.add((_r[0], _r[1]))
+        _cur.execute("SELECT LOWER(table_name), LOWER(index_name) FROM information_schema.statistics WHERE table_schema=%s", (_database_safe,))
+        for _r in _cur.fetchall():
+            _existing_idx.add((_r[0], _r[1]))
+        _log("Catálogo pré-carregado: %d tabela(s), %d coluna(s)." % (len(_existing_tables), len(_existing_cols)))
+    except Exception as _e:
+        _log("Aviso ao pré-carregar catálogo do banco: %s" % _e)
+
     def _execute(sql, params=None, quiet=True):
         try:
             _cur.execute(sql, params or ())
@@ -1502,39 +1522,19 @@ def _quantum_preboot_total_schema_antes_de_tudo():
             return None
 
     def _table_exists(table):
-        row = _fetchone(
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=%s AND table_name=%s",
-            (_database_safe, table)
-        )
-        try:
-            return int(row[0]) > 0
-        except Exception:
-            return False
+        return str(table).lower() in _existing_tables
 
     def _column_exists(table, col):
-        row = _fetchone(
-            "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=%s AND table_name=%s AND column_name=%s",
-            (_database_safe, table, col)
-        )
-        try:
-            return int(row[0]) > 0
-        except Exception:
-            return False
+        return (str(table).lower(), str(col).lower()) in _existing_cols
 
     def _index_exists(table, idx):
-        row = _fetchone(
-            "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=%s AND table_name=%s AND index_name=%s",
-            (_database_safe, table, idx)
-        )
-        try:
-            return int(row[0]) > 0
-        except Exception:
-            return False
+        return (str(table).lower(), str(idx).lower()) in _existing_idx
 
     def _ensure_table(table, ddl):
         if not _table_exists(table):
             ok = _execute(ddl, quiet=False)
             if ok:
+                _existing_tables.add(str(table).lower())
                 _log("Tabela criada: %s" % table)
             return ok
         return True
@@ -1544,6 +1544,7 @@ def _quantum_preboot_total_schema_antes_de_tudo():
             if _table_exists(table) and not _column_exists(table, col):
                 ok = _execute("ALTER TABLE `{}` ADD COLUMN `{}` {}".format(table, col, definition), quiet=False)
                 if ok:
+                    _existing_cols.add((str(table).lower(), str(col).lower()))
                     _log("Coluna criada: %s.%s" % (table, col))
                 return ok
         except Exception:
@@ -1553,7 +1554,10 @@ def _quantum_preboot_total_schema_antes_de_tudo():
     def _ensure_index(table, idx, cols):
         try:
             if _table_exists(table) and not _index_exists(table, idx):
-                return _execute("CREATE INDEX `{}` ON `{}` ({})".format(idx, table, cols), quiet=True)
+                ok = _execute("CREATE INDEX `{}` ON `{}` ({})".format(idx, table, cols), quiet=True)
+                if ok:
+                    _existing_idx.add((str(table).lower(), str(idx).lower()))
+                return ok
         except Exception:
             pass
         return True
@@ -2218,11 +2222,13 @@ def _quantum_preboot_total_schema_antes_de_tudo():
                 _ddl_full = _spec_full.get("ddl")
                 if _ddl_full and not _table_exists(_t_full):
                     if _execute(_ddl_full, quiet=True):
+                        _existing_tables.add(str(_t_full).lower())
                         _tot_tab += 1
                         _log("Tabela criada (schema completo): %s" % _t_full)
                 for _c_full, _cdef_full in (_spec_full.get("cols") or {}).items():
                     if _table_exists(_t_full) and not _column_exists(_t_full, _c_full):
                         if _execute("ALTER TABLE `{}` ADD COLUMN `{}` {}".format(_t_full, _c_full, _cdef_full), quiet=True):
+                            _existing_cols.add((str(_t_full).lower(), str(_c_full).lower()))
                             _tot_col += 1
                             _log("Coluna criada (schema completo): %s.%s" % (_t_full, _c_full))
             except Exception as _e_full_tab:
@@ -2246,6 +2252,29 @@ def _quantum_preboot_total_schema_antes_de_tudo():
         ("estoque_lotes", "idx_lotes_validade", "`validade`"),
         ("tratamentos_continuos", "idx_trat_lembrete", "`lembrete`"),
         ("caixa_movimentos", "idx_caixa_movimentos_data", "`data`"),
+        # --- Índices adicionais para acelerar abertura de telas/consultas ---
+        ("produtos", "idx_produtos_categoria", "`categoria_id`"),
+        ("produtos", "idx_produtos_ativo", "`ativo`"),
+        ("clientes", "idx_clientes_cpf", "`cpf`"),
+        ("clientes", "idx_clientes_telefone", "`telefone`"),
+        ("vendas", "idx_vendas_cliente", "`cliente_id`"),
+        ("vendas", "idx_vendas_status", "`status`"),
+        ("vendas_itens", "idx_vitens_produto", "`produto_id`"),
+        ("itens_venda", "idx_ivenda_produto", "`produto_id`"),
+        ("contas_pagar", "idx_cpagar_venc", "`vencimento`"),
+        ("contas_pagar", "idx_cpagar_status", "`status`"),
+        ("contas_receber", "idx_creceber_venc", "`vencimento`"),
+        ("contas_receber", "idx_creceber_status", "`status`"),
+        ("comandas", "idx_comandas_status", "`status`"),
+        ("mesas", "idx_mesas_status", "`status`"),
+        ("ordens_servico", "idx_os_cliente", "`cliente_id`"),
+        ("ordens_servico", "idx_os_status", "`status`"),
+        ("notas_entrada", "idx_notas_fornecedor", "`fornecedor_id`"),
+        ("estoque_lotes", "idx_lotes_produto", "`produto_id`"),
+        ("devolucoes", "idx_devol_venda", "`venda_id`"),
+        ("orcamentos", "idx_orc_cliente", "`cliente_id`"),
+        ("fornecedores", "idx_fornecedores_nome", "`nome`"),
+        ("caixa_movimentos", "idx_caixa_mov_caixa", "`caixa_id`"),
     ]:
         _ensure_index(_table, _idx, _cols_def)
 
@@ -2624,6 +2653,19 @@ def quantum_precheck_banco_vazio_ou_antigo_full():
                 pass
             return False
 
+        # OTIMIZAÇÃO DE BOOT: pré-carrega o catálogo (verificações em memória).
+        _existing_tables = set()
+        _existing_cols = set()
+        try:
+            _cur.execute("SELECT LOWER(table_name) FROM information_schema.tables WHERE table_schema=%s", (_database,))
+            for _r in _cur.fetchall():
+                _existing_tables.add(_r[0])
+            _cur.execute("SELECT LOWER(table_name), LOWER(column_name) FROM information_schema.columns WHERE table_schema=%s", (_database,))
+            for _r in _cur.fetchall():
+                _existing_cols.add((_r[0], _r[1]))
+        except Exception:
+            pass
+
         def _exec(sql):
             try:
                 _cur.execute(sql)
@@ -2636,33 +2678,21 @@ def quantum_precheck_banco_vazio_ou_antigo_full():
                 return False
 
         def _table_exists(table):
-            try:
-                _cur.execute(
-                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=%s AND table_name=%s",
-                    (_database, table)
-                )
-                return (_cur.fetchone() or [0])[0] > 0
-            except Exception:
-                return False
+            return str(table).lower() in _existing_tables
 
         def _column_exists(table, col):
-            try:
-                _cur.execute(
-                    "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=%s AND table_name=%s AND column_name=%s",
-                    (_database, table, col)
-                )
-                return (_cur.fetchone() or [0])[0] > 0
-            except Exception:
-                return False
+            return (str(table).lower(), str(col).lower()) in _existing_cols
 
         def _ensure_table(table, ddl):
             if not _table_exists(table):
-                _exec(ddl)
+                if _exec(ddl):
+                    _existing_tables.add(str(table).lower())
 
         def _ensure_col(table, col, definition):
             try:
                 if _table_exists(table) and not _column_exists(table, col):
-                    _exec("ALTER TABLE `{}` ADD COLUMN `{}` {}".format(table, col, definition))
+                    if _exec("ALTER TABLE `{}` ADD COLUMN `{}` {}".format(table, col, definition)):
+                        _existing_cols.add((str(table).lower(), str(col).lower()))
             except Exception as _e:
                 try:
                     quantum_log_exception("Pré-verificação banco coluna %s.%s" % (table, col), _e)
@@ -28103,17 +28133,39 @@ class MySQLDB:
     _pool = None
     _pool_lock = threading.Lock()
     _config_hash = None
-    
+    _cfg_cache = None          # (mtime, cfg_file, config) - cache por mtime do config.ini
+    _db_ensured = False        # CREATE DATABASE conferido apenas uma vez por processo
+
+    @classmethod
+    def _cfg(cls):
+        """get_mysql_config() com cache por mtime do config.ini: evita ler e
+        parsear o arquivo em TODA query. Retorna sempre uma cópia segura."""
+        try:
+            _cf = globals().get('MYSQL_CONFIG_FILE')
+            _mt = os.path.getmtime(_cf) if (_cf and os.path.exists(_cf)) else 0
+            _c = cls._cfg_cache
+            if _c is not None and _c[0] == _mt and _c[1] == _cf:
+                return dict(_c[2])
+            _novo = get_mysql_config()
+            cls._cfg_cache = (_mt, _cf, dict(_novo))
+            return dict(_novo)
+        except Exception:
+            return get_mysql_config()
+
     @classmethod
     def _get_config_hash(cls):
         """Retorna um hash da configuração atual para detectar mudanças."""
-        config = get_mysql_config()
+        config = cls._cfg()
         return f"{config['host']}:{config['port']}:{config['user']}:{config['database']}"
     
     @classmethod
     def _ensure_database_exists(cls):
-        """Garante que o banco de dados MySQL exista, criando-o se necessário."""
-        config = get_mysql_config()
+        """Garante que o banco de dados MySQL exista, criando-o se necessário.
+        OTIMIZAÇÃO: executa apenas uma vez por processo (evita CREATE DATABASE a
+        cada reconexão)."""
+        if getattr(cls, '_db_ensured', False):
+            return
+        config = cls._cfg()
         try:
             conn = mysql.connector.connect(
                 host=config['host'],
@@ -28127,13 +28179,37 @@ class MySQLDB:
             cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{config['database']}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
             cursor.close()
             conn.close()
+            cls._db_ensured = True
         except Exception as e:
             print(f"[MySQL] Aviso ao verificar/criar banco de dados: {e}")
     
     @classmethod
     def get_connection(cls):
         """Obtém uma conexão MySQL thread-safe."""
-        config = get_mysql_config()
+        current_hash = cls._get_config_hash()
+
+        # OTIMIZAÇÃO (fast-path): conexão viva e recente desta thread retorna na
+        # hora, SEM reler config nem fazer 'ping' (ida/volta à rede) a cada query.
+        # A validação por ping ocorre no máximo a cada 30s; conexões caídas são
+        # recuperadas pelo retry automático de execute/fetchone/fetchall.
+        if (getattr(cls._local, 'connection', None) is not None and
+                getattr(cls._local, 'config_hash', None) == current_hash):
+            _agora = time.time()
+            if (_agora - getattr(cls._local, '_last_check', 0.0)) < 30.0:
+                return cls._local.connection
+            try:
+                cls._local.connection.ping(reconnect=True, attempts=1, delay=0)
+                cls._local._last_check = _agora
+                return cls._local.connection
+            except Exception:
+                try:
+                    cls._local.connection.close()
+                except Exception:
+                    pass
+                cls._local.connection = None
+
+        # Caminho lento (primeira conexão/reconexão): valida config e senha.
+        config = cls._cfg()
         config = fq_mysql_password_no_guard(config, contexto='get_connection')
         if config.get('_mysql_password_missing'):
             try:
@@ -28141,24 +28217,7 @@ class MySQLDB:
             except Exception:
                 pass
             raise fq_mysql_password_missing_exception()  # somente em execução/conexão MySQL, nunca na compilação
-        current_hash = cls._get_config_hash()
-        
-        # Verifica se já existe uma conexão válida para esta thread
-        if (hasattr(cls._local, 'connection') and 
-            cls._local.connection is not None and
-            hasattr(cls._local, 'config_hash') and
-            cls._local.config_hash == current_hash):
-            try:
-                cls._local.connection.ping(reconnect=True, attempts=1, delay=0)
-                return cls._local.connection
-            except Exception:
-                # Conexão perdida, será recriada abaixo
-                try:
-                    cls._local.connection.close()
-                except Exception:
-                    pass
-                cls._local.connection = None
-        
+
         # Fecha conexão antiga se existir
         if hasattr(cls._local, 'connection') and cls._local.connection is not None:
             try:
@@ -28184,6 +28243,7 @@ class MySQLDB:
                 use_pure=True
             )
             cls._local.config_hash = current_hash
+            cls._local._last_check = time.time()
             
             # Configurações de sessão MySQL equivalentes aos PRAGMAs do SQLite
             cursor = cls._local.connection.cursor()
