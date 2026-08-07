@@ -1,0 +1,50 @@
+name: Build ChatAI EXE (Windows)
+
+on:
+  push:
+    branches:
+      - build/chatai-exe
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout do codigo
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pyinstaller
+
+      - name: Gerar o executavel (.exe)
+        run: pyinstaller --onefile --noconsole --name ChatAI_ZenithOmni chatai.py
+
+      - name: Publicar .exe como artifact (download logado)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChatAI_ZenithOmni-exe
+          path: dist/ChatAI_ZenithOmni.exe
+
+      - name: Publicar Release com link direto de download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: exe-latest
+          name: ChatAI Zenith Omni - EXE (build mais recente)
+          body: |
+            Executavel Windows gerado automaticamente a partir de chatai.py.
+            Baixe o arquivo ChatAI_ZenithOmni.exe abaixo.
+          files: dist/ChatAI_ZenithOmni.exe
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

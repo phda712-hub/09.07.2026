@@ -1,0 +1,61 @@
+========================================================================
+ COMO GERAR O .EXE DO chatai.py (iPHDA ZENITH OMNI)
+========================================================================
+
+IMPORTANTE:
+Um arquivo .exe do Windows so pode ser gerado a partir de uma maquina
+WINDOWS. Este kit foi preparado para voce rodar no seu proprio Windows.
+
+------------------------------------------------------------------------
+OPCAO A - AUTOMATICA (recomendada) - 1 clique
+------------------------------------------------------------------------
+1) Instale o Python 3.10 ou superior:
+      https://www.python.org/downloads/
+   ** Na instalacao, marque a caixa "Add Python to PATH" **
+
+2) Coloque este pasta 'chatai_build' na MESMA pasta onde esta o
+   arquivo 'chatai.py' (a estrutura deve ficar assim):
+
+      /sua_pasta/
+         chatai.py
+         chatai_build/
+            build_windows.bat
+            chatai.spec
+            requirements.txt
+            LEIAME.txt
+
+3) De DUPLO-CLIQUE em:  build_windows.bat
+
+4) Aguarde. Ao final, o executavel estara em:
+      chatai_build\dist\ChatAI_ZenithOmni.exe
+
+
+------------------------------------------------------------------------
+OPCAO B - MANUAL (linha de comando)
+------------------------------------------------------------------------
+Abra o Prompt de Comando (cmd) dentro da pasta chatai_build e rode:
+
+   pip install requests pyinstaller
+   pyinstaller --noconfirm --clean chatai.spec
+
+Resultado:  chatai_build\dist\ChatAI_ZenithOmni.exe
+
+
+------------------------------------------------------------------------
+OPCAO C - COMANDO UNICO SIMPLES (sem o .spec)
+------------------------------------------------------------------------
+   pip install requests pyinstaller
+   pyinstaller --onefile --noconsole --name ChatAI_ZenithOmni ..\chatai.py
+
+
+------------------------------------------------------------------------
+DICAS
+------------------------------------------------------------------------
+- Quer um ICONE? Coloque um arquivo 'icon.ico' dentro de chatai_build,
+  abra o chatai.spec e descomente a linha:  icon='icon.ico'
+- O .exe gerado e "onefile" (arquivo unico), facil de distribuir.
+- Alguns antivirus dao falso-positivo em .exe do PyInstaller. Isso e
+  comum; adicione uma excecao se necessario.
+- O programa cria um banco 'iphda_zenith_omni.db' na mesma pasta onde
+  o .exe for executado.
+========================================================================
