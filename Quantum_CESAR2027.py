@@ -30005,6 +30005,18 @@ def _mysql_load_sales():
         except Exception as _e_row:
             logging.error(f"Erro ao carregar venda (cupom {row.get('coupon_number')}): {_e_row}")
             continue
+    # ─────────────────────────────────────────────────────────────────────
+    # CORREÇÃO DEFINITIVA (BUG DA VENDA DUPLICADA / CUPOM 739):
+    # A tabela `vendas` pode conter MAIS DE UMA LINHA para o mesmo
+    # coupon_number (não havia índice UNIQUE e o upsert não era atômico).
+    # Isso fazia o mesmo cupom se propagar no relatório de Produtos Vendidos,
+    # multiplicando itens, quantidade e valor. Aqui deduplicamos por cupom,
+    # mantendo SEMPRE a última linha (maior id = registro mais completo),
+    # para que o histórico e todos os relatórios reflitam a venda uma só vez.
+    try:
+        result = _dedup_vendas_por_cupom(result)
+    except Exception as _e_dedup:
+        logging.error(f"Falha ao deduplicar vendas por cupom no carregamento: {_e_dedup}")
     return result
 
 def _mysql_load_contas_pagar():
@@ -31116,6 +31128,52 @@ def _mysql_save_cartoes(data, prune=True):
 
 def _mysql_save_sales(data):
     db = get_db()
+
+    # ─────────────────────────────────────────────────────────────────────
+    # CORREÇÃO DEFINITIVA (BUG DA VENDA DUPLICADA / CUPOM 739) — GRAVAÇÃO
+    # 1) Deduplica a lista recebida por coupon_number (mantém a última/mais
+    #    completa). Antes, se a lista em memória já tivesse o mesmo cupom
+    #    repetido, cada cópia gerava um INSERT novo e a venda se multiplicava.
+    # 2) Auto-cura o banco: remove linhas duplicadas já existentes na tabela
+    #    `vendas`, mantendo apenas a de maior id por cupom.
+    # 3) Best-effort: cria índice UNIQUE em coupon_number para o próprio banco
+    #    passar a REJEITAR duplicidades no futuro.
+    # ─────────────────────────────────────────────────────────────────────
+    try:
+        data = _dedup_vendas_por_cupom(list(data or []))
+    except Exception as _e_dd:
+        logging.error(f"[VENDAS] Falha ao deduplicar lista antes de salvar: {_e_dd}")
+
+    try:
+        _dups = db.fetchall(
+            "SELECT coupon_number FROM vendas "
+            "WHERE coupon_number IS NOT NULL "
+            "GROUP BY coupon_number HAVING COUNT(*) > 1"
+        ) or []
+        for _d in _dups:
+            _cup = _d.get('coupon_number') if isinstance(_d, dict) else _d[0]
+            if _cup is None:
+                continue
+            # Mantém a linha de maior id (registro mais recente/completo) e
+            # apaga as demais do mesmo cupom.
+            db.execute(
+                "DELETE v FROM vendas v "
+                "JOIN (SELECT MAX(id) AS keep_id FROM vendas WHERE coupon_number = %s) k "
+                "ON v.coupon_number = %s AND v.id < k.keep_id",
+                (_cup, _cup)
+            )
+        if _dups:
+            logging.warning(f"[VENDAS] Auto-cura: removidas linhas duplicadas de {len(_dups)} cupom(ns).")
+    except Exception as _e_heal:
+        logging.error(f"[VENDAS] Falha na auto-cura de duplicidades: {_e_heal}")
+
+    try:
+        # Índice UNIQUE evita reincidência (ignora erro se já existir ou se
+        # ainda restar alguma duplicidade que não pôde ser removida).
+        db.execute("ALTER TABLE vendas ADD UNIQUE INDEX uq_vendas_coupon_number (coupon_number)")
+    except Exception:
+        pass
+
     rows = db.fetchall("SELECT id, coupon_number FROM vendas")
     existing_coupons = {row['coupon_number']: row['id'] for row in rows}
     
@@ -31171,6 +31229,10 @@ def _mysql_save_sales(data):
                 venda.get('vendedor_id', '') or '',
                 venda.get('vendedor_nome', '') or ''
             ))
+            # Marca o cupom como já existente para que, se ele aparecer
+            # novamente nesta mesma leva, seja ATUALIZADO em vez de gerar
+            # outra linha (defesa extra contra duplicidade).
+            existing_coupons[coupon_number] = True
     return True
 
 def _mysql_save_contas_pagar(data):
@@ -73801,6 +73863,13 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
                 # o que inflava o relatorio de Produtos Vendidos.
                 try:
                     sales_para_salvar = _dedup_vendas_por_cupom(sales_log_snapshot)
+                    # Mantém a lista EM MEMÓRIA também deduplicada, para que
+                    # qualquer outro salvamento posterior (edição de entrega,
+                    # observação, etc.) não regrave o mesmo cupom duplicado.
+                    try:
+                        self.sales_log = sales_para_salvar
+                    except Exception:
+                        pass
                 except Exception:
                     sales_para_salvar = sales_log_snapshot
                 save_data(SALES_FILE, sales_para_salvar)
