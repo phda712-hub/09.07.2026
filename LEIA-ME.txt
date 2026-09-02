@@ -1,0 +1,52 @@
+========================================================
+  LOJA QUANTUM - Como gerar o executavel (.exe)
+========================================================
+
+CONTEUDO DESTE PACOTE
+---------------------
+  - Quantum_bkp.py .... o sistema (perfil LOJA)
+  - icone_loja.ico .... o icone do aplicativo
+  - build_exe.bat ..... gera o .exe automaticamente
+  - LEIA-ME.txt ....... este arquivo
+
+REQUISITOS
+----------
+  1) Windows 10 ou 11 (64 bits)
+  2) Python 3.10 ou superior instalado
+     Baixe em: https://www.python.org/downloads/
+     IMPORTANTE: na instalacao marque a caixa
+     "Add Python to PATH".
+
+COMO GERAR O .EXE (passo a passo)
+---------------------------------
+  1) Coloque os 4 arquivos na MESMA pasta.
+  2) De um duplo clique em "build_exe.bat".
+     (Se o Windows bloquear, clique em "Mais informacoes"
+      e depois "Executar assim mesmo".)
+  3) Aguarde. O script instala tudo e compila sozinho.
+  4) Ao terminar, o executavel estara em:
+
+         dist\LojaQuantum.exe
+
+     Ele e:
+       - arquivo unico (onefile)
+       - sem janela de console (windowed)
+       - com o icone da loja embutido
+
+OBSERVACOES
+-----------
+  - A primeira compilacao pode demorar alguns minutos e
+    baixar varias bibliotecas da internet.
+  - Alguns antivirus marcam executaveis feitos com
+    PyInstaller como suspeitos (falso-positivo). Se isso
+    acontecer, adicione uma excecao para o LojaQuantum.exe.
+  - Para distribuir, basta copiar o arquivo
+    dist\LojaQuantum.exe (ele ja e independente).
+
+DICA
+----
+  Se quiser recompilar do zero, apague as pastas "build" e
+  "dist" e o arquivo "LojaQuantum.spec" antes de rodar o
+  build_exe.bat novamente.
+
+========================================================

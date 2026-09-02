@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ═══════════════════════════════════════════════════════════════════════════════
-# FARMA QUANTUM - AUTOCORREÇÃO TOTAL ANTES DE QUALQUER PROCESSO
+# LOJA QUANTUM - AUTOCORREÇÃO TOTAL ANTES DE QUALQUER PROCESSO
 # Esta camada roda antes do restante do sistema para verificar/corrigir:
 # - pastas essenciais;
 # - config.ini;
@@ -184,6 +184,1219 @@ except Exception as _fq_autofix_err:
 # A rotina NÃO apaga dados; apenas cria banco/tabelas/colunas/índices ausentes.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ==========================================================================
+# VERIFICACAO INICIAL DE BANCO - ESQUEMA COMPLETO CONSOLIDADO (AUTOGERADO)
+# Contem TODAS as tabelas e colunas usadas pelo sistema. Usado no pre-boot
+# para criar tabelas/colunas faltantes e ATUALIZAR bancos antigos antes de
+# qualquer operacao. Adicionar itens aqui e seguro (idempotente).
+# ==========================================================================
+_QUANTUM_SCHEMA_COMPLETO_AUTO = {
+    "aniversarios_envios": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `aniversarios_envios` ( id INT AUTO_INCREMENT PRIMARY KEY, cliente_id INTEGER NOT NULL, cliente_nome VARCHAR(500) DEFAULT '', telefone VARCHAR(500) DEFAULT '', ano INTEGER NOT NULL, data_envio TEXT, voucher_codigo VARCHAR(255) DEFAULT '', voucher_valor DOUBLE DEFAULT 0.0, status VARCHAR(500) DEFAULT 'Enviado', observacao VARCHAR(500) DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY uq_aniv_cliente_ano (cliente_id, ano) ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "cliente_id": "INTEGER",
+            "cliente_nome": "VARCHAR(500) DEFAULT ''",
+            "telefone": "VARCHAR(500) DEFAULT ''",
+            "ano": "INTEGER",
+            "data_envio": "TEXT",
+            "mensagem": "TEXT",
+            "status": "VARCHAR(500) DEFAULT 'Enviado'",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "voucher_codigo": "VARCHAR(255) DEFAULT ''",
+            "voucher_valor": "DOUBLE DEFAULT 0.0",
+            "observacao": "VARCHAR(500) DEFAULT ''",
+        },
+    },
+    "bairros": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `bairros` ( id INT AUTO_INCREMENT PRIMARY KEY, nome TEXT NOT NULL, cidade VARCHAR(500) DEFAULT '', valor_entrega DOUBLE DEFAULT 0.0, tempo_estimado VARCHAR(500) DEFAULT '', observacao VARCHAR(500) DEFAULT '', ativo INTEGER DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "VARCHAR(255) DEFAULT ''",
+            "taxa_entrega": "DECIMAL(15,4) DEFAULT 0",
+            "ativo": "TINYINT DEFAULT 1",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "cidade": "VARCHAR(500) DEFAULT ''",
+            "valor_entrega": "DOUBLE DEFAULT 0.0",
+            "tempo_estimado": "VARCHAR(500) DEFAULT ''",
+            "observacao": "VARCHAR(500) DEFAULT ''",
+            "criado_em": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "caixa": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `caixa` ( id INT AUTO_INCREMENT PRIMARY KEY, nome VARCHAR(255) DEFAULT 'Caixa Principal', usuario_abertura VARCHAR(255) DEFAULT '', usuario_fechamento VARCHAR(255) DEFAULT '', data_abertura DATETIME NULL, data_fechamento DATETIME NULL, saldo_inicial DECIMAL(15,4) DEFAULT 0, total_creditos DECIMAL(15,4) DEFAULT 0, total_debitos DECIMAL(15,4) DEFAULT 0, saldo_final DECIMAL(15,4) DEFAULT 0, transacoes LONGTEXT NULL, status VARCHAR(80) DEFAULT 'aberto', observacao TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "caixa_id": "INT NULL",
+            "nome": "VARCHAR(120) DEFAULT 'Caixa Principal'",
+            "data_abertura": "DATETIME NULL",
+            "data_fechamento": "DATETIME NULL",
+            "usuario_abertura": "VARCHAR(80) DEFAULT ''",
+            "usuario_fechamento": "VARCHAR(80) DEFAULT ''",
+            "saldo_inicial": "DECIMAL(12,2) DEFAULT 0",
+            "saldo_final": "DECIMAL(12,2) DEFAULT 0",
+            "status": "VARCHAR(50) DEFAULT 'aberto'",
+            "observacao": "TEXT NULL",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "total_creditos": "DECIMAL(15,4) DEFAULT 0",
+            "total_debitos": "DECIMAL(15,4) DEFAULT 0",
+            "transacoes": "LONGTEXT NULL",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+        },
+    },
+    "caixa_movimentos": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `caixa_movimentos` ( id INT AUTO_INCREMENT PRIMARY KEY, caixa_id INT NULL, caixa VARCHAR(120) DEFAULT '', data DATETIME DEFAULT CURRENT_TIMESTAMP, tipo VARCHAR(60) DEFAULT '', descricao TEXT NULL, valor DECIMAL(12,2) DEFAULT 0, usuario VARCHAR(80) DEFAULT '', forma_pagamento VARCHAR(120) DEFAULT '', venda_id INT NULL, INDEX idx_caixa_data_top (data) ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "caixa_id": "INT NULL",
+            "caixa": "VARCHAR(120) DEFAULT ''",
+            "data": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "tipo": "VARCHAR(60) DEFAULT ''",
+            "descricao": "TEXT NULL",
+            "valor": "DECIMAL(12,2) DEFAULT 0",
+            "usuario": "VARCHAR(80) DEFAULT ''",
+            "forma_pagamento": "VARCHAR(120) DEFAULT ''",
+            "venda_id": "INT NULL",
+        },
+    },
+    "caixas_pdv": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `caixas_pdv` ( id INT AUTO_INCREMENT PRIMARY KEY, nome VARCHAR(255) NOT NULL UNIQUE, descricao VARCHAR(500) DEFAULT '', local VARCHAR(500) DEFAULT '', banco VARCHAR(500) DEFAULT '', agencia VARCHAR(500) DEFAULT '', conta VARCHAR(500) DEFAULT '', ativo INTEGER DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "VARCHAR(120)",
+            "descricao": "TEXT NULL",
+            "local": "VARCHAR(120) DEFAULT ''",
+            "banco": "VARCHAR(120) DEFAULT ''",
+            "agencia": "VARCHAR(60) DEFAULT ''",
+            "conta": "VARCHAR(80) DEFAULT ''",
+            "ativo": "TINYINT(1) DEFAULT 1",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "campanhas_farmacia": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `campanhas_farmacia` ( id INT AUTO_INCREMENT PRIMARY KEY, nome VARCHAR(500) DEFAULT '', tipo VARCHAR(120) DEFAULT '', descricao TEXT NULL, data_inicio DATE NULL, data_fim DATE NULL, canal VARCHAR(120) DEFAULT '', status VARCHAR(80) DEFAULT 'Ativa', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "VARCHAR(255)",
+            "descricao": "TEXT NULL",
+            "inicio": "DATE NULL",
+            "fim": "DATE NULL",
+            "ativo": "TINYINT(1) DEFAULT 1",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "tipo": "VARCHAR(120) DEFAULT ''",
+            "data_inicio": "DATE NULL",
+            "data_fim": "DATE NULL",
+            "canal": "VARCHAR(120) DEFAULT ''",
+            "status": "VARCHAR(80) DEFAULT 'Ativa'",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+        },
+    },
+    "cartoes": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `cartoes` ( id INT AUTO_INCREMENT PRIMARY KEY, nome TEXT NOT NULL, bandeira VARCHAR(500) DEFAULT '', tipo VARCHAR(500) DEFAULT 'Cr\u00e9dito', taxa_debito DOUBLE DEFAULT 0.0, taxa_credito DOUBLE DEFAULT 0.0, taxa_credito_parcelado DOUBLE DEFAULT 0.0, dias_recebimento INTEGER DEFAULT 30, max_parcelas INTEGER DEFAULT 1, operadora VARCHAR(500) DEFAULT '', codigo_operadora VARCHAR(500) DEFAULT '', ativo INTEGER DEFAULT 1, observacao VARCHAR(500) DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "TEXT",
+            "bandeira": "VARCHAR(500) DEFAULT ''",
+            "tipo": "VARCHAR(500) DEFAULT 'Cr\u00e9dito'",
+            "taxa_debito": "DOUBLE DEFAULT 0.0",
+            "taxa_credito": "DOUBLE DEFAULT 0.0",
+            "taxa_credito_parcelado": "DOUBLE DEFAULT 0.0",
+            "dias_recebimento": "INTEGER DEFAULT 30",
+            "max_parcelas": "INTEGER DEFAULT 1",
+            "operadora": "VARCHAR(500) DEFAULT ''",
+            "codigo_operadora": "VARCHAR(500) DEFAULT ''",
+            "ativo": "INTEGER DEFAULT 1",
+            "observacao": "VARCHAR(500) DEFAULT ''",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "taxa": "DECIMAL(15,2) DEFAULT 0",
+            "criado_em": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "categorias": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `categorias` ( id INT AUTO_INCREMENT PRIMARY KEY, nome VARCHAR(255) NOT NULL DEFAULT '', descricao TEXT NULL, ativo TINYINT DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "VARCHAR(160)",
+            "descricao": "TEXT NULL",
+            "ativo": "TINYINT(1) DEFAULT 1",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+        },
+    },
+    "centros_custo": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `centros_custo` ( id INT AUTO_INCREMENT PRIMARY KEY, codigo VARCHAR(255) NOT NULL UNIQUE, nome TEXT NOT NULL, descricao VARCHAR(500) DEFAULT '', tipo VARCHAR(500) DEFAULT 'despesa', orcamento_mensal DOUBLE DEFAULT 0.0, ativo INTEGER DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "VARCHAR(160)",
+            "descricao": "TEXT NULL",
+            "ativo": "TINYINT(1) DEFAULT 1",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "codigo": "VARCHAR(255)",
+            "tipo": "VARCHAR(500) DEFAULT 'despesa'",
+            "orcamento_mensal": "DOUBLE DEFAULT 0.0",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "clientes": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `clientes` ( id INT AUTO_INCREMENT PRIMARY KEY, nome VARCHAR(500) NOT NULL DEFAULT '', cpf VARCHAR(40) DEFAULT '', cpf_cnpj VARCHAR(40) DEFAULT '', rg_ie VARCHAR(40) DEFAULT '', telefone VARCHAR(80) DEFAULT '', whatsapp VARCHAR(80) DEFAULT '', email VARCHAR(255) DEFAULT '', endereco TEXT NULL, bairro VARCHAR(255) DEFAULT '', cidade VARCHAR(255) DEFAULT '', uf VARCHAR(2) DEFAULT '', cep VARCHAR(20) DEFAULT '', data_nascimento VARCHAR(20) DEFAULT '', alergias TEXT NULL, medicamentos_uso TEXT NULL, observacao TEXT NULL, saldo_credito DECIMAL(15,4) DEFAULT 0, limite_credito DECIMAL(15,4) DEFAULT 0, saldo_fidelidade DECIMAL(15,4) DEFAULT 0, ativo TINYINT DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "VARCHAR(255)",
+            "cpf_cnpj": "VARCHAR(32) DEFAULT ''",
+            "telefone": "VARCHAR(60) DEFAULT ''",
+            "whatsapp": "VARCHAR(60) DEFAULT ''",
+            "email": "VARCHAR(120) DEFAULT ''",
+            "endereco": "TEXT NULL",
+            "numero": "VARCHAR(30) DEFAULT ''",
+            "bairro": "VARCHAR(120) DEFAULT ''",
+            "cidade": "VARCHAR(120) DEFAULT ''",
+            "uf": "VARCHAR(5) DEFAULT ''",
+            "cep": "VARCHAR(20) DEFAULT ''",
+            "limite_credito": "DECIMAL(12,2) DEFAULT 0",
+            "saldo_credito": "DECIMAL(12,2) DEFAULT 0",
+            "observacao": "TEXT NULL",
+            "ativo": "TINYINT(1) DEFAULT 1",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "atualizado_em": "DATETIME NULL",
+            "rg_ie": "VARCHAR(40) DEFAULT ''",
+            "data_nascimento": "VARCHAR(20) DEFAULT ''",
+            "alergias": "TEXT NULL",
+            "medicamentos_uso": "TEXT NULL",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "cpf": "VARCHAR(40) DEFAULT ''",
+            "saldo_fidelidade": "DECIMAL(15,4) DEFAULT 0",
+            "codigo": "VARCHAR(80)",
+            "cnpj": "VARCHAR(40)",
+        },
+    },
+    "comandas": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `comandas` ( id INT AUTO_INCREMENT PRIMARY KEY, numero VARCHAR(255) NOT NULL UNIQUE, cliente VARCHAR(500) DEFAULT 'Consumidor Final', observacao VARCHAR(500) DEFAULT '', itens JSON DEFAULT NULL, status VARCHAR(500) DEFAULT 'aberta', sinalizada_para_fechar INTEGER DEFAULT 0, sinalizada_por VARCHAR(500) DEFAULT '', oculto_cozinha INTEGER DEFAULT 0, oculto_cozinha_por VARCHAR(500) DEFAULT '', oculto_cozinha_em VARCHAR(500) DEFAULT '', obs_cozinha_geral VARCHAR(500) DEFAULT '', obs_cozinha_geral_por VARCHAR(500) DEFAULT '', obs_cozinha_geral_em VARCHAR(500) DEFAULT '', reaberta_em TIMESTAMP DEFAULT NULL, reaberta_por VARCHAR(500) DEFAULT NULL, vezes_reaberta INTEGER DEFAULT 0, motivo_reabertura VARCHAR(500) DEFAULT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "numero": "VARCHAR(80) DEFAULT ''",
+            "cliente_id": "INT NULL",
+            "cliente_nome": "VARCHAR(255) DEFAULT ''",
+            "mesa": "VARCHAR(80) DEFAULT ''",
+            "status": "VARCHAR(60) DEFAULT 'aberta'",
+            "total": "DECIMAL(12,2) DEFAULT 0",
+            "observacao": "TEXT NULL",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "atualizado_em": "DATETIME NULL",
+            "itens": "LONGTEXT NULL",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "cliente": "VARCHAR(500) DEFAULT 'Consumidor Final'",
+            "sinalizada_para_fechar": "INTEGER DEFAULT 0",
+            "sinalizada_por": "VARCHAR(500) DEFAULT ''",
+            "oculto_cozinha": "INTEGER DEFAULT 0",
+            "oculto_cozinha_por": "VARCHAR(500) DEFAULT ''",
+            "oculto_cozinha_em": "VARCHAR(500) DEFAULT ''",
+            "obs_cozinha_geral": "VARCHAR(500) DEFAULT ''",
+            "obs_cozinha_geral_por": "VARCHAR(500) DEFAULT ''",
+            "obs_cozinha_geral_em": "VARCHAR(500) DEFAULT ''",
+            "reaberta_em": "TIMESTAMP DEFAULT NULL",
+            "reaberta_por": "VARCHAR(500) DEFAULT NULL",
+            "vezes_reaberta": "INTEGER DEFAULT 0",
+            "motivo_reabertura": "VARCHAR(500) DEFAULT NULL",
+            "nome": "VARCHAR(255)",
+            "mesa_id": "VARCHAR(120)",
+            "mesa_numero": "VARCHAR(120)",
+            "mesa_nome": "VARCHAR(255)",
+        },
+    },
+    "comandas_itens": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `comandas_itens` ( id INT AUTO_INCREMENT PRIMARY KEY, comanda_id INT NOT NULL DEFAULT 0, produto_id INT NULL, produto VARCHAR(255) DEFAULT '', quantidade DECIMAL(12,3) DEFAULT 0, preco_unitario DECIMAL(12,2) DEFAULT 0, subtotal DECIMAL(12,2) DEFAULT 0, observacao TEXT NULL, criado_em DATETIME DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "comanda_id": "INT DEFAULT 0",
+            "produto_id": "INT NULL",
+            "produto": "VARCHAR(255) DEFAULT ''",
+            "quantidade": "DECIMAL(12,3) DEFAULT 0",
+            "preco_unitario": "DECIMAL(12,2) DEFAULT 0",
+            "subtotal": "DECIMAL(12,2) DEFAULT 0",
+            "observacao": "TEXT NULL",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "configuracoes": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `configuracoes` ( id INT AUTO_INCREMENT PRIMARY KEY, chave VARCHAR(191) NOT NULL, valor LONGTEXT NULL, categoria VARCHAR(120) DEFAULT 'sistema', descricao TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, UNIQUE KEY uk_configuracoes_chave (chave) ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "chave": "VARCHAR(191)",
+            "valor": "LONGTEXT NULL",
+            "categoria": "VARCHAR(120) DEFAULT 'geral'",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "atualizado_em": "DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "descricao": "TEXT NULL",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "contas_pagar": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `contas_pagar` ( id INT AUTO_INCREMENT PRIMARY KEY, descricao TEXT NOT NULL, valor DOUBLE DEFAULT 0.0, data_vencimento TEXT, fornecedor_id INTEGER, status VARCHAR(500) DEFAULT 'Pendente', data_pagamento VARCHAR(500) DEFAULT '', forma_pagamento VARCHAR(500) DEFAULT '', observacao VARCHAR(500) DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (fornecedor_id) REFERENCES fornecedores(id) ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "fornecedor_id": "INT NULL",
+            "descricao": "TEXT NULL",
+            "valor": "DECIMAL(12,2) DEFAULT 0",
+            "vencimento": "DATE NULL",
+            "pagamento": "DATE NULL",
+            "status": "VARCHAR(60) DEFAULT 'aberto'",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "pago": "TINYINT DEFAULT 0",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "data_vencimento": "TEXT",
+            "data_pagamento": "VARCHAR(500) DEFAULT ''",
+            "forma_pagamento": "VARCHAR(500) DEFAULT ''",
+            "observacao": "VARCHAR(500) DEFAULT ''",
+        },
+    },
+    "contas_receber": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `contas_receber` ( id INT AUTO_INCREMENT PRIMARY KEY, descricao TEXT NOT NULL, valor DOUBLE DEFAULT 0.0, data_vencimento TEXT, cliente_id INTEGER, status VARCHAR(500) DEFAULT 'Pendente', data_recebimento VARCHAR(500) DEFAULT '', forma_pagamento VARCHAR(500) DEFAULT '', observacao VARCHAR(500) DEFAULT '', venda_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (cliente_id) REFERENCES clientes(id) ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "cliente_id": "INT NULL",
+            "descricao": "TEXT NULL",
+            "valor": "DECIMAL(12,2) DEFAULT 0",
+            "vencimento": "DATE NULL",
+            "recebimento": "DATE NULL",
+            "status": "VARCHAR(60) DEFAULT 'aberto'",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "recebido": "TINYINT DEFAULT 0",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "data_vencimento": "TEXT",
+            "data_recebimento": "VARCHAR(500) DEFAULT ''",
+            "forma_pagamento": "VARCHAR(500) DEFAULT ''",
+            "observacao": "VARCHAR(500) DEFAULT ''",
+            "venda_id": "INTEGER",
+        },
+    },
+    "creditos_clientes": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `creditos_clientes` ( id INT AUTO_INCREMENT PRIMARY KEY, cliente_id INTEGER NOT NULL, valor DOUBLE DEFAULT 0.0, valor_original DOUBLE DEFAULT 0.0, origem VARCHAR(500) DEFAULT '', venda_id INTEGER, devolucao_id INTEGER, data_criacao TEXT, data_utilizacao VARCHAR(500) DEFAULT '', status VARCHAR(500) DEFAULT 'Dispon\u00edvel', observacao VARCHAR(500) DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (cliente_id) REFERENCES clientes(id) ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "cliente_id": "INT NULL",
+            "valor": "DECIMAL(12,2) DEFAULT 0",
+            "descricao": "TEXT NULL",
+            "data": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "origem": "VARCHAR(120) DEFAULT ''",
+            "ativo": "TINYINT(1) DEFAULT 1",
+            "valor_original": "DOUBLE DEFAULT 0.0",
+            "venda_id": "INTEGER",
+            "devolucao_id": "INTEGER",
+            "data_criacao": "TEXT",
+            "data_utilizacao": "VARCHAR(500) DEFAULT ''",
+            "status": "VARCHAR(500) DEFAULT 'Dispon\u00edvel'",
+            "observacao": "VARCHAR(500) DEFAULT ''",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "crm_farmacia": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `crm_farmacia` ( id INT AUTO_INCREMENT PRIMARY KEY, cliente_id INT NULL, cliente_nome VARCHAR(500) DEFAULT '', telefone_whatsapp VARCHAR(80) DEFAULT '', tipo_acao VARCHAR(120) DEFAULT '', data_retorno DATE NULL, status VARCHAR(80) DEFAULT 'Pendente', mensagem TEXT NULL, observacao TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "cliente_id": "INT NULL",
+            "titulo": "VARCHAR(255) DEFAULT ''",
+            "descricao": "TEXT NULL",
+            "data": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "status": "VARCHAR(60) DEFAULT 'aberto'",
+            "cliente_nome": "VARCHAR(500) DEFAULT ''",
+            "telefone_whatsapp": "VARCHAR(80) DEFAULT ''",
+            "tipo_acao": "VARCHAR(120) DEFAULT ''",
+            "data_retorno": "DATE NULL",
+            "mensagem": "TEXT NULL",
+            "observacao": "TEXT NULL",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "cliente": "VARCHAR(255)",
+            "telefone": "VARCHAR(80)",
+            "tipo": "VARCHAR(120)",
+            "criado_em": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "customers": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `customers` ( id INT AUTO_INCREMENT PRIMARY KEY, nome VARCHAR(255), name VARCHAR(255), cpf VARCHAR(40), telefone VARCHAR(80), phone VARCHAR(80), whatsapp VARCHAR(80), endereco VARCHAR(255), bairro VARCHAR(120), observacao TEXT, criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "VARCHAR(255)",
+            "name": "VARCHAR(255)",
+            "cpf": "VARCHAR(40)",
+            "telefone": "VARCHAR(80)",
+            "phone": "VARCHAR(80)",
+            "whatsapp": "VARCHAR(80)",
+            "endereco": "VARCHAR(255)",
+            "bairro": "VARCHAR(120)",
+            "observacao": "TEXT",
+            "criado_em": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "devolucoes": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `devolucoes` ( id INT AUTO_INCREMENT PRIMARY KEY, venda_id INTEGER NOT NULL, cupom_original INTEGER, cliente_id INTEGER, cliente_nome VARCHAR(500) DEFAULT '', tipo_devolucao VARCHAR(500) DEFAULT 'reembolso', valor_total DOUBLE DEFAULT 0.0, itens_devolvidos VARCHAR(500) DEFAULT '[]', motivo VARCHAR(500) DEFAULT '', usuario VARCHAR(500) DEFAULT '', data_devolucao TEXT, credito_gerado_id INTEGER, estornado INTEGER DEFAULT 0, data_estorno VARCHAR(500) DEFAULT '', usuario_estorno VARCHAR(500) DEFAULT '', motivo_estorno VARCHAR(500) DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (venda_id) REFERENCES vendas(id), FOREIGN KEY (cliente_id) REFERENCES clientes(id) ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "venda_id": "INT NULL",
+            "cliente_id": "INT NULL",
+            "usuario": "VARCHAR(80) DEFAULT ''",
+            "data": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "motivo": "TEXT NULL",
+            "valor": "DECIMAL(12,2) DEFAULT 0",
+            "status": "VARCHAR(60) DEFAULT 'finalizada'",
+            "cupom_original": "INTEGER",
+            "cliente_nome": "VARCHAR(500) DEFAULT ''",
+            "tipo_devolucao": "VARCHAR(500) DEFAULT 'reembolso'",
+            "valor_total": "DOUBLE DEFAULT 0.0",
+            "itens_devolvidos": "VARCHAR(500) DEFAULT '[]'",
+            "data_devolucao": "TEXT",
+            "credito_gerado_id": "INTEGER",
+            "estornado": "INTEGER DEFAULT 0",
+            "data_estorno": "VARCHAR(500) DEFAULT ''",
+            "usuario_estorno": "VARCHAR(500) DEFAULT ''",
+            "motivo_estorno": "VARCHAR(500) DEFAULT ''",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "empresa": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `empresa` ( id INT AUTO_INCREMENT PRIMARY KEY, nome VARCHAR(500) DEFAULT '', razao_social VARCHAR(500) DEFAULT '', fantasia VARCHAR(500) DEFAULT '', cnpj VARCHAR(40) DEFAULT '', cpf VARCHAR(40) DEFAULT '', inscricao_estadual VARCHAR(80) DEFAULT '', inscricao_municipal VARCHAR(80) DEFAULT '', telefone VARCHAR(80) DEFAULT '', whatsapp VARCHAR(80) DEFAULT '', email VARCHAR(255) DEFAULT '', endereco TEXT NULL, bairro VARCHAR(255) DEFAULT '', cidade VARCHAR(255) DEFAULT '', estado VARCHAR(80) DEFAULT '', uf VARCHAR(2) DEFAULT '', cep VARCHAR(20) DEFAULT '', logo_path TEXT NULL, pix_chave VARCHAR(255) DEFAULT '', observacao TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "VARCHAR(255) DEFAULT 'Minha Empresa'",
+            "razao_social": "VARCHAR(255) DEFAULT ''",
+            "cnpj": "VARCHAR(32) DEFAULT ''",
+            "ie": "VARCHAR(40) DEFAULT ''",
+            "telefone": "VARCHAR(60) DEFAULT ''",
+            "whatsapp": "VARCHAR(60) DEFAULT ''",
+            "email": "VARCHAR(120) DEFAULT ''",
+            "endereco": "TEXT NULL",
+            "bairro": "VARCHAR(120) DEFAULT ''",
+            "cidade": "VARCHAR(120) DEFAULT ''",
+            "uf": "VARCHAR(5) DEFAULT ''",
+            "cep": "VARCHAR(20) DEFAULT ''",
+            "logo_path": "TEXT NULL",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "atualizado_em": "DATETIME NULL",
+            "nome_fantasia": "VARCHAR(500) DEFAULT ''",
+            "chave_pix": "VARCHAR(255) DEFAULT ''",
+            "politica_troca": "TEXT NULL",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "fantasia": "VARCHAR(500) DEFAULT ''",
+            "cpf": "VARCHAR(40) DEFAULT ''",
+            "inscricao_estadual": "VARCHAR(80) DEFAULT ''",
+            "inscricao_municipal": "VARCHAR(80) DEFAULT ''",
+            "estado": "VARCHAR(80) DEFAULT ''",
+            "pix_chave": "VARCHAR(255) DEFAULT ''",
+            "observacao": "TEXT NULL",
+            "pix_banco": "VARCHAR(500) DEFAULT ''",
+            "pix_titular": "VARCHAR(500) DEFAULT ''",
+        },
+    },
+    "entregadores": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `entregadores` ( id INT AUTO_INCREMENT PRIMARY KEY, nome TEXT NOT NULL, cpf VARCHAR(500) DEFAULT '', telefone VARCHAR(500) DEFAULT '', telefone2 VARCHAR(500) DEFAULT '', veiculo VARCHAR(500) DEFAULT 'Moto', placa VARCHAR(500) DEFAULT '', cnh VARCHAR(500) DEFAULT '', endereco VARCHAR(500) DEFAULT '', bairro VARCHAR(500) DEFAULT '', pix VARCHAR(500) DEFAULT '', valor_entrega DOUBLE DEFAULT 0.0, status VARCHAR(500) DEFAULT 'Ativo', data_admissao VARCHAR(500) DEFAULT '', observacao VARCHAR(500) DEFAULT '', ativo INTEGER DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "VARCHAR(255) DEFAULT ''",
+            "telefone": "VARCHAR(80) DEFAULT ''",
+            "taxa_entrega": "DECIMAL(15,4) DEFAULT 0",
+            "ativo": "TINYINT DEFAULT 1",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "cpf": "VARCHAR(500) DEFAULT ''",
+            "telefone2": "VARCHAR(500) DEFAULT ''",
+            "veiculo": "VARCHAR(500) DEFAULT 'Moto'",
+            "placa": "VARCHAR(500) DEFAULT ''",
+            "cnh": "VARCHAR(500) DEFAULT ''",
+            "endereco": "VARCHAR(500) DEFAULT ''",
+            "bairro": "VARCHAR(500) DEFAULT ''",
+            "pix": "VARCHAR(500) DEFAULT ''",
+            "valor_entrega": "DOUBLE DEFAULT 0.0",
+            "status": "VARCHAR(500) DEFAULT 'Ativo'",
+            "data_admissao": "VARCHAR(500) DEFAULT ''",
+            "observacao": "VARCHAR(500) DEFAULT ''",
+            "whatsapp": "VARCHAR(80)",
+            "criado_em": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "estoque_lotes": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `estoque_lotes` ( id INT AUTO_INCREMENT PRIMARY KEY, produto_id INT NOT NULL, produto_nome VARCHAR(500) DEFAULT '', lote VARCHAR(120) DEFAULT '', validade VARCHAR(20) DEFAULT '', data_validade DATE NULL, quantidade DECIMAL(15,3) DEFAULT 0, origem VARCHAR(120) DEFAULT '', nota_id INT NULL, status VARCHAR(80) DEFAULT 'Ativo', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "produto_id": "INT NULL",
+            "produto_codigo": "VARCHAR(120) DEFAULT ''",
+            "lote": "VARCHAR(120) DEFAULT ''",
+            "validade": "DATE NULL",
+            "quantidade": "DECIMAL(12,3) DEFAULT 0",
+            "fornecedor_id": "INT NULL",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "produto_nome": "VARCHAR(500) DEFAULT ''",
+            "data_validade": "DATE NULL",
+            "origem": "VARCHAR(120) DEFAULT ''",
+            "nota_id": "INT NULL",
+            "status": "VARCHAR(80) DEFAULT 'Ativo'",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "alerta_15_dias": "TINYINT DEFAULT 1",
+        },
+    },
+    "fechamentos_caixa": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `fechamentos_caixa` ( id INT AUTO_INCREMENT PRIMARY KEY, caixa_id INT NULL, caixa_nome VARCHAR(120) DEFAULT '', data_abertura DATETIME NULL, data_fechamento DATETIME DEFAULT CURRENT_TIMESTAMP, usuario_abertura VARCHAR(80) DEFAULT '', usuario_fechamento VARCHAR(80) DEFAULT '', saldo_inicial DECIMAL(12,2) DEFAULT 0, total_creditos DECIMAL(12,2) DEFAULT 0, total_debitos DECIMAL(12,2) DEFAULT 0, saldo_final DECIMAL(12,2) DEFAULT 0, observacao TEXT NULL ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "caixa_id": "INT NULL",
+            "caixa_nome": "VARCHAR(120) DEFAULT ''",
+            "data_abertura": "DATETIME NULL",
+            "data_fechamento": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "usuario_abertura": "VARCHAR(80) DEFAULT ''",
+            "usuario_fechamento": "VARCHAR(80) DEFAULT ''",
+            "saldo_inicial": "DECIMAL(12,2) DEFAULT 0",
+            "total_creditos": "DECIMAL(12,2) DEFAULT 0",
+            "total_debitos": "DECIMAL(12,2) DEFAULT 0",
+            "saldo_final": "DECIMAL(12,2) DEFAULT 0",
+            "observacao": "TEXT NULL",
+            "total_entradas": "DOUBLE DEFAULT 0.0",
+            "total_saidas": "DOUBLE DEFAULT 0.0",
+            "usuario": "VARCHAR(500) DEFAULT ''",
+            "transacoes": "LONGTEXT",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "fornecedores": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `fornecedores` ( id INT AUTO_INCREMENT PRIMARY KEY, nome VARCHAR(500) NOT NULL DEFAULT '', cnpj VARCHAR(40) DEFAULT '', telefone VARCHAR(80) DEFAULT '', whatsapp VARCHAR(80) DEFAULT '', email VARCHAR(255) DEFAULT '', endereco TEXT NULL, contato VARCHAR(255) DEFAULT '', observacao TEXT NULL, ativo TINYINT DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "VARCHAR(255)",
+            "cnpj": "VARCHAR(32) DEFAULT ''",
+            "telefone": "VARCHAR(60) DEFAULT ''",
+            "email": "VARCHAR(120) DEFAULT ''",
+            "endereco": "TEXT NULL",
+            "contato": "VARCHAR(160) DEFAULT ''",
+            "ativo": "TINYINT(1) DEFAULT 1",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "whatsapp": "VARCHAR(80) DEFAULT ''",
+            "observacao": "TEXT NULL",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+        },
+    },
+    "garcons": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `garcons` ( id INT AUTO_INCREMENT PRIMARY KEY, nome TEXT NOT NULL, cpf VARCHAR(500) DEFAULT '', telefone VARCHAR(500) DEFAULT '', email VARCHAR(500) DEFAULT '', percentual_taxa DOUBLE DEFAULT 10.0, status VARCHAR(500) DEFAULT 'Ativo', pix VARCHAR(500) DEFAULT '', data_admissao VARCHAR(500) DEFAULT '', observacao TEXT, ativo INTEGER DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "TEXT",
+            "cpf": "VARCHAR(500) DEFAULT ''",
+            "telefone": "VARCHAR(500) DEFAULT ''",
+            "email": "VARCHAR(500) DEFAULT ''",
+            "percentual_taxa": "DOUBLE DEFAULT 10.0",
+            "status": "VARCHAR(500) DEFAULT 'Ativo'",
+            "pix": "VARCHAR(500) DEFAULT ''",
+            "data_admissao": "VARCHAR(500) DEFAULT ''",
+            "observacao": "TEXT",
+            "ativo": "INTEGER DEFAULT 1",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "itens_venda": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `itens_venda` ( id INT AUTO_INCREMENT PRIMARY KEY, venda_id INT NOT NULL DEFAULT 0, produto_id INT NULL, codigo VARCHAR(120) DEFAULT '', produto VARCHAR(255) DEFAULT '', quantidade DECIMAL(12,3) DEFAULT 0, unidade VARCHAR(40) DEFAULT '', preco_unitario DECIMAL(12,2) DEFAULT 0, subtotal DECIMAL(12,2) DEFAULT 0, desconto DECIMAL(12,2) DEFAULT 0, criado_em DATETIME DEFAULT CURRENT_TIMESTAMP, INDEX idx_itens_venda_id_top (venda_id) ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "venda_id": "INT DEFAULT 0",
+            "produto_id": "INT NULL",
+            "codigo": "VARCHAR(120) DEFAULT ''",
+            "produto": "VARCHAR(255) DEFAULT ''",
+            "quantidade": "DECIMAL(12,3) DEFAULT 0",
+            "unidade": "VARCHAR(40) DEFAULT ''",
+            "preco_unitario": "DECIMAL(12,2) DEFAULT 0",
+            "subtotal": "DECIMAL(12,2) DEFAULT 0",
+            "desconto": "DECIMAL(12,2) DEFAULT 0",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "lancamentos_centro_custo": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `lancamentos_centro_custo` ( id INT AUTO_INCREMENT PRIMARY KEY, centro_custo_id INTEGER, tipo VARCHAR(500) DEFAULT 'despesa', descricao TEXT NOT NULL, valor DOUBLE DEFAULT 0.0, data_lancamento TEXT, data_competencia TEXT, documento VARCHAR(500) DEFAULT '', observacao VARCHAR(500) DEFAULT '', usuario TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (centro_custo_id) REFERENCES centros_custo(id) ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "centro_custo_id": "INT NULL",
+            "data": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "tipo": "VARCHAR(60) DEFAULT ''",
+            "descricao": "TEXT NULL",
+            "valor": "DECIMAL(12,2) DEFAULT 0",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "data_lancamento": "TEXT",
+            "data_competencia": "TEXT",
+            "documento": "VARCHAR(500) DEFAULT ''",
+            "observacao": "VARCHAR(500) DEFAULT ''",
+            "usuario": "TEXT",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "mesas": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `mesas` ( id INT AUTO_INCREMENT PRIMARY KEY, numero VARCHAR(255) NOT NULL UNIQUE, nome VARCHAR(500) DEFAULT '', capacidade INTEGER DEFAULT 4, ambiente VARCHAR(500) DEFAULT 'Sal\u00e3o', status VARCHAR(500) DEFAULT 'Livre', taxa_servico DOUBLE DEFAULT 10.0, observacao TEXT, comanda_numero VARCHAR(500) DEFAULT '', reservado_para VARCHAR(500) DEFAULT '', reservado_em VARCHAR(500) DEFAULT '', ativo INTEGER DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "numero": "VARCHAR(255)",
+            "nome": "VARCHAR(500) DEFAULT ''",
+            "capacidade": "INTEGER DEFAULT 4",
+            "ambiente": "VARCHAR(500) DEFAULT 'Sal\u00e3o'",
+            "status": "VARCHAR(500) DEFAULT 'Livre'",
+            "taxa_servico": "DOUBLE DEFAULT 10.0",
+            "observacao": "TEXT",
+            "comanda_numero": "VARCHAR(500) DEFAULT ''",
+            "reservado_para": "VARCHAR(500) DEFAULT ''",
+            "reservado_em": "VARCHAR(500) DEFAULT ''",
+            "ativo": "INTEGER DEFAULT 1",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "itens_json": "LONGTEXT NULL",
+            "total_mesa": "DOUBLE DEFAULT 0",
+            "em_uso": "INTEGER DEFAULT 0",
+            "ocupada_em": "VARCHAR(500)",
+            "ocupada_por": "VARCHAR(500)",
+        },
+    },
+    "movimentacoes_caixa": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `movimentacoes_caixa` ( id INT AUTO_INCREMENT PRIMARY KEY, caixa_id INT NULL, data DATETIME DEFAULT CURRENT_TIMESTAMP, tipo VARCHAR(60) DEFAULT '', descricao TEXT NULL, valor DECIMAL(12,2) DEFAULT 0, usuario VARCHAR(80) DEFAULT '', forma_pagamento VARCHAR(120) DEFAULT '', venda_id INT NULL, criado_em DATETIME DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "caixa_id": "INT NULL",
+            "data": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "tipo": "VARCHAR(60) DEFAULT ''",
+            "descricao": "TEXT NULL",
+            "valor": "DECIMAL(12,2) DEFAULT 0",
+            "usuario": "VARCHAR(80) DEFAULT ''",
+            "forma_pagamento": "VARCHAR(120) DEFAULT ''",
+            "venda_id": "INT NULL",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "turno_id": "INTEGER DEFAULT 1",
+            "saldo_inicial": "DOUBLE DEFAULT 0.0",
+            "saldo_final": "DOUBLE DEFAULT 0.0",
+            "observacao": "VARCHAR(500) DEFAULT ''",
+            "data_hora": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "notas_entrada": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `notas_entrada` ( id INT AUTO_INCREMENT PRIMARY KEY, numero_nota VARCHAR(120) DEFAULT '', fornecedor_id INT NULL, fornecedor_nome VARCHAR(500) DEFAULT '', data_emissao VARCHAR(20) DEFAULT '', data_entrada VARCHAR(20) DEFAULT '', produto_id INT NULL, produto_nome VARCHAR(500) DEFAULT '', quantidade DECIMAL(15,3) DEFAULT 0, valor_unitario DECIMAL(15,4) DEFAULT 0, valor_total DECIMAL(15,4) DEFAULT 0, controlar_lote_validade TINYINT DEFAULT 0, lote VARCHAR(120) DEFAULT '', validade VARCHAR(20) DEFAULT '', data_validade DATE NULL, chave_nfe VARCHAR(100) DEFAULT '', observacao TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "numero": "VARCHAR(120) DEFAULT ''",
+            "fornecedor_id": "INT NULL",
+            "data_emissao": "DATE NULL",
+            "data_entrada": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "total": "DECIMAL(12,2) DEFAULT 0",
+            "observacao": "TEXT NULL",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "numero_nota": "VARCHAR(120) DEFAULT ''",
+            "fornecedor_nome": "VARCHAR(500) DEFAULT ''",
+            "produto_id": "INT NULL",
+            "produto_nome": "VARCHAR(500) DEFAULT ''",
+            "quantidade": "DECIMAL(15,3) DEFAULT 0",
+            "valor_unitario": "DECIMAL(15,4) DEFAULT 0",
+            "valor_total": "DECIMAL(15,4) DEFAULT 0",
+            "controlar_lote_validade": "TINYINT DEFAULT 0",
+            "lote": "VARCHAR(120) DEFAULT ''",
+            "validade": "VARCHAR(20) DEFAULT ''",
+            "data_validade": "DATE NULL",
+            "chave_nfe": "VARCHAR(100) DEFAULT ''",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "itens": "LONGTEXT NULL",
+            "usuario": "VARCHAR(255) DEFAULT ''",
+            "fornecedor": "VARCHAR(255)",
+        },
+    },
+    "orcamentos": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `orcamentos` ( id INT AUTO_INCREMENT PRIMARY KEY, numero INTEGER, data TEXT, validade TEXT, cliente_id INTEGER DEFAULT 1, cliente_nome VARCHAR(500) DEFAULT 'Consumidor Final', itens JSON DEFAULT NULL, subtotal DOUBLE DEFAULT 0.0, desconto DOUBLE DEFAULT 0.0, total DOUBLE DEFAULT 0.0, observacao VARCHAR(500) DEFAULT '', status VARCHAR(500) DEFAULT 'Pendente', usuario VARCHAR(500) DEFAULT '', venda_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (cliente_id) REFERENCES clientes(id) ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "cliente_id": "INT NULL",
+            "cliente_nome": "VARCHAR(255) DEFAULT ''",
+            "data": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "validade": "DATE NULL",
+            "total": "DECIMAL(12,2) DEFAULT 0",
+            "status": "VARCHAR(60) DEFAULT 'aberto'",
+            "observacao": "TEXT NULL",
+            "numero": "VARCHAR(80) DEFAULT ''",
+            "itens": "LONGTEXT NULL",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "subtotal": "DOUBLE DEFAULT 0.0",
+            "desconto": "DOUBLE DEFAULT 0.0",
+            "usuario": "VARCHAR(500) DEFAULT ''",
+            "venda_id": "INTEGER",
+        },
+    },
+    "orcamentos_itens": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `orcamentos_itens` ( id INT AUTO_INCREMENT PRIMARY KEY, orcamento_id INT NOT NULL DEFAULT 0, produto_id INT NULL, produto VARCHAR(255) DEFAULT '', quantidade DECIMAL(12,3) DEFAULT 0, preco_unitario DECIMAL(12,2) DEFAULT 0, subtotal DECIMAL(12,2) DEFAULT 0 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "orcamento_id": "INT DEFAULT 0",
+            "produto_id": "INT NULL",
+            "produto": "VARCHAR(255) DEFAULT ''",
+            "quantidade": "DECIMAL(12,3) DEFAULT 0",
+            "preco_unitario": "DECIMAL(12,2) DEFAULT 0",
+            "subtotal": "DECIMAL(12,2) DEFAULT 0",
+        },
+    },
+    "ordens_servico": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `ordens_servico` ( id INT AUTO_INCREMENT PRIMARY KEY, numero VARCHAR(255) NOT NULL UNIQUE, cliente_id INTEGER DEFAULT 1, cliente_nome VARCHAR(500) DEFAULT 'Consumidor Final', cliente_telefone VARCHAR(500) DEFAULT '', cliente_email VARCHAR(500) DEFAULT '', cliente_endereco VARCHAR(500) DEFAULT '', tipo_equipamento VARCHAR(500) DEFAULT '', marca VARCHAR(500) DEFAULT '', modelo VARCHAR(500) DEFAULT '', numero_serie VARCHAR(500) DEFAULT '', cor VARCHAR(500) DEFAULT '', senha_equipamento VARCHAR(500) DEFAULT '', acessorios VARCHAR(500) DEFAULT '', defeito_relatado VARCHAR(500) DEFAULT '', defeito_constatado VARCHAR(500) DEFAULT '', status VARCHAR(500) DEFAULT 'Aberta', prioridade VARCHAR(500) DEFAULT 'Normal', tecnico_nome VARCHAR(500) DEFAULT '', data_previsao VARCHAR(500) DEFAULT '', servicos VARCHAR(500) DEFAULT '[]', pecas VARCHAR(500) DEFAULT '[]', valor_servicos DOUBLE DEFAULT 0.0, valor_pecas DOUBLE DEFAULT 0.0, desconto DOUBLE DEFAULT 0.0, valor_total DOUBLE DEFAULT 0.0, valor_pago DOUBLE DEFAULT 0.0, valor_pendente DOUBLE DEFAULT 0.0, forma_pagamento VARCHAR(500) DEFAULT '', garantia_dias INTEGER DEFAULT 0, data_garantia_fim VARCHAR(500) DEFAULT '', observacoes VARCHAR(500) DEFAULT '', observacoes_internas VARCHAR(500) DEFAULT '', historico JSON DEFAULT NULL, data_abertura VARCHAR(500) DEFAULT '', data_conclusao VARCHAR(500) DEFAULT '', data_entrega VARCHAR(500) DEFAULT '', data_ultima_alteracao VARCHAR(500) DEFAULT '', usuario_criacao VARCHAR(500) DEFAULT '', usuario_ultima_alteracao VARCHAR(500) DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (cliente_id) REFERENCES clientes(id) ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "cliente_id": "INT NULL",
+            "cliente_nome": "VARCHAR(255) DEFAULT ''",
+            "data_abertura": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "data_fechamento": "DATETIME NULL",
+            "status": "VARCHAR(60) DEFAULT 'aberta'",
+            "descricao": "TEXT NULL",
+            "total": "DECIMAL(12,2) DEFAULT 0",
+            "numero": "VARCHAR(255)",
+            "cliente_telefone": "VARCHAR(500) DEFAULT ''",
+            "cliente_email": "VARCHAR(500) DEFAULT ''",
+            "cliente_endereco": "VARCHAR(500) DEFAULT ''",
+            "marca": "VARCHAR(500) DEFAULT ''",
+            "modelo": "VARCHAR(500) DEFAULT ''",
+            "numero_serie": "VARCHAR(500) DEFAULT ''",
+            "cor": "VARCHAR(500) DEFAULT ''",
+            "senha_equipamento": "VARCHAR(500) DEFAULT ''",
+            "acessorios": "VARCHAR(500) DEFAULT ''",
+            "defeito_constatado": "VARCHAR(500) DEFAULT ''",
+            "prioridade": "VARCHAR(500) DEFAULT 'Normal'",
+            "tecnico_nome": "VARCHAR(500) DEFAULT ''",
+            "data_previsao": "VARCHAR(500) DEFAULT ''",
+            "pecas": "VARCHAR(500) DEFAULT '[]'",
+            "valor_pecas": "DOUBLE DEFAULT 0.0",
+            "desconto": "DOUBLE DEFAULT 0.0",
+            "valor_total": "DOUBLE DEFAULT 0.0",
+            "valor_pago": "DOUBLE DEFAULT 0.0",
+            "valor_pendente": "DOUBLE DEFAULT 0.0",
+            "forma_pagamento": "VARCHAR(500) DEFAULT ''",
+            "data_garantia_fim": "VARCHAR(500) DEFAULT ''",
+            "observacoes_internas": "VARCHAR(500) DEFAULT ''",
+            "data_conclusao": "VARCHAR(500) DEFAULT ''",
+            "data_entrega": "VARCHAR(500) DEFAULT ''",
+            "data_ultima_alteracao": "VARCHAR(500) DEFAULT ''",
+            "usuario_ultima_alteracao": "VARCHAR(500) DEFAULT ''",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "itens": "LONGTEXT NULL",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "tipo_equipamento": "VARCHAR(500) DEFAULT ''",
+            "defeito_relatado": "VARCHAR(500) DEFAULT ''",
+            "servicos": "VARCHAR(500) DEFAULT '[]'",
+            "valor_servicos": "DOUBLE DEFAULT 0.0",
+            "garantia_dias": "INTEGER DEFAULT 0",
+            "observacoes": "VARCHAR(500) DEFAULT ''",
+            "historico": "JSON",
+            "usuario_criacao": "VARCHAR(500) DEFAULT ''",
+        },
+    },
+    "pbm_convenios": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `pbm_convenios` ( id INT AUTO_INCREMENT PRIMARY KEY, cliente_id INT NULL, cliente_nome VARCHAR(500) DEFAULT '', produto_id INT NULL, medicamento VARCHAR(500) DEFAULT '', tipo VARCHAR(120) DEFAULT '', autorizacao VARCHAR(120) DEFAULT '', desconto_percentual DECIMAL(10,4) DEFAULT 0, validade_beneficio DATE NULL, observacao TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "VARCHAR(255)",
+            "descricao": "TEXT NULL",
+            "ativo": "TINYINT(1) DEFAULT 1",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "cliente_id": "INT NULL",
+            "cliente_nome": "VARCHAR(500) DEFAULT ''",
+            "produto_id": "INT NULL",
+            "medicamento": "VARCHAR(500) DEFAULT ''",
+            "tipo": "VARCHAR(120) DEFAULT ''",
+            "autorizacao": "VARCHAR(120) DEFAULT ''",
+            "desconto_percentual": "DECIMAL(10,4) DEFAULT 0",
+            "validade_beneficio": "DATE NULL",
+            "observacao": "TEXT NULL",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "cliente": "VARCHAR(255)",
+            "convenio": "VARCHAR(255)",
+            "beneficio": "VARCHAR(255)",
+            "desconto": "DECIMAL(15,2) DEFAULT 0",
+            "validade": "DATE NULL",
+        },
+    },
+    "produto_tamanhos": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `produto_tamanhos` ( id INT AUTO_INCREMENT PRIMARY KEY, produto_id INT, tamanho_id INT, tamanho VARCHAR(120), codigo_barras VARCHAR(80), estoque DECIMAL(15,3) DEFAULT 0, preco DECIMAL(15,2) DEFAULT 0, preco_venda DECIMAL(15,2) DEFAULT 0, ativo TINYINT DEFAULT 1, criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "produto_id": "INT",
+            "tamanho_id": "INT",
+            "tamanho": "VARCHAR(120)",
+            "codigo_barras": "VARCHAR(80)",
+            "estoque": "DECIMAL(15,3) DEFAULT 0",
+            "preco": "DECIMAL(15,2) DEFAULT 0",
+            "preco_venda": "DECIMAL(15,2) DEFAULT 0",
+            "ativo": "TINYINT DEFAULT 1",
+            "criado_em": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "produtos": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `produtos` ( id INT AUTO_INCREMENT PRIMARY KEY, codigo VARCHAR(120) DEFAULT '', codigo_barras VARCHAR(160) DEFAULT '', nome VARCHAR(500) NOT NULL DEFAULT '', descricao TEXT NULL, categoria_id INT NULL, fornecedor_id INT NULL, unidade VARCHAR(40) DEFAULT 'UN', tipo VARCHAR(80) DEFAULT 'unidade', estoque DECIMAL(15,3) DEFAULT 0, estoque_minimo DECIMAL(15,3) DEFAULT 0, preco DECIMAL(15,4) DEFAULT 0, preco_venda DECIMAL(15,4) DEFAULT 0, preco_custo DECIMAL(15,4) DEFAULT 0, preco_compra DECIMAL(15,4) DEFAULT 0, preco_atacado DECIMAL(15,4) DEFAULT 0, preco_promocional DECIMAL(15,4) DEFAULT 0, promocao_ativa TINYINT DEFAULT 0, ativo TINYINT DEFAULT 1, imagem TEXT NULL, localizacao VARCHAR(255) DEFAULT '', ncm VARCHAR(40) DEFAULT '', cest VARCHAR(40) DEFAULT '', cfop VARCHAR(20) DEFAULT '', controlar_lote_validade TINYINT DEFAULT 0, lote VARCHAR(120) DEFAULT '', validade VARCHAR(20) DEFAULT '', data_validade DATE NULL, medicamento TINYINT DEFAULT 0, principio_ativo VARCHAR(500) DEFAULT '', laboratorio VARCHAR(255) DEFAULT '', registro_ms VARCHAR(120) DEFAULT '', tarja VARCHAR(80) DEFAULT '', tipo_medicamento VARCHAR(120) DEFAULT '', uso_continuo TINYINT DEFAULT 0, controlado TINYINT DEFAULT 0, antibiotico TINYINT DEFAULT 0, psicotropico TINYINT DEFAULT 0, pbm TINYINT DEFAULT 0, farmacia_popular TINYINT DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "codigo": "VARCHAR(80) DEFAULT ''",
+            "codigo_barras": "VARCHAR(120) DEFAULT ''",
+            "nome": "VARCHAR(255)",
+            "descricao": "TEXT NULL",
+            "categoria": "VARCHAR(160) DEFAULT ''",
+            "categoria_id": "INT NULL",
+            "unidade": "VARCHAR(40) DEFAULT 'unidade'",
+            "preco": "DECIMAL(12,2) DEFAULT 0",
+            "preco_venda": "DECIMAL(12,2) DEFAULT 0",
+            "preco_custo": "DECIMAL(12,2) DEFAULT 0",
+            "preco_atacado": "DECIMAL(12,2) DEFAULT 0",
+            "estoque": "DECIMAL(12,3) DEFAULT 0",
+            "estoque_inicial": "DECIMAL(12,3) DEFAULT 0",
+            "estoque_minimo": "DECIMAL(12,3) DEFAULT 0",
+            "validade": "DATE NULL",
+            "lote": "VARCHAR(120) DEFAULT ''",
+            "fornecedor_id": "INT NULL",
+            "imagem": "TEXT NULL",
+            "ativo": "TINYINT(1) DEFAULT 1",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "atualizado_em": "DATETIME NULL",
+            "controlar_lote_validade": "TINYINT DEFAULT 0",
+            "data_validade": "DATE NULL",
+            "medicamento": "TINYINT DEFAULT 1",
+            "principio_ativo": "VARCHAR(500) DEFAULT ''",
+            "laboratorio": "VARCHAR(255) DEFAULT ''",
+            "registro_ms": "VARCHAR(120) DEFAULT ''",
+            "tarja": "VARCHAR(80) DEFAULT ''",
+            "tipo_medicamento": "VARCHAR(120) DEFAULT ''",
+            "uso_continuo": "TINYINT DEFAULT 0",
+            "controlado": "TINYINT DEFAULT 0",
+            "antibiotico": "TINYINT DEFAULT 0",
+            "psicotropico": "TINYINT DEFAULT 0",
+            "pbm": "TINYINT DEFAULT 0",
+            "farmacia_popular": "TINYINT DEFAULT 0",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "tipo": "VARCHAR(80) DEFAULT 'unidade'",
+            "preco_compra": "DECIMAL(15,4) DEFAULT 0",
+            "preco_promocional": "DECIMAL(15,4) DEFAULT 0",
+            "promocao_ativa": "TINYINT DEFAULT 0",
+            "localizacao": "VARCHAR(255) DEFAULT ''",
+            "ncm": "VARCHAR(40) DEFAULT ''",
+            "cest": "VARCHAR(40) DEFAULT ''",
+            "cfop": "VARCHAR(20) DEFAULT ''",
+            "atacado_qtd_minima": "DOUBLE DEFAULT 10.0",
+            "promocao_inicio": "VARCHAR(500) DEFAULT ''",
+            "promocao_fim": "VARCHAR(500) DEFAULT ''",
+            "fidelidade_pontos": "INTEGER DEFAULT 0",
+            "tamanho_id": "INTEGER DEFAULT NULL",
+            "grupo": "VARCHAR(120)",
+        },
+    },
+    "prontuario_ambulatorial": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `prontuario_ambulatorial` ( id INT AUTO_INCREMENT PRIMARY KEY, paciente_nome VARCHAR(500) DEFAULT '', cliente_id INT NULL, telefone VARCHAR(80) DEFAULT '', whatsapp VARCHAR(80) DEFAULT '', responsavel VARCHAR(255) DEFAULT '', profissional VARCHAR(255) DEFAULT '', registro_profissional VARCHAR(80) DEFAULT '', tipo_atendimento VARCHAR(120) DEFAULT '', classificacao_risco VARCHAR(120) DEFAULT '', pressao_arterial VARCHAR(40) DEFAULT '', frequencia_cardiaca VARCHAR(40) DEFAULT '', temperatura VARCHAR(40) DEFAULT '', spo2 VARCHAR(40) DEFAULT '', glicemia VARCHAR(40) DEFAULT '', peso VARCHAR(40) DEFAULT '', altura VARCHAR(40) DEFAULT '', imc VARCHAR(40) DEFAULT '', queixa_principal TEXT NULL, anamnese TEXT NULL, alergias TEXT NULL, condicoes_conhecidas TEXT NULL, medicamentos_uso TEXT NULL, avaliacao_farmaceutica TEXT NULL, conduta TEXT NULL, orientacoes TEXT NULL, encaminhamento TEXT NULL, retorno_monitoramento TEXT NULL, observacoes_internas TEXT NULL, consentimento TINYINT DEFAULT 0, data_atendimento DATETIME DEFAULT CURRENT_TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "cliente_id": "INT NULL",
+            "paciente": "VARCHAR(255) DEFAULT ''",
+            "data": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "queixa": "TEXT NULL",
+            "diagnostico": "TEXT NULL",
+            "conduta": "TEXT NULL",
+            "observacao": "TEXT NULL",
+            "paciente_nome": "VARCHAR(500) DEFAULT ''",
+            "telefone": "VARCHAR(80) DEFAULT ''",
+            "whatsapp": "VARCHAR(80) DEFAULT ''",
+            "responsavel": "VARCHAR(255) DEFAULT ''",
+            "profissional": "VARCHAR(255) DEFAULT ''",
+            "registro_profissional": "VARCHAR(80) DEFAULT ''",
+            "tipo_atendimento": "VARCHAR(120) DEFAULT ''",
+            "classificacao_risco": "VARCHAR(120) DEFAULT ''",
+            "pressao_arterial": "VARCHAR(40) DEFAULT ''",
+            "frequencia_cardiaca": "VARCHAR(40) DEFAULT ''",
+            "temperatura": "VARCHAR(40) DEFAULT ''",
+            "spo2": "VARCHAR(40) DEFAULT ''",
+            "glicemia": "VARCHAR(40) DEFAULT ''",
+            "peso": "VARCHAR(40) DEFAULT ''",
+            "altura": "VARCHAR(40) DEFAULT ''",
+            "imc": "VARCHAR(40) DEFAULT ''",
+            "queixa_principal": "TEXT NULL",
+            "anamnese": "TEXT NULL",
+            "alergias": "TEXT NULL",
+            "condicoes_conhecidas": "TEXT NULL",
+            "medicamentos_uso": "TEXT NULL",
+            "avaliacao_farmaceutica": "TEXT NULL",
+            "orientacoes": "TEXT NULL",
+            "encaminhamento": "TEXT NULL",
+            "retorno_monitoramento": "TEXT NULL",
+            "observacoes_internas": "TEXT NULL",
+            "consentimento": "TINYINT DEFAULT 0",
+            "data_atendimento": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "cliente_nome": "VARCHAR(500) DEFAULT ''",
+            "procedimento": "VARCHAR(500) DEFAULT ''",
+            "cpf": "VARCHAR(40)",
+            "data_hora": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "pressao": "VARCHAR(40)",
+        },
+    },
+    "quantum_backup_automatico_ftp": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `quantum_backup_automatico_ftp` ( id INT AUTO_INCREMENT PRIMARY KEY, ativo TINYINT(1) NOT NULL DEFAULT 0, host_ftp VARCHAR(255) NULL, usuario_ftp VARCHAR(255) NULL, senha_ftp TEXT NULL, pasta_remota VARCHAR(500) NULL, intervalo_minutos INT NOT NULL DEFAULT 60, ultimo_backup_em DATETIME NULL, ultimo_arquivo VARCHAR(500) NULL, ultimo_status TEXT NULL, criado_em DATETIME NULL DEFAULT CURRENT_TIMESTAMP, atualizado_em DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "ativo": "TINYINT(1) DEFAULT 0",
+            "host_ftp": "VARCHAR(255) NULL",
+            "usuario_ftp": "VARCHAR(255) NULL",
+            "senha_ftp": "TEXT NULL",
+            "pasta_remota": "VARCHAR(500) NULL",
+            "intervalo_minutos": "INT DEFAULT 60",
+            "ultimo_backup_em": "DATETIME NULL",
+            "ultimo_arquivo": "VARCHAR(500) NULL",
+            "ultimo_status": "TEXT NULL",
+            "criado_em": "DATETIME NULL DEFAULT CURRENT_TIMESTAMP",
+            "atualizado_em": "DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "ultimo_backup": "DATETIME NULL",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+        },
+    },
+    "quantum_configuracoes_automaticas": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `quantum_configuracoes_automaticas` ( id INT AUTO_INCREMENT PRIMARY KEY, chave VARCHAR(191) NOT NULL, valor LONGTEXT NULL, categoria VARCHAR(120) DEFAULT 'sistema', descricao TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, UNIQUE KEY uk_quantum_config_auto_chave (chave) ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "chave": "VARCHAR(191)",
+            "valor": "LONGTEXT NULL",
+            "atualizado_em": "DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "categoria": "VARCHAR(120) DEFAULT 'sistema'",
+            "descricao": "TEXT NULL",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "grupo": "VARCHAR(80) NULL DEFAULT 'geral'",
+        },
+    },
+    "quantum_envio_mysql_externo": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `quantum_envio_mysql_externo` ( id INT AUTO_INCREMENT PRIMARY KEY, ativo TINYINT(1) NOT NULL DEFAULT 0, servidor_mysql VARCHAR(255) NULL, nome_banco_mysql VARCHAR(255) NULL, usuario_mysql VARCHAR(255) NULL, senha_mysql TEXT NULL, criado_em DATETIME NULL DEFAULT CURRENT_TIMESTAMP, atualizado_em DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "ativo": "TINYINT(1) DEFAULT 0",
+            "servidor_mysql": "VARCHAR(255) NULL",
+            "nome_banco_mysql": "VARCHAR(255) NULL",
+            "usuario_mysql": "VARCHAR(255) NULL",
+            "senha_mysql": "TEXT NULL",
+            "criado_em": "DATETIME NULL DEFAULT CURRENT_TIMESTAMP",
+            "atualizado_em": "DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "ultimo_sync_em": "DATETIME NULL",
+            "ultimo_status": "TEXT NULL",
+            "sync_pendente": "TINYINT(1) DEFAULT 0",
+        },
+    },
+    "quantum_permissoes_revisoes_usuarios": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `quantum_permissoes_revisoes_usuarios` ( id INT AUTO_INCREMENT PRIMARY KEY, usuario VARCHAR(120) NOT NULL, revisao VARCHAR(80) NOT NULL, aplicado_em DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY uq_qperm_user_rev (usuario, revisao) ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "usuario": "VARCHAR(120)",
+            "revisao": "VARCHAR(80)",
+            "aplicado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "receituario_controlados": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `receituario_controlados` ( id INT AUTO_INCREMENT PRIMARY KEY, cliente_id INT NULL, cliente_nome VARCHAR(500) DEFAULT '', produto_id INT NULL, medicamento VARCHAR(500) DEFAULT '', tipo_receita VARCHAR(120) DEFAULT '', numero_receita VARCHAR(120) DEFAULT '', prescritor VARCHAR(255) DEFAULT '', crm VARCHAR(80) DEFAULT '', data_receita DATE NULL, validade_receita DATE NULL, lote_dispensado VARCHAR(120) DEFAULT '', quantidade DECIMAL(15,3) DEFAULT 0, sngpc TINYINT DEFAULT 0, observacao TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "cliente_id": "INT NULL",
+            "paciente": "VARCHAR(255) DEFAULT ''",
+            "medicamento": "VARCHAR(255) DEFAULT ''",
+            "prescritor": "VARCHAR(255) DEFAULT ''",
+            "crm": "VARCHAR(80) DEFAULT ''",
+            "data_receita": "DATE NULL",
+            "validade": "DATE NULL",
+            "observacao": "TEXT NULL",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "cliente_nome": "VARCHAR(500) DEFAULT ''",
+            "produto_id": "INT NULL",
+            "tipo_receita": "VARCHAR(120) DEFAULT ''",
+            "numero_receita": "VARCHAR(120) DEFAULT ''",
+            "validade_receita": "DATE NULL",
+            "lote_dispensado": "VARCHAR(120) DEFAULT ''",
+            "quantidade": "DECIMAL(15,3) DEFAULT 0",
+            "sngpc": "TINYINT DEFAULT 0",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "tipo": "VARCHAR(120)",
+            "lote": "VARCHAR(120)",
+        },
+    },
+    "schema_migrations": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `schema_migrations` ( id INT AUTO_INCREMENT PRIMARY KEY, migration VARCHAR(191) DEFAULT '', nome VARCHAR(191) DEFAULT '', aplicado_em DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY uq_schema_migration (migration) ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "migration": "VARCHAR(191) DEFAULT ''",
+            "nome": "VARCHAR(191) DEFAULT ''",
+            "aplicado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "executado_em": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "detalhes": "TEXT",
+        },
+    },
+    "sequencias": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `sequencias` ( id INT AUTO_INCREMENT PRIMARY KEY, chave VARCHAR(160) NOT NULL UNIQUE, valor BIGINT DEFAULT 0, atualizado_em DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "chave": "VARCHAR(160)",
+            "valor": "BIGINT DEFAULT 0",
+            "atualizado_em": "DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "nome": "VARCHAR(255)",
+        },
+    },
+    "servicos": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `servicos` ( id INT AUTO_INCREMENT PRIMARY KEY, nome TEXT NOT NULL, descricao VARCHAR(500) DEFAULT '', categoria VARCHAR(500) DEFAULT 'Outros', preco DOUBLE DEFAULT 0.0, duracao_estimada VARCHAR(500) DEFAULT 'A combinar', unidade_cobranca VARCHAR(500) DEFAULT 'Por servi\u00e7o', status VARCHAR(500) DEFAULT 'Ativo', codigo VARCHAR(500) DEFAULT '', garantia VARCHAR(500) DEFAULT 'Sem garantia', observacao VARCHAR(500) DEFAULT '', ativo INTEGER DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "VARCHAR(255)",
+            "descricao": "TEXT NULL",
+            "preco": "DECIMAL(12,2) DEFAULT 0",
+            "ativo": "TINYINT(1) DEFAULT 1",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "categoria": "VARCHAR(500) DEFAULT 'Outros'",
+            "duracao_estimada": "VARCHAR(500) DEFAULT 'A combinar'",
+            "unidade_cobranca": "VARCHAR(500) DEFAULT 'Por servi\u00e7o'",
+            "status": "VARCHAR(500) DEFAULT 'Ativo'",
+            "codigo": "VARCHAR(500) DEFAULT ''",
+            "garantia": "VARCHAR(500) DEFAULT 'Sem garantia'",
+            "observacao": "VARCHAR(500) DEFAULT ''",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "valor": "DECIMAL(15,2) DEFAULT 0",
+        },
+    },
+    "servicos_farmaceuticos": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `servicos_farmaceuticos` ( id INT AUTO_INCREMENT PRIMARY KEY, cliente_id INT NULL, cliente_nome VARCHAR(500) DEFAULT '', servico VARCHAR(255) DEFAULT '', data_agendada DATETIME NULL, profissional VARCHAR(255) DEFAULT '', status VARCHAR(80) DEFAULT 'Agendado', valor DECIMAL(15,4) DEFAULT 0, observacao TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "VARCHAR(255)",
+            "descricao": "TEXT NULL",
+            "preco": "DECIMAL(12,2) DEFAULT 0",
+            "ativo": "TINYINT(1) DEFAULT 1",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "cliente_id": "INT NULL",
+            "cliente_nome": "VARCHAR(500) DEFAULT ''",
+            "servico": "VARCHAR(255) DEFAULT ''",
+            "data_agendada": "DATETIME NULL",
+            "profissional": "VARCHAR(255) DEFAULT ''",
+            "status": "VARCHAR(80) DEFAULT 'Agendado'",
+            "valor": "DECIMAL(15,4) DEFAULT 0",
+            "observacao": "TEXT NULL",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "cliente": "VARCHAR(255)",
+            "data_hora": "DATETIME NULL",
+        },
+    },
+    "sync_events": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `sync_events` ( id BIGINT AUTO_INCREMENT PRIMARY KEY, data_key VARCHAR(120) NOT NULL, operation VARCHAR(40) DEFAULT '', origin VARCHAR(120) DEFAULT '', details TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX idx_sync_events_id (id), INDEX idx_sync_events_created_at (created_at), INDEX idx_sync_events_data_key (data_key) ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "data_key": "VARCHAR(120)",
+            "operation": "VARCHAR(40) DEFAULT ''",
+            "origin": "VARCHAR(120) DEFAULT ''",
+            "details": "TEXT",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "tamanhos": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `tamanhos` ( id INT AUTO_INCREMENT PRIMARY KEY, nome TEXT NOT NULL, sigla VARCHAR(500) DEFAULT '', ordem INTEGER DEFAULT 0, tipo VARCHAR(500) DEFAULT 'Roupa', descricao VARCHAR(500) DEFAULT '', ativo INTEGER DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "TEXT",
+            "sigla": "VARCHAR(500) DEFAULT ''",
+            "ordem": "INTEGER DEFAULT 0",
+            "tipo": "VARCHAR(500) DEFAULT 'Roupa'",
+            "descricao": "VARCHAR(500) DEFAULT ''",
+            "ativo": "INTEGER DEFAULT 1",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "criado_em": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "tamanhos_produtos": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `tamanhos_produtos` ( id INT AUTO_INCREMENT PRIMARY KEY, produto_id INT, nome VARCHAR(120), tamanho VARCHAR(120), descricao VARCHAR(255), estoque DECIMAL(15,3) DEFAULT 0, preco DECIMAL(15,2) DEFAULT 0, preco_venda DECIMAL(15,2) DEFAULT 0, ativo TINYINT DEFAULT 1, criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "produto_id": "INT",
+            "nome": "VARCHAR(120)",
+            "tamanho": "VARCHAR(120)",
+            "descricao": "VARCHAR(255)",
+            "estoque": "DECIMAL(15,3) DEFAULT 0",
+            "preco": "DECIMAL(15,2) DEFAULT 0",
+            "preco_venda": "DECIMAL(15,2) DEFAULT 0",
+            "ativo": "TINYINT DEFAULT 1",
+            "criado_em": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "tratamentos_continuos": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `tratamentos_continuos` ( id INT AUTO_INCREMENT PRIMARY KEY, cliente_id INT NULL, cliente_nome VARCHAR(500) DEFAULT '', produto_id INT NULL, medicamento VARCHAR(500) DEFAULT '', dose_posologia TEXT NULL, consumo_por_dia DECIMAL(15,3) DEFAULT 1, quantidade_comprada DECIMAL(15,3) DEFAULT 0, intervalo_dias INT DEFAULT 30, dias_antes_avisar INT DEFAULT 5, data_inicio DATE NULL, data_compra DATE NULL, data_prevista_fim DATE NULL, data_lembrete DATE NULL, telefone_whatsapp VARCHAR(80) DEFAULT '', ativo TINYINT DEFAULT 1, continuo TINYINT DEFAULT 1, observacao TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "cliente_id": "INT NULL",
+            "paciente": "VARCHAR(255) DEFAULT ''",
+            "medicamento": "VARCHAR(255) DEFAULT ''",
+            "posologia": "TEXT NULL",
+            "lembrete": "DATETIME NULL",
+            "ativo": "TINYINT(1) DEFAULT 1",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "cliente_nome": "VARCHAR(500) DEFAULT ''",
+            "produto_id": "INT NULL",
+            "dose_posologia": "TEXT NULL",
+            "consumo_por_dia": "DECIMAL(15,3) DEFAULT 1",
+            "quantidade_comprada": "DECIMAL(15,3) DEFAULT 0",
+            "intervalo_dias": "INT DEFAULT 30",
+            "dias_antes_avisar": "INT DEFAULT 5",
+            "data_inicio": "DATE NULL",
+            "data_compra": "DATE NULL",
+            "data_prevista_fim": "DATE NULL",
+            "data_lembrete": "DATE NULL",
+            "telefone_whatsapp": "VARCHAR(80) DEFAULT ''",
+            "continuo": "TINYINT DEFAULT 1",
+            "observacao": "TEXT NULL",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "medicamento_nome": "VARCHAR(500) DEFAULT ''",
+            "dados": "LONGTEXT NULL",
+            "telefone": "VARCHAR(80)",
+            "dose": "VARCHAR(255)",
+            "consumo_dia": "DECIMAL(15,3) DEFAULT 1",
+            "data_previsao_fim": "DATE NULL",
+        },
+    },
+    "turnos": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `turnos` ( id INT AUTO_INCREMENT PRIMARY KEY, nome TEXT NOT NULL, hora_inicio VARCHAR(500) DEFAULT '00:00', hora_fim VARCHAR(500) DEFAULT '23:59', descricao VARCHAR(500) DEFAULT '', ativo INTEGER DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "VARCHAR(120)",
+            "hora_inicio": "VARCHAR(10) DEFAULT ''",
+            "hora_fim": "VARCHAR(10) DEFAULT ''",
+            "ativo": "TINYINT(1) DEFAULT 1",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "descricao": "VARCHAR(500) DEFAULT ''",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "user_log": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `user_log` ( id INT AUTO_INCREMENT PRIMARY KEY, usuario TEXT, acao TEXT, detalhes TEXT, datahora TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "usuario": "VARCHAR(80) DEFAULT ''",
+            "acao": "VARCHAR(255) DEFAULT ''",
+            "detalhes": "TEXT NULL",
+            "data": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "datahora": "TEXT",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "usuarios": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `usuarios` ( id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(120) UNIQUE, usuario VARCHAR(120), nome VARCHAR(255), password VARCHAR(255), password_hash VARCHAR(255), senha VARCHAR(255), nivel VARCHAR(80), nivel_acesso VARCHAR(80), permissoes LONGTEXT, vinculos LONGTEXT, ativo TINYINT DEFAULT 1, bloqueado TINYINT DEFAULT 0, criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP, atualizado_em TIMESTAMP NULL DEFAULT NULL ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "username": "VARCHAR(80) DEFAULT ''",
+            "usuario": "VARCHAR(80) DEFAULT ''",
+            "nome": "VARCHAR(160) DEFAULT ''",
+            "password_hash": "VARCHAR(255) DEFAULT ''",
+            "senha": "VARCHAR(255) DEFAULT ''",
+            "nivel_acesso": "VARCHAR(50) DEFAULT 'caixa'",
+            "nivel": "VARCHAR(50) DEFAULT 'caixa'",
+            "permissoes": "LONGTEXT NULL",
+            "ativo": "TINYINT(1) DEFAULT 1",
+            "protegido": "TINYINT(1) DEFAULT 0",
+            "created_at": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "DATETIME NULL",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "atualizado_em": "DATETIME NULL",
+            "perfil": "VARCHAR(120) DEFAULT 'Operador'",
+            "admin_original": "TINYINT DEFAULT 0",
+            "password": "VARCHAR(255)",
+            "vinculos": "LONGTEXT",
+            "bloqueado": "TINYINT DEFAULT 0",
+        },
+    },
+    "vendas": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `vendas` ( id INT AUTO_INCREMENT PRIMARY KEY, coupon_number INT NULL, numero VARCHAR(80) DEFAULT '', timestamp VARCHAR(60) DEFAULT '', data VARCHAR(40) DEFAULT '', data_venda DATETIME NULL, cliente_id INT NULL, cliente_nome VARCHAR(500) DEFAULT '', usuario VARCHAR(255) DEFAULT '', operador VARCHAR(255) DEFAULT '', vendedor_id VARCHAR(80) DEFAULT '', vendedor_nome VARCHAR(255) DEFAULT '', total DECIMAL(15,4) DEFAULT 0, subtotal DECIMAL(15,4) DEFAULT 0, desconto DECIMAL(15,4) DEFAULT 0, acrescimo DECIMAL(15,4) DEFAULT 0, taxa_entrega DECIMAL(15,4) DEFAULT 0, formas_pagamento LONGTEXT NULL, itens LONGTEXT NULL, status VARCHAR(80) DEFAULT 'finalizada', tipo VARCHAR(80) DEFAULT '', caixa_id INT NULL, caixa_nome VARCHAR(255) DEFAULT '', is_delivery TINYINT DEFAULT 0, delivery TINYINT DEFAULT 0, entregador_id INT NULL, entregador_nome VARCHAR(255) DEFAULT '', entrega_concluida TINYINT DEFAULT 0, data_entrega_concluida VARCHAR(40) DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "data": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "cliente_id": "INT NULL",
+            "cliente_nome": "VARCHAR(255) DEFAULT ''",
+            "usuario": "VARCHAR(80) DEFAULT ''",
+            "caixa": "VARCHAR(120) DEFAULT ''",
+            "subtotal": "DECIMAL(12,2) DEFAULT 0",
+            "desconto": "DECIMAL(12,2) DEFAULT 0",
+            "acrescimo": "DECIMAL(12,2) DEFAULT 0",
+            "taxa_entrega": "DECIMAL(12,2) DEFAULT 0",
+            "total": "DECIMAL(12,2) DEFAULT 0",
+            "forma_pagamento": "VARCHAR(120) DEFAULT ''",
+            "status": "VARCHAR(60) DEFAULT 'finalizada'",
+            "observacao": "TEXT NULL",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "numero_cupom": "VARCHAR(80) DEFAULT ''",
+            "data_venda": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "valor_total": "DECIMAL(15,4) DEFAULT 0",
+            "valor_pago": "DECIMAL(15,4) DEFAULT 0",
+            "troco": "DECIMAL(15,4) DEFAULT 0",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            "coupon_number": "INT NULL",
+            "numero": "VARCHAR(80) DEFAULT ''",
+            "timestamp": "VARCHAR(60) DEFAULT ''",
+            "operador": "VARCHAR(255) DEFAULT ''",
+            "vendedor_id": "VARCHAR(80) DEFAULT ''",
+            "vendedor_nome": "VARCHAR(255) DEFAULT ''",
+            "formas_pagamento": "LONGTEXT NULL",
+            "itens": "LONGTEXT NULL",
+            "tipo": "VARCHAR(80) DEFAULT ''",
+            "caixa_id": "INT NULL",
+            "caixa_nome": "VARCHAR(255) DEFAULT ''",
+            "is_delivery": "TINYINT DEFAULT 0",
+            "delivery": "TINYINT DEFAULT 0",
+            "entregador_id": "INT NULL",
+            "entregador_nome": "VARCHAR(255) DEFAULT ''",
+            "entrega_concluida": "TINYINT DEFAULT 0",
+            "data_entrega_concluida": "VARCHAR(40) DEFAULT ''",
+            "cupom": "VARCHAR(80)",
+        },
+    },
+    "vendas_itens": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `vendas_itens` ( id INT AUTO_INCREMENT PRIMARY KEY, venda_id INT NULL, produto_id INT NULL, codigo VARCHAR(120) DEFAULT '', codigo_barras VARCHAR(160) DEFAULT '', produto_nome VARCHAR(500) DEFAULT '', quantidade DECIMAL(15,3) DEFAULT 0, unidade VARCHAR(40) DEFAULT '', preco_unitario DECIMAL(15,4) DEFAULT 0, subtotal DECIMAL(15,4) DEFAULT 0, desconto DECIMAL(15,4) DEFAULT 0, lote VARCHAR(120) DEFAULT '', validade VARCHAR(30) DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "venda_id": "INT DEFAULT 0",
+            "produto_id": "INT NULL",
+            "codigo": "VARCHAR(120) DEFAULT ''",
+            "produto": "VARCHAR(255) DEFAULT ''",
+            "quantidade": "DECIMAL(12,3) DEFAULT 0",
+            "unidade": "VARCHAR(40) DEFAULT ''",
+            "preco_unitario": "DECIMAL(12,2) DEFAULT 0",
+            "subtotal": "DECIMAL(12,2) DEFAULT 0",
+            "desconto": "DECIMAL(12,2) DEFAULT 0",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "produto_nome": "VARCHAR(500) DEFAULT ''",
+            "valor_unitario": "DECIMAL(15,4) DEFAULT 0",
+            "valor_total": "DECIMAL(15,4) DEFAULT 0",
+            "lote": "VARCHAR(120) DEFAULT ''",
+            "validade": "VARCHAR(20) DEFAULT ''",
+            "data_validade": "DATE NULL",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "codigo_barras": "VARCHAR(160) DEFAULT ''",
+        },
+    },
+    "vendedores": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `vendedores` ( id INT AUTO_INCREMENT PRIMARY KEY, nome TEXT NOT NULL, cpf VARCHAR(500) DEFAULT '', rg VARCHAR(500) DEFAULT '', telefone VARCHAR(500) DEFAULT '', telefone2 VARCHAR(500) DEFAULT '', email VARCHAR(500) DEFAULT '', endereco VARCHAR(500) DEFAULT '', bairro VARCHAR(500) DEFAULT '', cidade VARCHAR(500) DEFAULT '', comissao DOUBLE DEFAULT 0.0, meta_mensal DOUBLE DEFAULT 0.0, salario_base DOUBLE DEFAULT 0.0, pix VARCHAR(500) DEFAULT '', status VARCHAR(500) DEFAULT 'Ativo', data_admissao VARCHAR(500) DEFAULT '', data_demissao VARCHAR(500) DEFAULT '', observacao VARCHAR(500) DEFAULT '', ativo INTEGER DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "nome": "TEXT",
+            "cpf": "VARCHAR(500) DEFAULT ''",
+            "rg": "VARCHAR(500) DEFAULT ''",
+            "telefone": "VARCHAR(500) DEFAULT ''",
+            "telefone2": "VARCHAR(500) DEFAULT ''",
+            "email": "VARCHAR(500) DEFAULT ''",
+            "endereco": "VARCHAR(500) DEFAULT ''",
+            "bairro": "VARCHAR(500) DEFAULT ''",
+            "cidade": "VARCHAR(500) DEFAULT ''",
+            "comissao": "DOUBLE DEFAULT 0.0",
+            "meta_mensal": "DOUBLE DEFAULT 0.0",
+            "salario_base": "DOUBLE DEFAULT 0.0",
+            "pix": "VARCHAR(500) DEFAULT ''",
+            "status": "VARCHAR(500) DEFAULT 'Ativo'",
+            "data_admissao": "VARCHAR(500) DEFAULT ''",
+            "data_demissao": "VARCHAR(500) DEFAULT ''",
+            "observacao": "VARCHAR(500) DEFAULT ''",
+            "ativo": "INTEGER DEFAULT 1",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "criado_em": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "vinculos_usuario_caixa_turno": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `vinculos_usuario_caixa_turno` ( id INT AUTO_INCREMENT PRIMARY KEY, usuario VARCHAR(80) DEFAULT '', usuario_id INT NULL, caixa_id INT NULL, turno_id INT NULL, ativo TINYINT(1) DEFAULT 1, criado_em DATETIME DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "usuario": "VARCHAR(80) DEFAULT ''",
+            "usuario_id": "INT NULL",
+            "caixa_id": "INT NULL",
+            "turno_id": "INT NULL",
+            "ativo": "TINYINT(1) DEFAULT 1",
+            "criado_em": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            "username": "VARCHAR(255)",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+    "vouchers": {
+        "ddl": "CREATE TABLE IF NOT EXISTS `vouchers` ( id INT AUTO_INCREMENT PRIMARY KEY, codigo VARCHAR(255) NOT NULL UNIQUE, valor_original DOUBLE NOT NULL DEFAULT 0.0, valor_restante DOUBLE NOT NULL DEFAULT 0.0, cliente_id INTEGER, cliente_nome VARCHAR(500) DEFAULT '', motivo VARCHAR(500) DEFAULT '', status VARCHAR(500) DEFAULT 'Ativo', usuario_criacao VARCHAR(500) DEFAULT '', data_criacao TEXT, data_utilizacao VARCHAR(500) DEFAULT '', venda_id INTEGER, cupom_utilizado INTEGER, observacao VARCHAR(500) DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "cols": {
+            "codigo": "VARCHAR(255)",
+            "valor_original": "DOUBLE DEFAULT 0.0",
+            "valor_restante": "DOUBLE DEFAULT 0.0",
+            "cliente_id": "INTEGER",
+            "cliente_nome": "VARCHAR(500) DEFAULT ''",
+            "motivo": "VARCHAR(500) DEFAULT ''",
+            "status": "VARCHAR(500) DEFAULT 'Ativo'",
+            "usuario_criacao": "VARCHAR(500) DEFAULT ''",
+            "data_criacao": "TEXT",
+            "data_utilizacao": "VARCHAR(500) DEFAULT ''",
+            "venda_id": "INTEGER",
+            "cupom_utilizado": "INTEGER",
+            "observacao": "VARCHAR(500) DEFAULT ''",
+            "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        },
+    },
+}
+
+
 def _quantum_preboot_total_schema_antes_de_tudo():
     import os as _os
     import sys as _sys
@@ -267,6 +1480,26 @@ def _quantum_preboot_total_schema_antes_de_tudo():
         _log("Não foi possível conectar no banco '%s': %s" % (_database_safe, _e))
         return False
 
+    # OTIMIZAÇÃO DE BOOT: pré-carrega o catálogo do banco (tabelas/colunas/índices)
+    # em poucas queries, para que as milhares de verificações de existência abaixo
+    # sejam feitas em memória (antes: ~1 query por tabela e por coluna).
+    _existing_tables = set()
+    _existing_cols = set()
+    _existing_idx = set()
+    try:
+        _cur.execute("SELECT LOWER(table_name) FROM information_schema.tables WHERE table_schema=%s", (_database_safe,))
+        for _r in _cur.fetchall():
+            _existing_tables.add(_r[0])
+        _cur.execute("SELECT LOWER(table_name), LOWER(column_name) FROM information_schema.columns WHERE table_schema=%s", (_database_safe,))
+        for _r in _cur.fetchall():
+            _existing_cols.add((_r[0], _r[1]))
+        _cur.execute("SELECT LOWER(table_name), LOWER(index_name) FROM information_schema.statistics WHERE table_schema=%s", (_database_safe,))
+        for _r in _cur.fetchall():
+            _existing_idx.add((_r[0], _r[1]))
+        _log("Catálogo pré-carregado: %d tabela(s), %d coluna(s)." % (len(_existing_tables), len(_existing_cols)))
+    except Exception as _e:
+        _log("Aviso ao pré-carregar catálogo do banco: %s" % _e)
+
     def _execute(sql, params=None, quiet=True):
         try:
             _cur.execute(sql, params or ())
@@ -289,39 +1522,19 @@ def _quantum_preboot_total_schema_antes_de_tudo():
             return None
 
     def _table_exists(table):
-        row = _fetchone(
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=%s AND table_name=%s",
-            (_database_safe, table)
-        )
-        try:
-            return int(row[0]) > 0
-        except Exception:
-            return False
+        return str(table).lower() in _existing_tables
 
     def _column_exists(table, col):
-        row = _fetchone(
-            "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=%s AND table_name=%s AND column_name=%s",
-            (_database_safe, table, col)
-        )
-        try:
-            return int(row[0]) > 0
-        except Exception:
-            return False
+        return (str(table).lower(), str(col).lower()) in _existing_cols
 
     def _index_exists(table, idx):
-        row = _fetchone(
-            "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=%s AND table_name=%s AND index_name=%s",
-            (_database_safe, table, idx)
-        )
-        try:
-            return int(row[0]) > 0
-        except Exception:
-            return False
+        return (str(table).lower(), str(idx).lower()) in _existing_idx
 
     def _ensure_table(table, ddl):
         if not _table_exists(table):
             ok = _execute(ddl, quiet=False)
             if ok:
+                _existing_tables.add(str(table).lower())
                 _log("Tabela criada: %s" % table)
             return ok
         return True
@@ -331,6 +1544,7 @@ def _quantum_preboot_total_schema_antes_de_tudo():
             if _table_exists(table) and not _column_exists(table, col):
                 ok = _execute("ALTER TABLE `{}` ADD COLUMN `{}` {}".format(table, col, definition), quiet=False)
                 if ok:
+                    _existing_cols.add((str(table).lower(), str(col).lower()))
                     _log("Coluna criada: %s.%s" % (table, col))
                 return ok
         except Exception:
@@ -340,7 +1554,10 @@ def _quantum_preboot_total_schema_antes_de_tudo():
     def _ensure_index(table, idx, cols):
         try:
             if _table_exists(table) and not _index_exists(table, idx):
-                return _execute("CREATE INDEX `{}` ON `{}` ({})".format(idx, table, cols), quiet=True)
+                ok = _execute("CREATE INDEX `{}` ON `{}` ({})".format(idx, table, cols), quiet=True)
+                if ok:
+                    _existing_idx.add((str(table).lower(), str(idx).lower()))
+                return ok
         except Exception:
             pass
         return True
@@ -994,6 +2211,32 @@ def _quantum_preboot_total_schema_antes_de_tudo():
         for _col, _def in _columns.items():
             _ensure_col(_table, _col, _def)
 
+    # 4b) ESQUEMA COMPLETO CONSOLIDADO: garante TODAS as tabelas e colunas do
+    #     sistema (atualiza bancos antigos). Idempotente e tolerante a falhas.
+    try:
+        _schema_full = globals().get("_QUANTUM_SCHEMA_COMPLETO_AUTO", {})
+        _tot_tab = 0
+        _tot_col = 0
+        for _t_full, _spec_full in _schema_full.items():
+            try:
+                _ddl_full = _spec_full.get("ddl")
+                if _ddl_full and not _table_exists(_t_full):
+                    if _execute(_ddl_full, quiet=True):
+                        _existing_tables.add(str(_t_full).lower())
+                        _tot_tab += 1
+                        _log("Tabela criada (schema completo): %s" % _t_full)
+                for _c_full, _cdef_full in (_spec_full.get("cols") or {}).items():
+                    if _table_exists(_t_full) and not _column_exists(_t_full, _c_full):
+                        if _execute("ALTER TABLE `{}` ADD COLUMN `{}` {}".format(_t_full, _c_full, _cdef_full), quiet=True):
+                            _existing_cols.add((str(_t_full).lower(), str(_c_full).lower()))
+                            _tot_col += 1
+                            _log("Coluna criada (schema completo): %s.%s" % (_t_full, _c_full))
+            except Exception as _e_full_tab:
+                _log("Aviso na tabela '%s' do schema completo: %s" % (_t_full, _e_full_tab))
+        _log("Schema completo conferido: %d tabela(s) e %d coluna(s) criada(s)/atualizada(s)." % (_tot_tab, _tot_col))
+    except Exception as _e_full:
+        _log("Aviso no schema completo consolidado: %s" % _e_full)
+
     # 5) Índices seguros sem gerar erro de duplicidade.
     for _table, _idx, _cols_def in [
         ("usuarios", "idx_usuarios_username", "`username`"),
@@ -1009,6 +2252,29 @@ def _quantum_preboot_total_schema_antes_de_tudo():
         ("estoque_lotes", "idx_lotes_validade", "`validade`"),
         ("tratamentos_continuos", "idx_trat_lembrete", "`lembrete`"),
         ("caixa_movimentos", "idx_caixa_movimentos_data", "`data`"),
+        # --- Índices adicionais para acelerar abertura de telas/consultas ---
+        ("produtos", "idx_produtos_categoria", "`categoria_id`"),
+        ("produtos", "idx_produtos_ativo", "`ativo`"),
+        ("clientes", "idx_clientes_cpf", "`cpf`"),
+        ("clientes", "idx_clientes_telefone", "`telefone`"),
+        ("vendas", "idx_vendas_cliente", "`cliente_id`"),
+        ("vendas", "idx_vendas_status", "`status`"),
+        ("vendas_itens", "idx_vitens_produto", "`produto_id`"),
+        ("itens_venda", "idx_ivenda_produto", "`produto_id`"),
+        ("contas_pagar", "idx_cpagar_venc", "`vencimento`"),
+        ("contas_pagar", "idx_cpagar_status", "`status`"),
+        ("contas_receber", "idx_creceber_venc", "`vencimento`"),
+        ("contas_receber", "idx_creceber_status", "`status`"),
+        ("comandas", "idx_comandas_status", "`status`"),
+        ("mesas", "idx_mesas_status", "`status`"),
+        ("ordens_servico", "idx_os_cliente", "`cliente_id`"),
+        ("ordens_servico", "idx_os_status", "`status`"),
+        ("notas_entrada", "idx_notas_fornecedor", "`fornecedor_id`"),
+        ("estoque_lotes", "idx_lotes_produto", "`produto_id`"),
+        ("devolucoes", "idx_devol_venda", "`venda_id`"),
+        ("orcamentos", "idx_orc_cliente", "`cliente_id`"),
+        ("fornecedores", "idx_fornecedores_nome", "`nome`"),
+        ("caixa_movimentos", "idx_caixa_mov_caixa", "`caixa_id`"),
     ]:
         _ensure_index(_table, _idx, _cols_def)
 
@@ -1387,6 +2653,19 @@ def quantum_precheck_banco_vazio_ou_antigo_full():
                 pass
             return False
 
+        # OTIMIZAÇÃO DE BOOT: pré-carrega o catálogo (verificações em memória).
+        _existing_tables = set()
+        _existing_cols = set()
+        try:
+            _cur.execute("SELECT LOWER(table_name) FROM information_schema.tables WHERE table_schema=%s", (_database,))
+            for _r in _cur.fetchall():
+                _existing_tables.add(_r[0])
+            _cur.execute("SELECT LOWER(table_name), LOWER(column_name) FROM information_schema.columns WHERE table_schema=%s", (_database,))
+            for _r in _cur.fetchall():
+                _existing_cols.add((_r[0], _r[1]))
+        except Exception:
+            pass
+
         def _exec(sql):
             try:
                 _cur.execute(sql)
@@ -1399,33 +2678,21 @@ def quantum_precheck_banco_vazio_ou_antigo_full():
                 return False
 
         def _table_exists(table):
-            try:
-                _cur.execute(
-                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=%s AND table_name=%s",
-                    (_database, table)
-                )
-                return (_cur.fetchone() or [0])[0] > 0
-            except Exception:
-                return False
+            return str(table).lower() in _existing_tables
 
         def _column_exists(table, col):
-            try:
-                _cur.execute(
-                    "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=%s AND table_name=%s AND column_name=%s",
-                    (_database, table, col)
-                )
-                return (_cur.fetchone() or [0])[0] > 0
-            except Exception:
-                return False
+            return (str(table).lower(), str(col).lower()) in _existing_cols
 
         def _ensure_table(table, ddl):
             if not _table_exists(table):
-                _exec(ddl)
+                if _exec(ddl):
+                    _existing_tables.add(str(table).lower())
 
         def _ensure_col(table, col, definition):
             try:
                 if _table_exists(table) and not _column_exists(table, col):
-                    _exec("ALTER TABLE `{}` ADD COLUMN `{}` {}".format(table, col, definition))
+                    if _exec("ALTER TABLE `{}` ADD COLUMN `{}` {}".format(table, col, definition)):
+                        _existing_cols.add((str(table).lower(), str(col).lower()))
             except Exception as _e:
                 try:
                     quantum_log_exception("Pré-verificação banco coluna %s.%s" % (table, col), _e)
@@ -2166,7 +3433,7 @@ def quantum_visual_is_loja():
 def quantum_visual_palette():
     if quantum_visual_is_loja():
         return {"primary":"#155EEF","primary_dark":"#0B2F6B","primary_soft":"#EAF1FF","secondary":"#00A3FF","accent":"#FFB020","success":"#12B76A","warning":"#F79009","danger":"#F04438","bg":"#F5F7FB","panel":"#FFFFFF","panel_2":"#EEF4FF","text":"#101828","muted":"#667085","border":"#D0D5DD","title_icon":"🛒","brand":"LOJA QUANTUM"}
-    return {"primary":"#00856F","primary_dark":"#004C3F","primary_soft":"#E8FFF8","secondary":"#17B26A","accent":"#2E90FA","success":"#12B76A","warning":"#F79009","danger":"#F04438","bg":"#F4FBF8","panel":"#FFFFFF","panel_2":"#E9FBF3","text":"#10231F","muted":"#667085","border":"#CDE7DD","title_icon":"⚕️","brand":"QUANTUM FARMA"}
+    return {"primary":"#00856F","primary_dark":"#004C3F","primary_soft":"#E8FFF8","secondary":"#17B26A","accent":"#2E90FA","success":"#12B76A","warning":"#F79009","danger":"#F04438","bg":"#F4FBF8","panel":"#FFFFFF","panel_2":"#E9FBF3","text":"#10231F","muted":"#667085","border":"#CDE7DD","title_icon":"🏪","brand":"QUANTUM LOJA"}
 
 def quantum_visual_apply_premium_theme(root=None):
     try:
@@ -2388,7 +3655,7 @@ import threading
 ║                                                                                        ║
 ╠════════════════════════════════════════════════════════════════════════════════════════╣
 ║                                                                                        ║
-║   🚀 FARMA QUANTUM SUPREME ULTRA PROFESSIONAL - PHOENIX ETERNAL EDITION 2027        ║
+║   🚀 LOJA QUANTUM SUPREME ULTRA PROFESSIONAL - PHOENIX ETERNAL EDITION 2027        ║
 ║                                                                                        ║
 ║   ═══════════════════════════════════════════════════════════════════════════════════  ║
 ║   SISTEMA DE GESTÃO INTELIGENTE E PONTO DE VENDA DE ALTÍSSIMA PERFORMANCE              ║
@@ -2610,11 +3877,11 @@ import threading
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 💊 PATCH VISUAL FARMÁCIA / DROGARIA
-# Aplicado automaticamente para adaptar o layout do sistema para farmácia:
+# 🏪 PATCH VISUAL LOJA / VAREJO
+# Aplicado automaticamente para adaptar o layout do sistema para loja:
 # - Paleta verde saúde/teal/branco clínico
-# - Splash e janela principal com identidade Farma Quantum
-# - Cabeçalho fixo com contexto de farmácia/drogaria
+# - Splash e janela principal com identidade Loja Quantum
+# - Cabeçalho fixo com contexto de loja/varejo
 # - Menus e textos principais adaptados para medicamentos/produtos
 # - Preserva banco de dados, permissões, vendas, caixa e toda a lógica original
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2711,7 +3978,7 @@ import atexit as _atexit_auditoria
 # ═══════════════════════════════════════════════════════════════════════════════
 # ÍCONE REAL NA JANELA E NA BARRA DE TAREFAS DO WINDOWS
 # Corrige o ícone padrão do Tkinter/ttkbootstrap (pena) e força o ícone correto
-# do Quantum Farma/Loja no Alt+Tab e na barra de tarefas.
+# do Loja Quantum no Alt+Tab e na barra de tarefas.
 # ═══════════════════════════════════════════════════════════════════════════════
 def _quantum_runtime_path(*parts):
     try:
@@ -2852,7 +4119,7 @@ class _SistemaAuditoriaGlobal:
         try:
             with open(self._arquivo_auditoria, 'w', encoding='utf-8') as f:
                 f.write("=" * 100 + "\n")
-                f.write("  REGISTRO DE AUDITORIA - FARMA QUANTUM SUPREME ULTRA PROFESSIONAL\n")
+                f.write("  REGISTRO DE AUDITORIA - LOJA QUANTUM SUPREME ULTRA PROFESSIONAL\n")
                 f.write("=" * 100 + "\n")
                 f.write(f"  Arquivo criado em: {agora.strftime('%d/%m/%Y às %H:%M:%S')}\n")
                 f.write(f"  Diretório do sistema: {self._dir_sistema}\n")
@@ -3145,10 +4412,10 @@ QUANTUM_ROTINAS_ORIGINAIS_REATIVADAS = True
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 💊 PATCH FARMÁCIA - CADASTRO DE TRATAMENTO CONTÍNUO E LEMBRANÇA DE COMPRA
+# 🏪 PATCH LOJA - CADASTRO DE TRATAMENTO CONTÍNUO E LEMBRANÇA DE COMPRA
 # ═══════════════════════════════════════════════════════════════════════════════
 # Recurso adicionado:
-# - Cadastro de tratamento por cliente/paciente.
+# - Cadastro de tratamento por cliente.
 # - Controle opcional de tratamento contínuo.
 # - Cálculo automático de previsão de nova compra conforme consumo diário.
 # - Alertas no sistema quando o medicamento estiver próximo de acabar.
@@ -3301,7 +4568,7 @@ def _farmacia_tc_mensagem_whatsapp(trat):
     cliente = trat.get('cliente_nome') or 'cliente'
     medicamento = trat.get('medicamento_nome') or trat.get('medicamento') or 'seu medicamento'
     fim = trat.get('data_fim_prevista') or '-'
-    empresa = 'nossa farmácia'
+    empresa = 'nossa loja'
     try:
         empresa = (getattr(globals().get('_FARMACIA_APP_REF', None), 'empresa_data', {}) or {}).get('nome') or empresa
     except Exception:
@@ -3315,7 +4582,7 @@ def _farmacia_tc_mensagem_whatsapp(trat):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PATCH FARMÁCIA: JANELAS MAXIMIZADAS PARA TRATAMENTO E PRONTUÁRIO
+# PATCH LOJA: JANELAS MAXIMIZADAS PARA TRATAMENTO E FICHA
 # ═══════════════════════════════════════════════════════════════════════════════
 def _farmacia_maximizar_janela_segura(win):
     """Maximiza uma janela Toplevel sem ativar fullscreen obrigatório."""
@@ -3364,7 +4631,7 @@ class FarmaciaTratamentoContinuoWindow:
         self.dados = _farmacia_tc_load()
         self.selected_id = None
         self.win = tk.Toplevel(self.parent)
-        self.win.title('💊 Cadastro de Tratamento Contínuo - Lembrete de Compra')
+        self.win.title('🏪 Cadastro de Tratamento Contínuo - Lembrete de Compra')
         try:
             responsive_geometry(self.win, 1180, 760)
         except Exception:
@@ -3378,8 +4645,8 @@ class FarmaciaTratamentoContinuoWindow:
     def _build(self):
         main = ttk.Frame(self.win, padding=14)
         main.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(main, text='💊 TRATAMENTO CONTÍNUO E LEMBRANÇA DE COMPRA', font=('Segoe UI', 16, 'bold')).pack(anchor='w')
-        ttk.Label(main, text='Cadastre medicamentos de uso contínuo por cliente/paciente. O sistema calcula quando lembrar a próxima compra.', foreground='#475569').pack(anchor='w', pady=(2, 10))
+        ttk.Label(main, text='🏪 TRATAMENTO CONTÍNUO E LEMBRANÇA DE COMPRA', font=('Segoe UI', 16, 'bold')).pack(anchor='w')
+        ttk.Label(main, text='Cadastre medicamentos de uso contínuo por cliente. O sistema calcula quando lembrar a próxima compra.', foreground='#475569').pack(anchor='w', pady=(2, 10))
 
         body = ttk.Frame(main)
         body.pack(fill=tk.BOTH, expand=True)
@@ -3408,7 +4675,7 @@ class FarmaciaTratamentoContinuoWindow:
         ttk.Checkbutton(form, text='Tratamento contínuo / uso permanente', variable=self.var_continuo).grid(row=r, column=1, sticky='w', pady=3)
         r += 1
 
-        ttk.Label(form, text='Cliente/Paciente:').grid(row=r, column=0, sticky='w', pady=(8, 2))
+        ttk.Label(form, text='Cliente:').grid(row=r, column=0, sticky='w', pady=(8, 2))
         clientes = self._clientes_opcoes()
         self.cmb_cliente = ttk.Combobox(form, textvariable=self.var_cliente, values=clientes, width=36)
         self.cmb_cliente.grid(row=r, column=1, sticky='ew', pady=(8, 2))
@@ -3418,13 +4685,13 @@ class FarmaciaTratamentoContinuoWindow:
         ttk.Entry(form, textvariable=self.var_telefone, width=38).grid(row=r, column=1, sticky='ew', pady=2)
         r += 1
 
-        ttk.Label(form, text='Medicamento/Produto:').grid(row=r, column=0, sticky='w', pady=(8, 2))
+        ttk.Label(form, text='Produto:').grid(row=r, column=0, sticky='w', pady=(8, 2))
         produtos = self._produtos_opcoes()
         self.cmb_produto = ttk.Combobox(form, textvariable=self.var_medicamento, values=produtos, width=36)
         self.cmb_produto.grid(row=r, column=1, sticky='ew', pady=(8, 2))
         self.cmb_produto.bind('<<ComboboxSelected>>', self._on_produto)
         r += 1
-        ttk.Label(form, text='Dose/Posologia:').grid(row=r, column=0, sticky='w', pady=2)
+        ttk.Label(form, text='Descrição/Observação:').grid(row=r, column=0, sticky='w', pady=2)
         ttk.Entry(form, textvariable=self.var_dose, width=38).grid(row=r, column=1, sticky='ew', pady=2)
         r += 1
 
@@ -3478,7 +4745,7 @@ class FarmaciaTratamentoContinuoWindow:
 
         cols = ('id', 'cliente', 'medicamento', 'fim', 'lembrete', 'status')
         self.tree = ttk.Treeview(lista, columns=cols, show='headings', height=18)
-        headers = [('id','ID',70),('cliente','Cliente',190),('medicamento','Medicamento',220),('fim','Acaba em',100),('lembrete','Lembrar em',100),('status','Status',180)]
+        headers = [('id','ID',70),('cliente','Cliente',190),('medicamento','Produto',220),('fim','Acaba em',100),('lembrete','Lembrar em',100),('status','Status',180)]
         for c,t,w in headers:
             self.tree.heading(c, text=t)
             self.tree.column(c, width=w, anchor=tk.W if c in ('cliente','medicamento','status') else tk.CENTER)
@@ -3583,9 +4850,9 @@ class FarmaciaTratamentoContinuoWindow:
 
     def _validar(self, trat):
         if not trat.get('cliente_nome'):
-            messagebox.showerror('Tratamento contínuo', 'Informe o cliente/paciente.', parent=self.win); return False
+            messagebox.showerror('Tratamento contínuo', 'Informe o cliente.', parent=self.win); return False
         if not trat.get('medicamento_nome'):
-            messagebox.showerror('Tratamento contínuo', 'Informe o medicamento/produto.', parent=self.win); return False
+            messagebox.showerror('Tratamento contínuo', 'Informe o produto.', parent=self.win); return False
         if not _farmacia_tc_parse_date(trat.get('data_inicio')):
             messagebox.showerror('Tratamento contínuo', 'Informe uma data de compra/início válida.', parent=self.win); return False
         if _farmacia_tc_float(trat.get('quantidade_por_dia'), 0) <= 0 and _farmacia_tc_float(trat.get('intervalo_compra_dias'), 0) <= 0:
@@ -3754,9 +5021,9 @@ def _farmacia_tc_patch_app():
                     return resultado
                 menubar = self.root.nametowidget(self.root.cget('menu'))
                 tratamentos_menu = tk.Menu(menubar, tearoff=0)
-                tratamentos_menu.add_command(label='💊 Cadastro de Tratamento Contínuo', command=self.open_tratamentos_continuos, accelerator='Ctrl+Alt+M')
+                tratamentos_menu.add_command(label='🏪 Cadastro de Tratamento Contínuo', command=self.open_tratamentos_continuos, accelerator='Ctrl+Alt+M')
                 tratamentos_menu.add_command(label='🔔 Ver lembretes de compra agora', command=lambda: _farmacia_tc_mostrar_alertas_inicio(self, forcar=True))
-                menubar.add_cascade(label='💊 Tratamentos', menu=tratamentos_menu)
+                menubar.add_cascade(label='🏪 Tratamentos', menu=tratamentos_menu)
                 self.root.bind('<Control-Alt-m>', lambda event: self.open_tratamentos_continuos())
                 self.root.bind('<Control-Alt-M>', lambda event: self.open_tratamentos_continuos())
             except Exception as e:
@@ -3783,12 +5050,12 @@ _farmacia_tc_patch_app()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🏥 PATCH FARMÁCIA - PRONTUÁRIO ROBUSTO DE ATENDIMENTO AMBULATORIAL
+# 🏪 PATCH LOJA - FICHA ROBUSTA DE ATENDIMENTO AO CLIENTE
 # ═══════════════════════════════════════════════════════════════════════════════
 # Recurso adicionado:
-# - Cadastro completo de atendimento ambulatorial na farmácia.
-# - Prontuário com identificação, triagem, sinais vitais, anamnese, avaliação,
-#   conduta farmacêutica, medicamentos orientados, encaminhamento e retorno.
+# - Cadastro completo de atendimento ao cliente na loja.
+# - Ficha com identificação, triagem, sinais vitais, anamnese, avaliação,
+#   conduta de atendimento, medicamentos orientados, encaminhamento e retorno.
 # - Classificação de risco e alertas de encaminhamento.
 # - Histórico pesquisável por paciente, telefone, atendimento, risco e data.
 # - Exportação/impressão em TXT para anexar, imprimir ou salvar em PDF.
@@ -3857,7 +5124,7 @@ def _farmacia_amb_resumo(pront):
     linhas = []
     add = linhas.append
     add('=' * 86)
-    add('PRONTUÁRIO DE ATENDIMENTO AMBULATORIAL - FARMÁCIA')
+    add('FICHA DE ATENDIMENTO AO CLIENTE - LOJA')
     add('=' * 86)
     add(f"ID: {pront.get('id','')}")
     add(f"Data/Hora: {pront.get('data_hora','')}")
@@ -3874,18 +5141,18 @@ def _farmacia_amb_resumo(pront):
     add(f"PA: {pront.get('pa','')} | FC: {pront.get('fc','')} | Temperatura: {pront.get('temperatura','')} | SpO2: {pront.get('spo2','')}")
     add(f"Glicemia: {pront.get('glicemia','')} | Peso: {pront.get('peso','')} | Altura: {pront.get('altura','')} | IMC: {pront.get('imc','')}")
     add('-' * 86)
-    add('DADOS CLÍNICOS E FARMACÊUTICOS')
+    add('DADOS DE ATENDIMENTO')
     add(f"Queixa principal: {pront.get('queixa','')}")
     add(f"História/Anamnese: {pront.get('anamnese','')}")
     add(f"Alergias: {pront.get('alergias','')}")
     add(f"Doenças/Condições conhecidas: {pront.get('condicoes','')}")
-    add(f"Medicamentos em uso: {pront.get('medicamentos_uso','')}")
+    add(f"Produtos em uso: {pront.get('medicamentos_uso','')}")
     add(f"Suspeita de reação adversa/interação: {pront.get('reacao_interacao','')}")
     add('-' * 86)
     add('AVALIAÇÃO, CONDUTA E ORIENTAÇÃO')
-    add(f"Avaliação farmacêutica: {pront.get('avaliacao','')}")
+    add(f"Avaliação do atendimento: {pront.get('avaliacao','')}")
     add(f"Conduta realizada: {pront.get('conduta','')}")
-    add(f"Medicamentos/produtos orientados: {pront.get('medicamentos_orientados','')}")
+    add(f"Produtos orientados: {pront.get('medicamentos_orientados','')}")
     add(f"Orientações ao paciente: {pront.get('orientacoes','')}")
     add(f"Encaminhamento: {pront.get('encaminhamento','')}")
     add(f"Retorno/monitoramento: {pront.get('retorno','')}")
@@ -3897,13 +5164,13 @@ def _farmacia_amb_resumo(pront):
 
 
 class FarmaciaAmbulatorioProntuarioWindow:
-    """Prontuário completo de atendimento ambulatorial para farmácia."""
+    """Ficha completa de atendimento ao cliente para loja."""
 
     TIPOS = [
-        'Atenção farmacêutica', 'Aferição de pressão arterial', 'Glicemia capilar',
+        'Atendimento ao cliente', 'Aferição de pressão arterial', 'Glicemia capilar',
         'Aplicação de injetável', 'Nebulização/Inalação', 'Curativo simples',
         'Orientação de medicamento', 'Revisão de farmacoterapia', 'Triagem rápida',
-        'Outro atendimento ambulatorial'
+        'Outro atendimento'
     ]
     RISCOS = ['Verde - rotina', 'Amarelo - atenção', 'Laranja - urgente', 'Vermelho - emergência/encaminhar']
 
@@ -3913,7 +5180,7 @@ class FarmaciaAmbulatorioProntuarioWindow:
         self.dados = _farmacia_amb_load()
         self.selected_id = None
         self.win = tk.Toplevel(self.parent)
-        self.win.title('🏥 Prontuário Ambulatorial da Farmácia')
+        self.win.title('🏪 Ficha de Atendimento da Loja')
         try:
             responsive_geometry(self.win, 1360, 820)
         except Exception:
@@ -3931,13 +5198,13 @@ class FarmaciaAmbulatorioProntuarioWindow:
     def _build(self):
         main = ttk.Frame(self.win, padding=12)
         main.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(main, text='🏥 PRONTUÁRIO ROBUSTO DE ATENDIMENTO AMBULATORIAL', font=('Segoe UI', 16, 'bold')).pack(anchor='w')
-        ttk.Label(main, text='Registro completo para serviços clínicos farmacêuticos, triagem, sinais vitais, orientação e encaminhamento.', foreground='#475569').pack(anchor='w', pady=(2, 8))
+        ttk.Label(main, text='🏪 FICHA ROBUSTA DE ATENDIMENTO AO CLIENTE', font=('Segoe UI', 16, 'bold')).pack(anchor='w')
+        ttk.Label(main, text='Registro completo para serviços de atendimento ao cliente, triagem, sinais vitais, orientação e encaminhamento.', foreground='#475569').pack(anchor='w', pady=(2, 8))
 
         content = ttk.Frame(main)
         content.pack(fill=tk.BOTH, expand=True)
 
-        left = ttk.LabelFrame(content, text='Atendimento / Prontuário')
+        left = ttk.LabelFrame(content, text='Atendimento / Ficha')
         left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
         right = ttk.LabelFrame(content, text='Histórico de atendimentos')
         right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
@@ -3980,7 +5247,7 @@ class FarmaciaAmbulatorioProntuarioWindow:
         self.var_peso = self._mk_var()
         self.var_altura = self._mk_var()
         self.var_imc = self._mk_var()
-        self.var_consentimento = self._mk_var('Paciente/Responsável orientado e ciente do atendimento farmacêutico.')
+        self.var_consentimento = self._mk_var('Cliente/Responsável orientado e ciente do atendimento ao cliente.')
         self.var_filtro = self._mk_var()
         self.var_info = self._mk_var('')
 
@@ -4012,7 +5279,7 @@ class FarmaciaAmbulatorioProntuarioWindow:
         self._entry(lf0, 'Data/Hora:', self.var_data, 0, 1, 22)
         self._entry(lf0, 'Profissional:', self.var_profissional, 0, 2, 24)
         self._entry(lf0, 'Registro/CRF:', self.var_registro, 0, 3, 18)
-        self._entry(lf0, 'Paciente/Cliente:', self.var_paciente, 2, 0, 34)
+        self._entry(lf0, 'Cliente:', self.var_paciente, 2, 0, 34)
         self._entry(lf0, 'CPF/Documento:', self.var_documento, 2, 1, 20)
         self._entry(lf0, 'Nascimento/Idade:', self.var_nascimento, 2, 2, 20)
         self._entry(lf0, 'Telefone/WhatsApp:', self.var_telefone, 2, 3, 20)
@@ -4046,11 +5313,11 @@ class FarmaciaAmbulatorioProntuarioWindow:
         self.txt_anamnese = self._text(lf2, 'História/Anamnese resumida:', 2, 4)
         self.txt_alergias = self._text(lf2, 'Alergias conhecidas:', 4, 2)
         self.txt_condicoes = self._text(lf2, 'Doenças/condições conhecidas:', 6, 2)
-        self.txt_medicamentos_uso = self._text(lf2, 'Medicamentos em uso contínuo/atual:', 8, 3)
+        self.txt_medicamentos_uso = self._text(lf2, 'Produtos em uso contínuo/atual:', 8, 3)
         self.txt_reacao = self._text(lf2, 'Reação adversa suspeita / interação / contraindicação observada:', 10, 3)
-        self.txt_avaliacao = self._text(lf2, 'Avaliação farmacêutica:', 12, 4)
-        self.txt_conduta = self._text(lf2, 'Conduta realizada no ambulatório:', 14, 4)
-        self.txt_medicamentos_orientados = self._text(lf2, 'Medicamentos/produtos orientados ou administrados:', 16, 3)
+        self.txt_avaliacao = self._text(lf2, 'Avaliação do atendimento:', 12, 4)
+        self.txt_conduta = self._text(lf2, 'Conduta realizada no atendimento:', 14, 4)
+        self.txt_medicamentos_orientados = self._text(lf2, 'Produtos orientados ou administrados:', 16, 3)
         self.txt_orientacoes = self._text(lf2, 'Orientações dadas ao paciente:', 18, 4)
         self.txt_encaminhamento = self._text(lf2, 'Encaminhamento / sinais de alerta / procurar serviço de saúde:', 20, 3)
         self.txt_retorno = self._text(lf2, 'Retorno / acompanhamento / monitoramento:', 22, 2)
@@ -4060,7 +5327,7 @@ class FarmaciaAmbulatorioProntuarioWindow:
         bar = ttk.Frame(f)
         bar.grid(row=3, column=0, columnspan=4, sticky='ew', pady=8)
         ttk.Button(bar, text='Novo', command=self._novo).pack(side=tk.LEFT, padx=4)
-        ttk.Button(bar, text='Salvar prontuário', command=self._salvar).pack(side=tk.LEFT, padx=4)
+        ttk.Button(bar, text='Salvar ficha', command=self._salvar).pack(side=tk.LEFT, padx=4)
         ttk.Button(bar, text='Excluir', command=self._excluir).pack(side=tk.LEFT, padx=4)
         ttk.Button(bar, text='Resumo / imprimir TXT', command=self._exportar_txt).pack(side=tk.LEFT, padx=4)
         ttk.Button(bar, text='WhatsApp orientação', command=self._whatsapp).pack(side=tk.LEFT, padx=4)
@@ -4168,18 +5435,18 @@ class FarmaciaAmbulatorioProntuarioWindow:
     def _salvar(self):
         pront = self._montar()
         if not pront.get('paciente_nome'):
-            messagebox.showerror('Prontuário ambulatorial', 'Informe o nome do paciente.', parent=self.win); return
+            messagebox.showerror('Ficha de atendimento', 'Informe o nome do cliente.', parent=self.win); return
         if not pront.get('queixa') and not pront.get('tipo_atendimento'):
-            messagebox.showerror('Prontuário ambulatorial', 'Informe pelo menos o tipo de atendimento ou queixa principal.', parent=self.win); return
+            messagebox.showerror('Ficha de atendimento', 'Informe pelo menos o tipo de atendimento ou queixa principal.', parent=self.win); return
         if pront.get('risco','').startswith('Vermelho'):
             messagebox.showwarning('Classificação de risco', 'Risco VERMELHO: orientar encaminhamento imediato para serviço de urgência/emergência.', parent=self.win)
         self.dados[pront['id']] = pront
         if _farmacia_amb_save(self.dados):
             self.selected_id = pront['id']
             self._carregar_lista()
-            messagebox.showinfo('Prontuário ambulatorial', 'Prontuário salvo com sucesso.', parent=self.win)
+            messagebox.showinfo('Ficha de atendimento', 'Ficha salvo com sucesso.', parent=self.win)
         else:
-            messagebox.showerror('Prontuário ambulatorial', 'Não foi possível salvar o prontuário.', parent=self.win)
+            messagebox.showerror('Ficha de atendimento', 'Não foi possível salvar a ficha.', parent=self.win)
 
     def _carregar_lista(self):
         try:
@@ -4194,7 +5461,7 @@ class FarmaciaAmbulatorioProntuarioWindow:
                 continue
             total += 1
             self.tree.insert('', tk.END, iid=pid, values=(pid, p.get('data_hora',''), p.get('paciente_nome',''), p.get('tipo_atendimento',''), p.get('risco',''), p.get('profissional','')))
-        self.var_info.set(f'{total} prontuário(s) listado(s).')
+        self.var_info.set(f'{total} ficha(s) listado(s).')
 
     def _selecionar(self, event=None):
         sel = self.tree.selection()
@@ -4233,8 +5500,8 @@ class FarmaciaAmbulatorioProntuarioWindow:
 
     def _excluir(self):
         if not self.selected_id:
-            messagebox.showwarning('Prontuário ambulatorial', 'Selecione um prontuário para excluir.', parent=self.win); return
-        if messagebox.askyesno('Confirmar exclusão', 'Deseja excluir este prontuário?', parent=self.win):
+            messagebox.showwarning('Ficha de atendimento', 'Selecione uma ficha para excluir.', parent=self.win); return
+        if messagebox.askyesno('Confirmar exclusão', 'Deseja excluir este ficha?', parent=self.win):
             self.dados.pop(self.selected_id, None)
             _farmacia_amb_save(self.dados)
             self._novo(); self._carregar_lista()
@@ -4247,24 +5514,24 @@ class FarmaciaAmbulatorioProntuarioWindow:
         try:
             from tkinter import filedialog
             nome = f"prontuario_ambulatorio_{pront.get('id','sem_id')}.txt"
-            path = filedialog.asksaveasfilename(parent=self.win, title='Salvar prontuário', defaultextension='.txt', initialfile=nome, filetypes=[('Texto', '*.txt'), ('Todos', '*.*')])
+            path = filedialog.asksaveasfilename(parent=self.win, title='Salvar ficha', defaultextension='.txt', initialfile=nome, filetypes=[('Texto', '*.txt'), ('Todos', '*.*')])
             if path:
                 with open(path, 'w', encoding='utf-8') as f:
                     f.write(resumo)
-                messagebox.showinfo('Prontuário', f'Arquivo salvo em:\n{path}', parent=self.win)
+                messagebox.showinfo('Ficha', f'Arquivo salvo em:\n{path}', parent=self.win)
             else:
-                messagebox.showinfo('Resumo do prontuário', resumo[:4000], parent=self.win)
+                messagebox.showinfo('Resumo da ficha', resumo[:4000], parent=self.win)
         except Exception as e:
-            messagebox.showerror('Prontuário', f'Erro ao exportar:\n{e}', parent=self.win)
+            messagebox.showerror('Ficha', f'Erro ao exportar:\n{e}', parent=self.win)
 
     def _whatsapp(self):
         pront = self._montar()
         telefone = _farmacia_amb_limpar_numero(pront.get('telefone'))
         if not telefone:
-            messagebox.showwarning('WhatsApp', 'Informe o telefone/WhatsApp do paciente.', parent=self.win); return
+            messagebox.showwarning('WhatsApp', 'Informe o telefone/WhatsApp do cliente.', parent=self.win); return
         if not telefone.startswith('55') and len(telefone) >= 10:
             telefone = '55' + telefone
-        msg = (f"Olá {pront.get('paciente_nome','')}, segue orientação do atendimento na farmácia:\n\n"
+        msg = (f"Olá {pront.get('paciente_nome','')}, segue orientação do atendimento na loja:\n\n"
                f"Atendimento: {pront.get('tipo_atendimento','')}\n"
                f"Orientações: {pront.get('orientacoes','')}\n"
                f"Retorno/encaminhamento: {pront.get('retorno','') or pront.get('encaminhamento','')}\n\n"
@@ -4295,29 +5562,29 @@ def _farmacia_amb_patch_app():
                     return resultado
                 menubar = self.root.nametowidget(self.root.cget('menu'))
                 amb_menu = tk.Menu(menubar, tearoff=0)
-                amb_menu.add_command(label='🏥 Prontuário Ambulatorial Completo', command=self.open_prontuario_ambulatorio, accelerator='Ctrl+Alt+A')
-                menubar.add_cascade(label='🏥 Ambulatório', menu=amb_menu)
+                amb_menu.add_command(label='📋 Ficha de Atendimento ao Cliente', command=self.open_prontuario_ambulatorio, accelerator='Ctrl+Alt+A')
+                menubar.add_cascade(label='📋 Atendimento', menu=amb_menu)
                 self.root.bind('<Control-Alt-a>', lambda event: self.open_prontuario_ambulatorio())
                 self.root.bind('<Control-Alt-A>', lambda event: self.open_prontuario_ambulatorio())
             except Exception as e:
-                print(f'[PRONTUÁRIO AMBULATÓRIO] Aviso ao adicionar menu: {e}')
+                print(f'[FICHA DE ATENDIMENTO] Aviso ao adicionar menu: {e}')
             return resultado
         PDVSuperApp._create_menu = _patched_create_menu
         PDVSuperApp._farmacia_amb_patch_aplicado = True
-        print('[PRONTUÁRIO AMBULATÓRIO] Patch aplicado com sucesso.')
+        print('[FICHA DE ATENDIMENTO] Patch aplicado com sucesso.')
     except Exception as e:
-        print(f'[PRONTUÁRIO AMBULATÓRIO] Falha ao aplicar patch: {e}')
+        print(f'[FICHA DE ATENDIMENTO] Falha ao aplicar patch: {e}')
 
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🏪 PATCH FARMÁCIA PRO - RECURSOS COMERCIAIS MODERNOS PARA DROGARIAS
+# 🏪 PATCH LOJA PRO - RECURSOS COMERCIAIS MODERNOS PARA LOJAS
 # ═══════════════════════════════════════════════════════════════════════════════
 # Recursos adicionados sem alterar a lógica principal do PDV:
-# - Receituário / controlados / antibióticos / retenção de receita / SNGPC.
-# - PBM, convênios, cartões de desconto e autorizações comerciais.
+# - Encomendas / pedidos / reservas / retenção de pedido / controle interno.
+# - convênios, cartões de desconto e autorizações comerciais.
 # - Campanhas, ofertas, combos, encartes e validade promocional.
-# - Serviços farmacêuticos: vacinação, aplicação, testes rápidos e agenda.
+# - Serviços da loja: vacinação, aplicação, testes rápidos e agenda.
 # - Pós-venda/CRM: retorno ativo, WhatsApp, tele-entrega e fidelização.
 # - Dashboard de alertas: receitas vencendo, campanhas vencendo e serviços do dia.
 # - Armazenamento local robusto em JSON para não quebrar o banco atual.
@@ -4503,7 +5770,7 @@ class FarmaciaProComercialWindow:
         self.vars = {}
         self.trees = {}
         self.win = tk.Toplevel(self.master) if self.master is not None else tk.Tk()
-        self.win.title('🏪 Farmácia Pro - Recursos Comerciais Avançados')
+        self.win.title('🏪 Loja Pro - Recursos Comerciais Avançados')
         try:
             self.win.state('zoomed')
         except Exception:
@@ -4526,8 +5793,8 @@ class FarmaciaProComercialWindow:
         tk.Label(top, text=subtitulo, font=('Segoe UI', 10), fg='#334155', bg='#f8fafc').pack(anchor='w')
 
     def _build(self):
-        self._title(self.win, '🏪 FARMÁCIA PRO - GESTÃO COMERCIAL AVANÇADA',
-                    'Receituário, controlados, PBM, convênios, campanhas, serviços farmacêuticos, CRM e alertas comerciais.')
+        self._title(self.win, '🏪 LOJA PRO - GESTÃO COMERCIAL AVANÇADA',
+                    'Encomendas, pedidos, convênios, campanhas, serviços, CRM e alertas comerciais.')
         bar = tk.Frame(self.win, bg='#ecfdf5')
         bar.pack(fill='x', padx=12, pady=(0, 8))
         ttk.Button(bar, text='🔔 Dashboard / Alertas', command=self._dashboard).pack(side='left', padx=4, pady=6)
@@ -4596,23 +5863,23 @@ class FarmaciaProComercialWindow:
         return tree
 
     def _tab_receitas(self):
-        tab = tk.Frame(self.nb, bg='#f8fafc'); self.nb.add(tab, text='📋 Receituário / Controlados')
+        tab = tk.Frame(self.nb, bg='#f8fafc'); self.nb.add(tab, text='📋 Encomendas / Pedidos')
         left, right = self._frame_split(tab)
         for c in range(4): left.columnconfigure(c, weight=1)
-        self._entry(left, 'rx_paciente', 'Paciente:', 0, 0)
+        self._entry(left, 'rx_paciente', 'Cliente:', 0, 0)
         self._entry(left, 'rx_doc', 'CPF/Documento:', 0, 1)
         self._entry(left, 'rx_tel', 'WhatsApp:', 1, 0)
-        self._entry(left, 'rx_med', 'Medicamento:', 1, 1)
-        self._entry(left, 'rx_tipo', 'Tipo:', 2, 0, combo=['Comum', 'Antibiótico', 'Controlado', 'Psicotrópico', 'Retinoide', 'Especial'])
+        self._entry(left, 'rx_med', 'Produto:', 1, 1)
+        self._entry(left, 'rx_tipo', 'Tipo:', 2, 0, combo=['Comum', 'Oferta', 'Especial', 'Sazonal', 'Encomenda', 'Reserva'])
         self._entry(left, 'rx_receita', 'Nº Receita:', 2, 1)
-        self._entry(left, 'rx_prescritor', 'Prescritor:', 3, 0)
+        self._entry(left, 'rx_prescritor', 'Responsável:', 3, 0)
         self._entry(left, 'rx_crm', 'CRM/UF:', 3, 1)
         self._entry(left, 'rx_emissao', 'Emissão:', 4, 0)
         self._entry(left, 'rx_validade', 'Validade:', 4, 1)
         self._entry(left, 'rx_lote', 'Lote dispensado:', 5, 0)
         self._entry(left, 'rx_qtd', 'Quantidade:', 5, 1)
         self._entry(left, 'rx_status', 'Status:', 6, 0, combo=['Ativa', 'Dispensada', 'Parcial', 'Finalizada', 'Cancelada'])
-        self._entry(left, 'rx_sngpc', 'Controlar/SNGPC:', 6, 1, check=True)
+        self._entry(left, 'rx_sngpc', 'Controle de estoque:', 6, 1, check=True)
         self._text(left, 'rx_obs', 'Observação/Orientação:', 7, 0, height=5)
         btn = tk.Frame(left, bg='#ffffff'); btn.grid(row=8, column=0, columnspan=4, sticky='ew', padx=6, pady=8)
         ttk.Button(btn, text='Novo', command=lambda: self._clear('receitas')).pack(side='left', padx=3)
@@ -4622,23 +5889,23 @@ class FarmaciaProComercialWindow:
         self._make_tree(right, 'receitas', ['id','paciente','medicamento','tipo','validade_receita','status'], {'id':160,'paciente':180,'medicamento':220})
 
     def _tab_pbm(self):
-        tab = tk.Frame(self.nb, bg='#f8fafc'); self.nb.add(tab, text='💳 PBM / Convênios')
+        tab = tk.Frame(self.nb, bg='#f8fafc'); self.nb.add(tab, text='💳 Convênios / Crediário')
         left, right = self._frame_split(tab)
         for c in range(4): left.columnconfigure(c, weight=1)
         self._entry(left, 'pbm_cliente', 'Cliente:', 0, 0)
         self._entry(left, 'pbm_doc', 'CPF/Documento:', 0, 1)
         self._entry(left, 'pbm_tel', 'WhatsApp:', 1, 0)
-        self._entry(left, 'pbm_programa', 'Programa/Convênio:', 1, 1, combo=['PBM', 'Farmácia Popular', 'Convênio Empresa', 'Cartão Desconto', 'Fidelidade', 'Outro'])
+        self._entry(left, 'pbm_programa', 'Programa/Convênio:', 1, 1, combo=['Convênio', 'Loja Popular', 'Convênio Empresa', 'Cartão Desconto', 'Fidelidade', 'Outro'])
         self._entry(left, 'pbm_operadora', 'Operadora/Empresa:', 2, 0)
         self._entry(left, 'pbm_autorizacao', 'Autorização:', 2, 1)
-        self._entry(left, 'pbm_medicamento', 'Medicamento:', 3, 0)
+        self._entry(left, 'pbm_medicamento', 'Produto:', 3, 0)
         self._entry(left, 'pbm_desconto', 'Desconto %:', 3, 1)
         self._entry(left, 'pbm_validade', 'Validade autorização:', 4, 0)
         self._entry(left, 'pbm_status', 'Status:', 4, 1, combo=['Ativo', 'Usado', 'Expirado', 'Cancelado'])
         self._text(left, 'pbm_obs', 'Regras/observações:', 5, 0, height=6)
         btn = tk.Frame(left, bg='#ffffff'); btn.grid(row=6, column=0, columnspan=4, sticky='ew', padx=6, pady=8)
         ttk.Button(btn, text='Novo', command=lambda: self._clear('pbm')).pack(side='left', padx=3)
-        ttk.Button(btn, text='Salvar PBM/Convênio', command=self._save_pbm).pack(side='left', padx=3)
+        ttk.Button(btn, text='Salvar Convênio', command=self._save_pbm).pack(side='left', padx=3)
         ttk.Button(btn, text='Excluir', command=lambda: self._delete('pbm')).pack(side='left', padx=3)
         ttk.Button(btn, text='WhatsApp benefício', command=self._whatsapp_pbm).pack(side='left', padx=3)
         self._make_tree(right, 'pbm', ['id','cliente','programa','medicamento','desconto','status'], {'id':160,'cliente':190,'medicamento':220})
@@ -4663,11 +5930,11 @@ class FarmaciaProComercialWindow:
         self._make_tree(right, 'campanhas', ['id','titulo','tipo','produto','data_fim','status'], {'id':160,'titulo':220,'produto':220})
 
     def _tab_servicos(self):
-        tab = tk.Frame(self.nb, bg='#f8fafc'); self.nb.add(tab, text='🧪 Serviços Farmacêuticos')
+        tab = tk.Frame(self.nb, bg='#f8fafc'); self.nb.add(tab, text='🧪 Serviços da Loja')
         left, right = self._frame_split(tab)
-        self._entry(left, 'srv_paciente', 'Paciente:', 0, 0)
+        self._entry(left, 'srv_paciente', 'Cliente:', 0, 0)
         self._entry(left, 'srv_tel', 'WhatsApp:', 0, 1)
-        self._entry(left, 'srv_tipo', 'Serviço:', 1, 0, combo=['Vacinação', 'Aplicação de injetável', 'Teste rápido', 'Aferição de pressão', 'Glicemia', 'Consulta farmacêutica', 'Perfuração lóbulo', 'Outro'])
+        self._entry(left, 'srv_tipo', 'Serviço:', 1, 0, combo=['Vacinação', 'Aplicação de injetável', 'Teste rápido', 'Aferição de pressão', 'Glicemia', 'Atendimento ao cliente', 'Perfuração lóbulo', 'Outro'])
         self._entry(left, 'srv_prof', 'Profissional/CRF:', 1, 1)
         self._entry(left, 'srv_data', 'Data:', 2, 0)
         self._entry(left, 'srv_hora', 'Hora:', 2, 1)
@@ -4832,11 +6099,11 @@ class FarmaciaProComercialWindow:
         self.dados = _farma_pro_load()
         alertas = _farma_pro_alertas(self.dados)
         resumo = [
-            'DASHBOARD FARMÁCIA PRO', '='*60,
-            f"Receituários/controlados: {len(self.dados.get('receitas',{}))}",
-            f"PBM/convênios: {len(self.dados.get('pbm',{}))}",
+            'DASHBOARD LOJA PRO', '='*60,
+            f"Encomendas/pedidos: {len(self.dados.get('receitas',{}))}",
+            f"convênios: {len(self.dados.get('pbm',{}))}",
             f"Campanhas comerciais: {len(self.dados.get('campanhas',{}))}",
-            f"Serviços farmacêuticos: {len(self.dados.get('servicos',{}))}",
+            f"Serviços da loja: {len(self.dados.get('servicos',{}))}",
             f"Ações de pós-venda/CRM: {len(self.dados.get('posvenda',{}))}",
             '', 'ALERTAS:', '-'*60
         ]
@@ -4844,7 +6111,7 @@ class FarmaciaProComercialWindow:
             resumo += [f"[{nivel}] {msg}" for nivel, msg in alertas[:40]]
         else:
             resumo.append('Nenhum alerta pendente no momento.')
-        messagebox.showinfo('Dashboard / Alertas Farmácia Pro', '\n'.join(resumo), parent=self.win)
+        messagebox.showinfo('Dashboard / Alertas Loja Pro', '\n'.join(resumo), parent=self.win)
 
     def _exportar_relatorio(self):
         try:
@@ -4852,8 +6119,8 @@ class FarmaciaProComercialWindow:
             pasta = os.path.dirname(FARMACIA_PRO_FILE) or os.getcwd()
             nome = 'relatorio_farmacia_pro_' + datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + '.txt'
             caminho = os.path.join(pasta, nome)
-            linhas = ['RELATÓRIO FARMÁCIA PRO', 'Gerado em: ' + _farma_pro_now(), '='*90, '']
-            for key, titulo in [('receitas','RECEITUÁRIO/CONTROLADOS'),('pbm','PBM/CONVÊNIOS'),('campanhas','CAMPANHAS'),('servicos','SERVIÇOS FARMACÊUTICOS'),('posvenda','PÓS-VENDA/CRM')]:
+            linhas = ['RELATÓRIO LOJA PRO', 'Gerado em: ' + _farma_pro_now(), '='*90, '']
+            for key, titulo in [('receitas','ENCOMENDAS/PEDIDOS'),('pbm','CONVÊNIOS'),('campanhas','CAMPANHAS'),('servicos','SERVIÇOS DA LOJA'),('posvenda','PÓS-VENDA/CRM')]:
                 linhas += [titulo, '-'*90]
                 for rid, item in (self.dados.get(key) or {}).items():
                     linhas.append(rid + ' | ' + ' | '.join(f'{k}: {v}' for k,v in item.items() if k != 'id'))
@@ -4864,7 +6131,7 @@ class FarmaciaProComercialWindow:
             messagebox.showerror('Relatório', f'Erro ao exportar:\n{e}', parent=self.win)
 
     def _whatsapp_receita(self):
-        msg = f"Olá {self._getv('rx_paciente')}, sua orientação sobre {self._getv('rx_med')} foi registrada. Validade da receita: {self._getv('rx_validade')}. Em caso de dúvidas, fale com nossa farmácia."
+        msg = f"Olá {self._getv('rx_paciente')}, sua orientação sobre {self._getv('rx_med')} foi registrada. Validade da receita: {self._getv('rx_validade')}. Em caso de dúvidas, fale com nossa loja."
         _farma_pro_whatsapp(self._getv('rx_tel'), msg)
 
     def _whatsapp_pbm(self):
@@ -4872,7 +6139,7 @@ class FarmaciaProComercialWindow:
         _farma_pro_whatsapp(self._getv('pbm_tel'), msg)
 
     def _whatsapp_servico(self):
-        msg = f"Olá {self._getv('srv_paciente')}, confirmamos seu serviço farmacêutico: {self._getv('srv_tipo')} em {self._getv('srv_data')} às {self._getv('srv_hora')}."
+        msg = f"Olá {self._getv('srv_paciente')}, confirmamos seu serviço da loja: {self._getv('srv_tipo')} em {self._getv('srv_data')} às {self._getv('srv_hora')}."
         _farma_pro_whatsapp(self._getv('srv_tel'), msg)
 
     def _whatsapp_crm(self):
@@ -4901,13 +6168,13 @@ def _farma_pro_mostrar_alertas_inicio(app, forcar=False):
         alertas = _farma_pro_alertas()
         if not alertas:
             if forcar:
-                messagebox.showinfo('Farmácia Pro', 'Nenhum alerta comercial pendente no momento.', parent=getattr(app, 'root', None))
+                messagebox.showinfo('Loja Pro', 'Nenhum alerta comercial pendente no momento.', parent=getattr(app, 'root', None))
             return
         setattr(app, chave, hoje)
         texto = '\n'.join(f"• [{nivel}] {msg}" for nivel, msg in alertas[:25])
-        messagebox.showwarning('🔔 Alertas Farmácia Pro', texto, parent=getattr(app, 'root', None))
+        messagebox.showwarning('🔔 Alertas Loja Pro', texto, parent=getattr(app, 'root', None))
     except Exception as e:
-        print(f'[FARMÁCIA PRO] Erro ao mostrar alertas: {e}')
+        print(f'[LOJA PRO] Erro ao mostrar alertas: {e}')
 
 
 def _farma_pro_patch_app():
@@ -4925,13 +6192,13 @@ def _farma_pro_patch_app():
                     return resultado
                 menubar = self.root.nametowidget(self.root.cget('menu'))
                 pro_menu = tk.Menu(menubar, tearoff=0)
-                pro_menu.add_command(label='🏪 Painel Farmácia Pro', command=self.open_farmacia_pro, accelerator='Ctrl+Alt+F')
+                pro_menu.add_command(label='🏪 Painel Loja Pro', command=self.open_farmacia_pro, accelerator='Ctrl+Alt+F')
                 pro_menu.add_command(label='🔔 Ver alertas comerciais agora', command=lambda: _farma_pro_mostrar_alertas_inicio(self, forcar=True))
-                menubar.add_cascade(label='🏪 Farmácia Pro', menu=pro_menu)
+                menubar.add_cascade(label='🏪 Loja Pro', menu=pro_menu)
                 self.root.bind('<Control-Alt-f>', lambda event: self.open_farmacia_pro())
                 self.root.bind('<Control-Alt-F>', lambda event: self.open_farmacia_pro())
             except Exception as e:
-                print(f'[FARMÁCIA PRO] Aviso ao adicionar menu: {e}')
+                print(f'[LOJA PRO] Aviso ao adicionar menu: {e}')
             return resultado
         PDVSuperApp._create_menu = _patched_create_menu
         _orig_init = PDVSuperApp.__init__
@@ -4943,16 +6210,16 @@ def _farma_pro_patch_app():
                 pass
         PDVSuperApp.__init__ = _patched_init
         PDVSuperApp._farma_pro_patch_aplicado = True
-        print('[FARMÁCIA PRO] Patch aplicado com sucesso.')
+        print('[LOJA PRO] Patch aplicado com sucesso.')
     except Exception as e:
-        print(f'[FARMÁCIA PRO] Falha ao aplicar patch: {e}')
+        print(f'[LOJA PRO] Falha ao aplicar patch: {e}')
 
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 📊 PATCH FARMÁCIA - RELATÓRIOS E IMPRESSÕES A4 / BOBINA 80MM / 58MM
+# 📊 PATCH LOJA - RELATÓRIOS E IMPRESSÕES A4 / BOBINA 80MM / 58MM
 # ═══════════════════════════════════════════════════════════════════════════════
-# Módulo comercial de relatórios para farmácia/drogaria. Trabalha com os JSONs
+# Módulo comercial de relatórios para loja/varejo. Trabalha com os JSONs
 # existentes do sistema e também funciona mesmo quando alguns módulos ainda não
 # possuem dados cadastrados. Gera arquivos HTML A4 e TXT térmico para bobinas.
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -5094,10 +6361,10 @@ def _rf_empresa_nome(dados=None):
     try:
         emp = (dados or _rf_load_all()).get('empresa') or {}
         if isinstance(emp, dict):
-            return emp.get('nome_fantasia') or emp.get('razao_social') or emp.get('nome') or 'FARMA QUANTUM'
+            return emp.get('nome_fantasia') or emp.get('razao_social') or emp.get('nome') or 'LOJA QUANTUM'
     except Exception:
         pass
-    return 'FARMA QUANTUM'
+    return 'LOJA QUANTUM'
 
 
 def _rf_alertas_vencimentos_produtos(dados=None, dias=30):
@@ -5166,7 +6433,7 @@ def _rf_tratamentos_alerta(dados=None):
         linhas.append({
             'Cliente': _rf_get(t, 'cliente', 'paciente', 'nome_cliente'),
             'Telefone': _rf_get(t, 'telefone', 'whatsapp'),
-            'Medicamento': _rf_get(t, 'medicamento', 'produto'),
+            'Produto': _rf_get(t, 'medicamento', 'produto'),
             'Acaba em': _rf_fmt_date(acabar),
             'Aviso': _rf_fmt_date(aviso),
             'Status': status,
@@ -5187,7 +6454,7 @@ def _rf_farmacia_pro_relatorio(tipo, dados=None):
                 status = 'VENCIDA'
             elif val and (val - hoje).days <= 7:
                 status = 'VENCENDO'
-            linhas.append({'Paciente':_rf_get(r,'paciente'), 'Medicamento':_rf_get(r,'medicamento'), 'Tipo':_rf_get(r,'tipo'), 'Receita':_rf_get(r,'numero_receita'), 'Prescritor':_rf_get(r,'prescritor'), 'CRM':_rf_get(r,'crm'), 'Validade':_rf_fmt_date(val), 'Status':status})
+            linhas.append({'Cliente':_rf_get(r,'paciente'), 'Medicamento':_rf_get(r,'medicamento'), 'Tipo':_rf_get(r,'tipo'), 'Receita':_rf_get(r,'numero_receita'), 'Responsável':_rf_get(r,'prescritor'), 'CRM':_rf_get(r,'crm'), 'Validade':_rf_fmt_date(val), 'Status':status})
     elif tipo == 'pbm':
         for p in _rf_iter_values(fp.get('pbm')):
             linhas.append({'Cliente':_rf_get(p,'cliente'), 'Programa':_rf_get(p,'programa'), 'Operadora':_rf_get(p,'operadora'), 'Medicamento':_rf_get(p,'medicamento'), 'Autorização':_rf_get(p,'autorizacao'), 'Desconto':_rf_get(p,'desconto'), 'Validade':_rf_fmt_date(_rf_get(p,'validade')), 'Status':_rf_get(p,'status')})
@@ -5196,7 +6463,7 @@ def _rf_farmacia_pro_relatorio(tipo, dados=None):
             linhas.append({'Campanha':_rf_get(c,'titulo'), 'Tipo':_rf_get(c,'tipo'), 'Produto':_rf_get(c,'produto'), 'Condição':_rf_get(c,'preco'), 'Início':_rf_fmt_date(_rf_get(c,'data_inicio')), 'Fim':_rf_fmt_date(_rf_get(c,'data_fim')), 'Canal':_rf_get(c,'canal'), 'Status':_rf_get(c,'status')})
     elif tipo == 'servicos':
         for s in _rf_iter_values(fp.get('servicos')):
-            linhas.append({'Paciente':_rf_get(s,'paciente'), 'Telefone':_rf_get(s,'telefone'), 'Serviço':_rf_get(s,'tipo_servico'), 'Profissional':_rf_get(s,'profissional'), 'Data':_rf_fmt_date(_rf_get(s,'data_servico')), 'Hora':_rf_get(s,'hora'), 'Valor':_rf_money(_rf_get(s,'valor')), 'Status':_rf_get(s,'status')})
+            linhas.append({'Cliente':_rf_get(s,'paciente'), 'Telefone':_rf_get(s,'telefone'), 'Serviço':_rf_get(s,'tipo_servico'), 'Profissional':_rf_get(s,'profissional'), 'Data':_rf_fmt_date(_rf_get(s,'data_servico')), 'Hora':_rf_get(s,'hora'), 'Valor':_rf_money(_rf_get(s,'valor')), 'Status':_rf_get(s,'status')})
     elif tipo == 'crm':
         for c in _rf_iter_values(fp.get('posvenda')):
             linhas.append({'Cliente':_rf_get(c,'cliente'), 'Telefone':_rf_get(c,'telefone'), 'Motivo':_rf_get(c,'motivo'), 'Produto':_rf_get(c,'produto'), 'Retorno':_rf_fmt_date(_rf_get(c,'data_retorno')), 'Status':_rf_get(c,'status')})
@@ -5207,7 +6474,7 @@ def _rf_prontuarios_resumo(dados=None):
     dados = dados or _rf_load_all()
     linhas = []
     for p in _rf_iter_values(dados.get('prontuarios')):
-        linhas.append({'ID':_rf_get(p,'id'), 'Data':_rf_get(p,'data_hora','data'), 'Paciente':_rf_get(p,'paciente','cliente'), 'Tipo':_rf_get(p,'tipo_atendimento'), 'Risco':_rf_get(p,'risco','classificacao_risco'), 'PA':_rf_get(p,'pa'), 'Glicemia':_rf_get(p,'glicemia'), 'Conduta':_rf_get(p,'conduta')})
+        linhas.append({'ID':_rf_get(p,'id'), 'Data':_rf_get(p,'data_hora','data'), 'Cliente':_rf_get(p,'paciente','cliente'), 'Tipo':_rf_get(p,'tipo_atendimento'), 'Risco':_rf_get(p,'risco','classificacao_risco'), 'PA':_rf_get(p,'pa'), 'Glicemia':_rf_get(p,'glicemia'), 'Conduta':_rf_get(p,'conduta')})
     return linhas
 
 
@@ -5418,7 +6685,7 @@ tr:nth-child(even) {{ background:#f8fafc; }}
 <div class="sub">{_rf_html_escape(_rf_empresa_nome())} • Gerado em {_rf_now()}</div>
 <div class="resumo">{_rf_html_escape(resumo or ('Total de registros: %s' % len(linhas)))}</div>
 <table><thead><tr>{''.join('<th>%s</th>' % _rf_html_escape(c) for c in cols)}</tr></thead><tbody>{''.join(rows)}</tbody></table>
-<div class="footer">Relatório gerado pelo Farma Quantum • Formato A4</div>
+<div class="footer">Relatório gerado pelo Loja Quantum • Formato A4</div>
 <script>setTimeout(function(){{}}, 300);</script>
 </body></html>'''
     with open(caminho, 'w', encoding='utf-8') as f:
@@ -5468,7 +6735,7 @@ def _rf_make_bobina_txt(titulo, linhas, largura=48, resumo=''):
         else:
             for l in _rf_wrap(str(row), largura): out.append(l)
     out.append(sep)
-    out.append(_rf_center('FARMA QUANTUM', largura))
+    out.append(_rf_center('LOJA QUANTUM', largura))
     out.append('\n\n')
     with open(caminho, 'w', encoding='utf-8') as f:
         f.write('\n'.join(out))
@@ -5500,7 +6767,7 @@ class FarmaciaRelatoriosImpressoesWindow:
         self.parent = parent or getattr(app, 'root', None)
         self.dados = _rf_load_all()
         self.win = tk.Toplevel(self.parent) if self.parent else tk.Toplevel()
-        self.win.title('📊 Relatórios e Impressões da Farmácia')
+        self.win.title('📊 Relatórios e Impressões da Loja')
         try:
             self.win.state('zoomed')
         except Exception:
@@ -5524,7 +6791,7 @@ class FarmaciaRelatoriosImpressoesWindow:
     def _build(self):
         main = ttk.Frame(self.win)
         main.pack(fill='both', expand=True, padx=12, pady=10)
-        ttk.Label(main, text='📊 RELATÓRIOS E IMPRESSÕES PROFISSIONAIS DA FARMÁCIA', font=('Segoe UI', 16, 'bold')).pack(anchor='w')
+        ttk.Label(main, text='📊 RELATÓRIOS E IMPRESSÕES PROFISSIONAIS DA LOJA', font=('Segoe UI', 16, 'bold')).pack(anchor='w')
         ttk.Label(main, text='Gere relatórios comerciais, clínicos, fiscais, operacionais e imprima em A4, bobina 80mm ou 58mm.', font=('Segoe UI', 9)).pack(anchor='w', pady=(2,8))
         top = ttk.Frame(main); top.pack(fill='x', pady=(0,8))
         left = ttk.Frame(top); left.pack(side='left', fill='x', expand=True)
@@ -5534,15 +6801,15 @@ class FarmaciaRelatoriosImpressoesWindow:
             ('Produtos vencidos/vencendo por lote', 'vencimentos'),
             ('Estoque baixo / reposição', 'estoque_baixo'),
             ('Tratamentos contínuos - lembretes de compra', 'tratamentos'),
-            ('Prontuário ambulatorial - atendimentos', 'prontuarios'),
-            ('Receituário / controlados / SNGPC', 'receitas'),
-            ('PBM / convênios / Farmácia Popular', 'pbm'),
+            ('Ficha de atendimento - atendimentos', 'prontuarios'),
+            ('Encomendas / pedidos / reservas', 'receitas'),
+            ('Convênios / Crediário / Loja Popular', 'pbm'),
             ('Campanhas / ofertas / encartes', 'campanhas'),
-            ('Serviços farmacêuticos agendados', 'servicos'),
+            ('Serviços da loja agendados', 'servicos'),
             ('Pós-venda / CRM / WhatsApp', 'crm'),
             ('Vendas recentes / fechamento comercial', 'vendas'),
             ('Produtos vendidos (com filtros)', 'produtos_vendidos'),
-            ('Dashboard executivo da farmácia', 'dashboard'),
+            ('Dashboard executivo da loja', 'dashboard'),
         ]
         combo = ttk.Combobox(left, textvariable=self.report_var, values=[v for t,v in opts], state='readonly', width=34)
         combo.grid(row=1, column=0, sticky='we', padx=(0,8))
@@ -5599,7 +6866,7 @@ class FarmaciaRelatoriosImpressoesWindow:
         ttk.Label(frame_help, text='Modelos disponíveis', font=('Segoe UI', 10, 'bold')).pack(anchor='w')
         help_txt = tk.Text(frame_help, height=12, wrap='word')
         help_txt.pack(fill='both', expand=True)
-        help_txt.insert('1.0', 'A4: gera HTML em página A4 com botão de impressão.\n\nBobina 80mm: texto térmico com largura aproximada de 48 colunas.\n\nBobina 58mm: texto térmico com largura aproximada de 32 colunas.\n\nOs arquivos são salvos na pasta relatorios_farmacia dentro da pasta de dados do sistema.\n\nRelatórios incluídos: validade/lote, estoque baixo, tratamentos contínuos, prontuário, controlados/SNGPC, PBM/convênios, campanhas, serviços, CRM, vendas e PRODUTOS VENDIDOS.\n\nPRODUTOS VENDIDOS: lista uma linha por item vendido com produto, quantidade, data, nº da venda, usuário que vendeu, status, categoria, preço unitário, subtotal, cliente e forma de pagamento. Use os campos de Filtros para restringir por período (data inicial/final), nome do produto, categoria e número da venda. Deixe os filtros em branco para trazer tudo.')
+        help_txt.insert('1.0', 'A4: gera HTML em página A4 com botão de impressão.\n\nBobina 80mm: texto térmico com largura aproximada de 48 colunas.\n\nBobina 58mm: texto térmico com largura aproximada de 32 colunas.\n\nOs arquivos são salvos na pasta relatorios_farmacia dentro da pasta de dados do sistema.\n\nRelatórios incluídos: validade/lote, estoque baixo, tratamentos contínuos, ficha, com controle interno, convênios, campanhas, serviços, CRM, vendas e PRODUTOS VENDIDOS.\n\nPRODUTOS VENDIDOS: lista uma linha por item vendido com produto, quantidade, data, nº da venda, usuário que vendeu, status, categoria, preço unitário, subtotal, cliente e forma de pagamento. Use os campos de Filtros para restringir por período (data inicial/final), nome do produto, categoria e número da venda. Deixe os filtros em branco para trazer tudo.')
         help_txt.config(state='disabled')
 
     def _montar(self):
@@ -5622,10 +6889,10 @@ class FarmaciaRelatoriosImpressoesWindow:
             resumo = f'Lembretes de recompra e tratamentos contínuos pendentes. Total: {len(linhas)}.'
         elif tipo == 'prontuarios':
             linhas = _rf_prontuarios_resumo(self.dados)
-            resumo = f'Atendimentos ambulatoriais cadastrados. Total: {len(linhas)}.'
+            resumo = f'Atendimentos ao cliente cadastrados. Total: {len(linhas)}.'
         elif tipo in ('receitas','pbm','campanhas','servicos','crm'):
             linhas = _rf_farmacia_pro_relatorio(tipo, self.dados)
-            resumo = f'Relatório Farmácia Pro: {titulo}. Total: {len(linhas)}.'
+            resumo = f'Relatório Loja Pro: {titulo}. Total: {len(linhas)}.'
         elif tipo == 'vendas':
             linhas, total = _rf_vendas_resumo(self.dados)
             resumo = f'Vendas recentes listadas: {len(linhas)}. Total aproximado: {_rf_money(total)}.'
@@ -5669,14 +6936,14 @@ class FarmaciaRelatoriosImpressoesWindow:
                 {'Indicador':'Produtos vencidos/vencendo', 'Quantidade':venc, 'Observação':f'Janela de {dias} dias'},
                 {'Indicador':'Estoque baixo', 'Quantidade':est, 'Observação':'Reposição sugerida'},
                 {'Indicador':'Tratamentos com recompra pendente', 'Quantidade':trat, 'Observação':'Contato ativo'},
-                {'Indicador':'Prontuários ambulatoriais', 'Quantidade':pront, 'Observação':'Histórico clínico'},
-                {'Indicador':'Receitas/controlados cadastrados', 'Quantidade':rec, 'Observação':'Controle/SNGPC'},
-                {'Indicador':'PBM/convênios cadastrados', 'Quantidade':pbm, 'Observação':'Benefícios comerciais'},
-                {'Indicador':'Serviços farmacêuticos', 'Quantidade':serv, 'Observação':'Agenda e execução'},
+                {'Indicador':'Fichas de atendimento', 'Quantidade':pront, 'Observação':'Histórico clínico'},
+                {'Indicador':'Pedidos/encomendas cadastrados', 'Quantidade':rec, 'Observação':'Controle interno'},
+                {'Indicador':'convênios cadastrados', 'Quantidade':pbm, 'Observação':'Benefícios comerciais'},
+                {'Indicador':'Serviços da loja', 'Quantidade':serv, 'Observação':'Agenda e execução'},
                 {'Indicador':'CRM/pós-venda', 'Quantidade':crm, 'Observação':'Retorno ao cliente'},
                 {'Indicador':'Vendas recentes', 'Quantidade':len(vendas), 'Observação':'Total: ' + _rf_money(total)},
             ]
-            resumo = 'Dashboard executivo para gestão diária da farmácia/drogaria.'
+            resumo = 'Dashboard executivo para gestão diária da loja/varejo.'
         else:
             linhas = []
         return titulo, linhas, resumo
@@ -5763,11 +7030,11 @@ def _rf_patch_app():
                 menu.add_separator()
                 menu.add_command(label='🧾 Produtos vencidos/vencendo - A4/Bobina', command=self.open_relatorios_farmacia)
                 menu.add_command(label='📦 Estoque baixo / reposição', command=self.open_relatorios_farmacia)
-                menu.add_command(label='💊 Tratamentos contínuos / recompra', command=self.open_relatorios_farmacia)
-                menu.add_command(label='🏥 Prontuários ambulatoriais', command=self.open_relatorios_farmacia)
-                menu.add_command(label='📋 Controlados / PBM / Serviços / CRM', command=self.open_relatorios_farmacia)
+                menu.add_command(label='🏪 Tratamentos contínuos / recompra', command=self.open_relatorios_farmacia)
+                menu.add_command(label='📋 Fichas de atendimento', command=self.open_relatorios_farmacia)
+                menu.add_command(label='📋 Encomendas / Convênios / Serviços / CRM', command=self.open_relatorios_farmacia)
                 menu.add_command(label='🛒 Produtos vendidos (filtros: data, produto, categoria, nº venda)', command=self.open_relatorios_farmacia)
-                menubar.add_cascade(label='📊 Relatórios Farma', menu=menu)
+                menubar.add_cascade(label='📊 Relatórios Loja', menu=menu)
                 self.root.bind('<Control-Alt-r>', lambda event: self.open_relatorios_farmacia())
                 self.root.bind('<Control-Alt-R>', lambda event: self.open_relatorios_farmacia())
             except Exception as e:
@@ -6034,7 +7301,7 @@ except Exception as _e_qpa_um:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PATCH DEFINITIVO - VISIBILIDADE DOS MENUS FARMÁCIA COM PERSISTÊNCIA NO MYSQL
+# PATCH DEFINITIVO - VISIBILIDADE DOS MENUS LOJA COM PERSISTÊNCIA NO MYSQL
 # Regras:
 # - Checkbox desmarcado: menu fica invisível.
 # - Checkbox marcado: menu fica visível.
@@ -6109,9 +7376,9 @@ def _fq_farma_menu_seed_defaults():
     if not db:
         return False
     descricoes = {
-        "menu_relatorios_farma_visivel": "Exibe/oculta o menu Relatórios Farma",
-        "menu_farmacia_pro_visivel": "Exibe/oculta o menu Farmácia Pro",
-        "menu_ambulatorio_visivel": "Exibe/oculta o menu Ambulatório",
+        "menu_relatorios_farma_visivel": "Exibe/oculta o menu Relatórios Loja",
+        "menu_farmacia_pro_visivel": "Exibe/oculta o menu Loja Pro",
+        "menu_ambulatorio_visivel": "Exibe/oculta o menu Atendimento",
         "menu_tratamento_visivel": "Exibe/oculta o menu Tratamentos",
     }
     for chave in _FQ_FARMA_MENU_KEYS:
@@ -6166,7 +7433,7 @@ def _fq_farma_menu_persist_db(cfg):
             else:
                 db.execute(
                     "INSERT INTO configuracoes (chave, valor, categoria, descricao) VALUES (%s, %s, %s, %s)",
-                    (chave, valor, "menus_farmacia", "Configuração de visibilidade dos menus da farmácia")
+                    (chave, valor, "menus_farmacia", "Configuração de visibilidade dos menus da loja")
                 )
         return True
     except Exception as e:
@@ -6289,7 +7556,7 @@ if __name__ == "__main__":
     # Verifica se já existe uma instância rodando
     if is_already_running():
         AUDITORIA.info("Tentativa de abrir segunda instância bloqueada")
-        print("FARMA QUANTUM já está em execução!")
+        print("LOJA QUANTUM já está em execução!")
         sys.exit(0)
     AUDITORIA.processo("Verificação de instância única concluída - Nenhuma outra instância detectada")
 
@@ -6321,7 +7588,7 @@ if __name__ == "__main__":
         except Exception:
             pass
         _EARLY_BOOT_ROOT.withdraw()
-        _EARLY_BOOT_ROOT.title("Farma Quantum - Inicializando")
+        _EARLY_BOOT_ROOT.title("Loja Quantum - Inicializando")
         try:
             _EARLY_BOOT_ROOT.configure(bg="#052e2b")
         except Exception:
@@ -6332,7 +7599,7 @@ if __name__ == "__main__":
             _EARLY_BOOT_SPLASH._skip_auto_statusbar = True
         except Exception:
             pass
-        _EARLY_BOOT_SPLASH.title("Inicializando Farma Quantum")
+        _EARLY_BOOT_SPLASH.title("Inicializando Loja Quantum")
         _EARLY_BOOT_SPLASH.configure(bg="#052e2b")
         _EARLY_BOOT_SPLASH.resizable(False, False)
         try:
@@ -6349,8 +7616,8 @@ if __name__ == "__main__":
         _EARLY_BOOT_SPLASH.geometry(f"{w}x{h}+{x}+{y}")
         frame = _tk_early_boot.Frame(_EARLY_BOOT_SPLASH, bg="#052e2b", padx=18, pady=14)
         frame.pack(fill="both", expand=True)
-        _tk_early_boot.Label(frame, text="💊 FARMA QUANTUM", bg="#052e2b", fg="#5eead4", font=("Segoe UI", 18, "bold")).pack(pady=(4, 4))
-        _tk_early_boot.Label(frame, text="Sistema de Farmácia • Inicialização rápida", bg="#052e2b", fg="#ecfeff", font=("Segoe UI", 10, "bold")).pack(pady=(0, 8))
+        _tk_early_boot.Label(frame, text="🏪 LOJA QUANTUM", bg="#052e2b", fg="#5eead4", font=("Segoe UI", 18, "bold")).pack(pady=(4, 4))
+        _tk_early_boot.Label(frame, text="Sistema de Loja • Inicialização rápida", bg="#052e2b", fg="#ecfeff", font=("Segoe UI", 10, "bold")).pack(pady=(0, 8))
         _EARLY_BOOT_STATUS_VAR = _tk_early_boot.StringVar(value="Preparando abertura da Splash...")
         _tk_early_boot.Label(frame, textvariable=_EARLY_BOOT_STATUS_VAR, bg="#052e2b", fg="#ccfbf1", font=("Segoe UI", 8)).pack(pady=(0, 10))
         canvas = _tk_early_boot.Canvas(frame, width=w-70, height=8, bg="#134e4a", highlightthickness=0)
@@ -6497,7 +7764,7 @@ PERFORMANCE_CONFIG = {
 # ═══════════════════════════════════════════════════════════════════════════════════════
 
 COLOR_PALETTE = {
-    # Tema Farmácia/Drogaria - verde saúde, teal e branco clínico
+    # Tema Loja/Loja - verde saúde, teal e branco clínico
     'primary': '#0f766e',
     'primary_hover': '#0d9488',
     'primary_light': '#14b8a6',
@@ -6535,7 +7802,7 @@ COLOR_PALETTE = {
     'offline': '#ef4444',
     'busy': '#f59e0b',
     'away': '#6b7280',
-    # Extras do layout farmacêutico
+    # Extras do layout da loja
     'pharmacy_bg': '#ecfdf5',
     'pharmacy_panel': '#f8fffd',
     'pharmacy_header': '#d1fae5',
@@ -6549,15 +7816,15 @@ COLOR_PALETTE = {
 # ═══════════════════════════════════════════════════════════════════════════════════════
 
 ICONS = {
-    # Farmácia / Saúde
-    'pharmacy': '💊',
-    'medicine': '💊',
+    # Loja / Saúde
+    'pharmacy': '🏪',
+    'medicine': '🏪',
     'medication': '💉',
     'prescription': '📋',
     'lab': '🧪',
-    'health': '⚕️',
+    'health': '🏪',
     'first_aid': '🩹',
-    'capsule': '💊',
+    'capsule': '🏪',
     # Ações Principais
     'add': '➕',
     'edit': '✏️',
@@ -14726,7 +15993,7 @@ def instalar_dependencias():
     print("")
     print("╔═══════════════════════════════════════════════════════════════════════════╗")
     print("║           [FERRAMENTA] INSTALADOR AUTOMÁTICO DE DEPENDÊNCIAS                        ║")
-    print("║                   FARMA QUANTUM - FARMÁCIA & DROGARIA                       ║")
+    print("║                   LOJA QUANTUM                       ║")
     print("╚═══════════════════════════════════════════════════════════════════════════╝")
     print("")
     print(f"   [ALERTA]  Foram detectadas {len(modulos_faltando)} dependência(s) faltando.")
@@ -17992,7 +19259,7 @@ def print_test_page(printer: ThermalPrinter) -> None:
         printer.double_size(True)
         printer.textln("TESTE DE IMPRESSÃO")
         printer.double_size(False)
-        printer.textln("FARMA QUANTUM")
+        printer.textln("LOJA QUANTUM")
         printer.left()
         
         printer.double_line()
@@ -23355,7 +24622,7 @@ class BalancaIntegracaoPDV:
             if peso is not None:
                 messagebox.showinfo("Peso Lido", 
                                    f"Peso: {peso:,.3f}g\n\n"
-                                   f"Selecione um medicamento/produto para aplicar o peso.")
+                                   f"Selecione um produto para aplicar o peso.")
             return
         
         # Verifica se é produto do tipo peso
@@ -23898,7 +25165,7 @@ MYSQL_CONFIG_FILE = os.path.join(PERSISTENCE_DIR, "config.ini")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PATCH FARMA QUANTUM - CONFIG.INI ROBUSTO / SENHA NÃO VAZIA
+# PATCH LOJA QUANTUM - CONFIG.INI ROBUSTO / SENHA NÃO VAZIA
 # ═══════════════════════════════════════════════════════════════════════════
 # Alguns Windows abrem o .py/.exe em uma pasta diferente da pasta onde o
 # usuário colocou o config.ini. Por isso o sistema agora procura config.ini em
@@ -23979,7 +25246,7 @@ def _fq_get_password_fallback(user='', database=''):
 def carregar_config():
     """Carrega as configurações do arquivo config.ini.
 
-    PATCH Farma Quantum:
+    PATCH Loja Quantum:
     procura o config.ini também na pasta atual e na pasta do executável/script,
     evitando a mensagem falsa de "arquivo não encontrado" quando o usuário já
     criou o config.ini ao lado do sistema.
@@ -23994,7 +25261,7 @@ def carregar_config():
 def salvar_config(host, port, user, password, database):
     """Salva as configurações do MySQL no config.ini.
 
-    PATCH DEFINITIVO FARMA QUANTUM - SENHA NO CONFIG.INI:
+    PATCH DEFINITIVO LOJA QUANTUM - SENHA NO CONFIG.INI:
     - Grava a senha digitada exatamente no campo Senha.
     - Não usa interpolação do ConfigParser para gravar, evitando perda com caracteres especiais.
     - Se o campo vier vazio, preserva a senha já existente no config.ini.
@@ -24121,7 +25388,7 @@ def salvar_config(host, port, user, password, database):
 def testar_conexao_mysql(host, port, user, password, database='', tentar_127=True):
     """Testa a conexão com o servidor MySQL com diagnóstico claro.
 
-    Correção Farma Quantum:
+    Correção Loja Quantum:
     - Usa exatamente a senha digitada na tela.
     - Se host=localhost falhar, tenta 127.0.0.1 para evitar conflito entre
       contas MySQL root@localhost, root@127.0.0.1 e autenticação por socket/plugin.
@@ -24287,7 +25554,7 @@ def gerar_sql_criacao_banco_usuario(host, port, user, password, database):
         database = (database or 'farmacia').strip()
         user = (user or 'usuario').strip()
         password = '' if password is None else str(password)
-        conteudo = f"""-- FARMA QUANTUM - Criar banco e liberar usuário
+        conteudo = f"""-- LOJA QUANTUM - Criar banco e liberar usuário
 -- Execute este script no MySQL Workbench conectado como root/administrador.
 
 CREATE DATABASE IF NOT EXISTS {_q_ident(database)}
@@ -24410,7 +25677,7 @@ def gerar_sql_liberacoes_avancadas(user, password, database):
         user = (user or 'usuario').strip()
         password = '' if password is None else str(password)
         database = (database or 'farmacia').strip()
-        conteudo = f"""-- FARMA QUANTUM - Liberações avançadas do MySQL
+        conteudo = f"""-- LOJA QUANTUM - Liberações avançadas do MySQL
 -- Execute no MySQL Workbench conectado como root/administrador.
 -- ATENÇÃO: estas permissões são amplas. Use somente em rede confiável.
 
@@ -24554,7 +25821,7 @@ def solicitar_configuracao_mysql():
     
     # Cria janela de configuração
     cfg_win = _tk.Tk()
-    cfg_win.title("Configuração Inicial do MySQL - Farma Quantum")
+    cfg_win.title("Configuração Inicial do MySQL - Loja Quantum")
     cfg_win.resizable(True, True)
     
     # Centraliza a janela na tela com tamanho adequado
@@ -24599,7 +25866,7 @@ def solicitar_configuracao_mysql():
     # Título
     titulo = _tk.Label(
         main_frame,
-        text="Configuração do Banco de Dados MySQL - Farmácia",
+        text="Configuração do Banco de Dados MySQL - Loja",
         font=("Segoe UI", 14, "bold"),
         bg='#f0f0f0',
         fg='#1e293b'
@@ -25828,7 +27095,7 @@ MYSQL_CONFIG = {
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# FARMA QUANTUM - FIX DEFINITIVO MYSQL "USING PASSWORD: NO"
+# LOJA QUANTUM - FIX DEFINITIVO MYSQL "USING PASSWORD: NO"
 # Nunca deixa o conector MySQL receber password vazio por acidente.
 # Se config.ini estiver sem senha, abre tela/aviso de configuração e usa fallback local.
 # ═══════════════════════════════════════════════════════════════════════
@@ -25933,19 +27200,19 @@ def fq_mysql_password_missing_exception():
 def get_mysql_config():
     """Retorna a configuração de conexão MySQL.
 
-    CORREÇÃO FARMÁCIA:
+    CORREÇÃO LOJA:
     A prioridade real agora é:
     1. config.ini salvo pela tela inicial
     2. variáveis de ambiente MYSQL_* apenas se config.ini não tiver o campo
     3. network_settings.json apenas se config.ini/ambiente não tiver o campo
-    4. padrões seguros para a farmácia
+    4. padrões seguros para a loja
 
     Isso corrige o erro em que a tela mostrava usuário digitado, mas a conexão
     tentava usar root sem senha por causa de variável/arquivo antigo.
     """
     import json
 
-    # Padrão do sistema de farmácia
+    # Padrão do sistema de loja
     config = {
         'host': '127.0.0.1',
         'port': 3306,
@@ -26026,11 +27293,11 @@ MYSQL_DB_NAME = get_mysql_config().get('database', 'pdv_quantum')
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# FARMÁCIA - PRÉ-INICIALIZAÇÃO PROFISSIONAL DA ESTRUTURA MYSQL
+# LOJA - PRÉ-INICIALIZAÇÃO PROFISSIONAL DA ESTRUTURA MYSQL
 # ═══════════════════════════════════════════════════════════════════════════
 # Executa ANTES da abertura do sistema principal, logo após a escolha/leitura
 # do banco em config.ini. Garante banco, tabelas, colunas, índices, charset,
-# registros mínimos e tabelas extras da farmácia. Se algo estiver faltando, é
+# registros mínimos e tabelas extras da loja. Se algo estiver faltando, é
 # criado automaticamente sem apagar dados existentes.
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -26102,7 +27369,7 @@ def preinicializar_estrutura_mysql_farmacia(forcar=False):
     """Garante toda a estrutura mínima/profissional do banco antes do sistema iniciar.
 
     Cria o banco escolhido no config.ini, tabelas faltantes, colunas faltantes,
-    índices de performance, tabelas específicas de farmácia e registros padrão.
+    índices de performance, tabelas específicas de loja e registros padrão.
     Não remove nem apaga dados existentes.
     """
     global _FARMA_SCHEMA_PREINIT_EXECUTADO
@@ -26160,7 +27427,7 @@ def preinicializar_estrutura_mysql_farmacia(forcar=False):
         except Exception:
             pass
 
-        # Tabelas base do PDV/Farmácia. São propositalmente completas e tolerantes.
+        # Tabelas base do PDV/Loja. São propositalmente completas e tolerantes.
         create_tables = [
             """CREATE TABLE IF NOT EXISTS categorias (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -26572,9 +27839,9 @@ def preinicializar_estrutura_mysql_farmacia(forcar=False):
                 _farma_preinit_index(cur, table, idx, cols_sql)
 
         # Registros padrão comerciais, sem duplicar.
-        _farma_preinit_seed(cur, 'categorias', 'nome', 'Medicamentos', {'nome': 'Medicamentos', 'descricao': 'Medicamentos em geral', 'ativo': 1})
+        _farma_preinit_seed(cur, 'categorias', 'nome', 'Produtos Gerais', {'nome': 'Produtos Gerais', 'descricao': 'Produtos em geral', 'ativo': 1})
         _farma_preinit_seed(cur, 'categorias', 'nome', 'Perfumaria', {'nome': 'Perfumaria', 'descricao': 'Perfumaria, higiene e beleza', 'ativo': 1})
-        _farma_preinit_seed(cur, 'categorias', 'nome', 'Controlados', {'nome': 'Controlados', 'descricao': 'Medicamentos controlados/receituário', 'ativo': 1})
+        _farma_preinit_seed(cur, 'categorias', 'nome', 'Controle Especial', {'nome': 'Controle Especial', 'descricao': 'Produtos com controle especial', 'ativo': 1})
         _farma_preinit_seed(cur, 'clientes', 'nome', 'Consumidor Final', {'nome': 'Consumidor Final', 'telefone': '', 'ativo': 1})
         _farma_preinit_seed(cur, 'configuracoes', 'chave', 'farmacia_alerta_validade_dias', {'chave': 'farmacia_alerta_validade_dias', 'valor': '15', 'categoria': 'farmacia', 'descricao': 'Dias antes para alertar lote/validade'})
         _farma_preinit_seed(cur, 'configuracoes', 'chave', 'farmacia_preinit_schema_version', {'chave': 'farmacia_preinit_schema_version', 'valor': '2026.06.05.1', 'categoria': 'sistema', 'descricao': 'Versão da pré-inicialização estrutural'})
@@ -26593,7 +27860,7 @@ def preinicializar_estrutura_mysql_farmacia(forcar=False):
 
 
 try:
-    _early_boot_update('Pré-inicializando estrutura do banco da farmácia...')
+    _early_boot_update('Pré-inicializando estrutura do banco da loja...')
 except Exception:
     pass
 try:
@@ -26866,17 +28133,39 @@ class MySQLDB:
     _pool = None
     _pool_lock = threading.Lock()
     _config_hash = None
-    
+    _cfg_cache = None          # (mtime, cfg_file, config) - cache por mtime do config.ini
+    _db_ensured = False        # CREATE DATABASE conferido apenas uma vez por processo
+
+    @classmethod
+    def _cfg(cls):
+        """get_mysql_config() com cache por mtime do config.ini: evita ler e
+        parsear o arquivo em TODA query. Retorna sempre uma cópia segura."""
+        try:
+            _cf = globals().get('MYSQL_CONFIG_FILE')
+            _mt = os.path.getmtime(_cf) if (_cf and os.path.exists(_cf)) else 0
+            _c = cls._cfg_cache
+            if _c is not None and _c[0] == _mt and _c[1] == _cf:
+                return dict(_c[2])
+            _novo = get_mysql_config()
+            cls._cfg_cache = (_mt, _cf, dict(_novo))
+            return dict(_novo)
+        except Exception:
+            return get_mysql_config()
+
     @classmethod
     def _get_config_hash(cls):
         """Retorna um hash da configuração atual para detectar mudanças."""
-        config = get_mysql_config()
+        config = cls._cfg()
         return f"{config['host']}:{config['port']}:{config['user']}:{config['database']}"
     
     @classmethod
     def _ensure_database_exists(cls):
-        """Garante que o banco de dados MySQL exista, criando-o se necessário."""
-        config = get_mysql_config()
+        """Garante que o banco de dados MySQL exista, criando-o se necessário.
+        OTIMIZAÇÃO: executa apenas uma vez por processo (evita CREATE DATABASE a
+        cada reconexão)."""
+        if getattr(cls, '_db_ensured', False):
+            return
+        config = cls._cfg()
         try:
             conn = mysql.connector.connect(
                 host=config['host'],
@@ -26890,13 +28179,37 @@ class MySQLDB:
             cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{config['database']}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
             cursor.close()
             conn.close()
+            cls._db_ensured = True
         except Exception as e:
             print(f"[MySQL] Aviso ao verificar/criar banco de dados: {e}")
     
     @classmethod
     def get_connection(cls):
         """Obtém uma conexão MySQL thread-safe."""
-        config = get_mysql_config()
+        current_hash = cls._get_config_hash()
+
+        # OTIMIZAÇÃO (fast-path): conexão viva e recente desta thread retorna na
+        # hora, SEM reler config nem fazer 'ping' (ida/volta à rede) a cada query.
+        # A validação por ping ocorre no máximo a cada 30s; conexões caídas são
+        # recuperadas pelo retry automático de execute/fetchone/fetchall.
+        if (getattr(cls._local, 'connection', None) is not None and
+                getattr(cls._local, 'config_hash', None) == current_hash):
+            _agora = time.time()
+            if (_agora - getattr(cls._local, '_last_check', 0.0)) < 30.0:
+                return cls._local.connection
+            try:
+                cls._local.connection.ping(reconnect=True, attempts=1, delay=0)
+                cls._local._last_check = _agora
+                return cls._local.connection
+            except Exception:
+                try:
+                    cls._local.connection.close()
+                except Exception:
+                    pass
+                cls._local.connection = None
+
+        # Caminho lento (primeira conexão/reconexão): valida config e senha.
+        config = cls._cfg()
         config = fq_mysql_password_no_guard(config, contexto='get_connection')
         if config.get('_mysql_password_missing'):
             try:
@@ -26904,24 +28217,7 @@ class MySQLDB:
             except Exception:
                 pass
             raise fq_mysql_password_missing_exception()  # somente em execução/conexão MySQL, nunca na compilação
-        current_hash = cls._get_config_hash()
-        
-        # Verifica se já existe uma conexão válida para esta thread
-        if (hasattr(cls._local, 'connection') and 
-            cls._local.connection is not None and
-            hasattr(cls._local, 'config_hash') and
-            cls._local.config_hash == current_hash):
-            try:
-                cls._local.connection.ping(reconnect=True, attempts=1, delay=0)
-                return cls._local.connection
-            except Exception:
-                # Conexão perdida, será recriada abaixo
-                try:
-                    cls._local.connection.close()
-                except Exception:
-                    pass
-                cls._local.connection = None
-        
+
         # Fecha conexão antiga se existir
         if hasattr(cls._local, 'connection') and cls._local.connection is not None:
             try:
@@ -26947,6 +28243,7 @@ class MySQLDB:
                 use_pure=True
             )
             cls._local.config_hash = current_hash
+            cls._local._last_check = time.time()
             
             # Configurações de sessão MySQL equivalentes aos PRAGMAs do SQLite
             cursor = cls._local.connection.cursor()
@@ -29016,7 +30313,7 @@ def init_database():
     except Exception:
         pass  # Coluna já existe
 
-    # ========== MIGRAÇÃO FARMÁCIA: controle opcional de lote e validade ==========
+    # ========== MIGRAÇÃO LOJA: controle opcional de lote e validade ==========
     # Quando marcado na entrada de notas, estes campos permitem alertas de vencimento.
     for _col_name, _col_sql in [
         ("controlar_lote_validade", "INTEGER DEFAULT 0"),
@@ -31805,7 +33102,7 @@ def _mysql_save_users(data):
 
 # Versão e Informações
 APP_VERSION = "8.0.0"
-APP_NAME = "Farma Quantum Farmácia & Drogaria"
+APP_NAME = "Loja Quantum Comércio & Varejo"
 
 # Interface
 UI_MIN_WIDTH = 1024
@@ -34567,7 +35864,7 @@ def print_labels_using_configured_printer(pdf_info, product_data=None, quantity=
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# FIX FARMA QUANTUM - SCHEMA USUARIOS PASSWORD_HASH
+# FIX LOJA QUANTUM - SCHEMA USUARIOS PASSWORD_HASH
 # Corrige erro MySQL:
 # 1054 (42S22): Unknown column 'password_hash' in 'field list'
 # ═══════════════════════════════════════════════════════════════════════
@@ -34648,7 +35945,7 @@ def fq_fix_schema_usuarios_password_hash():
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# FARMA QUANTUM - PRÉ-BOOT AUTÔNOMO DO BANCO DE DADOS
+# LOJA QUANTUM - PRÉ-BOOT AUTÔNOMO DO BANCO DE DADOS
 # Executa ANTES dos processos principais.
 # Objetivo:
 # - Conectar no MySQL usando config.ini.
@@ -34814,7 +36111,7 @@ def fq_preboot_schema_autonomo(forcar=False):
         }.items():
             add_col('usuarios', coluna, ddl)
 
-        # Tabelas comerciais/farmácia mínimas e colunas críticas.
+        # Tabelas comerciais/loja mínimas e colunas críticas.
         exec_safe("""
             CREATE TABLE IF NOT EXISTS clientes (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -35060,7 +36357,7 @@ def fq_preboot_obrigatorio_antes_dos_processos():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# FARMA QUANTUM - PRÉ-BOOT TOTAL DO BANCO ANTES DOS PROCESSOS
+# LOJA QUANTUM - PRÉ-BOOT TOTAL DO BANCO ANTES DOS PROCESSOS
 # Analisa estrutura do banco inteiro usado pelo sistema e repõe tabelas/colunas
 # faltantes antes de usuários, permissões, telas, vendas e relatórios.
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -35525,7 +36822,7 @@ def fq_preboot_total_banco_antes_de_tudo(forcar=False):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# FARMA QUANTUM - PATCH RUNTIME COLUNAS PRECO/TAMANHOS
+# LOJA QUANTUM - PATCH RUNTIME COLUNAS PRECO/TAMANHOS
 # Corrige automaticamente Unknown column 'preco' e tabelas de tamanhos.
 # ═══════════════════════════════════════════════════════════════════════
 def fq_runtime_fix_preco_tamanhos():
@@ -35588,7 +36885,7 @@ def fq_runtime_fix_preco_tamanhos():
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# FARMA QUANTUM - PATCH RUNTIME TABELAS OPERACIONAIS
+# LOJA QUANTUM - PATCH RUNTIME TABELAS OPERACIONAIS
 # Corrige automaticamente colunas/tabelas operacionais ausentes:
 # comandas, entregadores, servicos, bairros, cartoes, vendedores,
 # customers.cpf e tamanhos.sigla.
@@ -36032,7 +37329,7 @@ def authenticate_user():
     # Logo
     
     # Título
-    tk.Label(card_frame, text="Farma Quantum", font=("Segoe UI", 20, "bold"), bg=CARD_COLOR, fg=TEXT_COLOR).pack(pady=(24, 12))
+    tk.Label(card_frame, text="Loja Quantum", font=("Segoe UI", 20, "bold"), bg=CARD_COLOR, fg=TEXT_COLOR).pack(pady=(24, 12))
     
     # Container para os campos
     fields_frame = tk.Frame(card_frame, bg=CARD_COLOR)
@@ -37877,7 +39174,7 @@ class UserManagerWindow(tk.Toplevel):
         # Busca de usuários
         search_frame = ttk.Frame(list_frame)
         search_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 5))
-        ttk.Label(search_frame, text="🔍 Buscar medicamento:").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(search_frame, text="🔍 Buscar produto:").pack(side=tk.LEFT, padx=(0, 5))
         self.search_var = tk.StringVar()
         self.search_var.trace('w', lambda *args: self._filter_users())
         ttk.Entry(search_frame, textvariable=self.search_var, width=25).pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -40987,7 +42284,7 @@ class OrdemServicoWindow:
         prioridade_combo.grid(row=0, column=3, padx=5, pady=5)
         prioridade_combo.bind("<<ComboboxSelected>>", lambda e: self._carregar_lista())
         
-        ttk.Label(filtro_frame, text="Buscar medicamento:").grid(row=0, column=4, padx=5, pady=5, sticky='w')
+        ttk.Label(filtro_frame, text="Buscar produto:").grid(row=0, column=4, padx=5, pady=5, sticky='w')
         self.busca_var = tk.StringVar()
         busca_entry = ttk.Entry(filtro_frame, textvariable=self.busca_var, width=25)
         busca_entry.grid(row=0, column=5, padx=5, pady=5)
@@ -42126,7 +43423,7 @@ class FormularioOSWindow:
         search_frame = ttk.Frame(frame)
         search_frame.pack(fill=tk.X, pady=(0, 5))
         
-        ttk.Label(search_frame, text="🔍 Buscar medicamento:").pack(side=tk.LEFT)
+        ttk.Label(search_frame, text="🔍 Buscar produto:").pack(side=tk.LEFT)
         search_var = tk.StringVar()
         search_entry = ttk.Entry(search_frame, textvariable=search_var, width=35)
         search_entry.pack(side=tk.LEFT, padx=5)
@@ -44889,7 +46186,7 @@ class GerenciamentoMesasWindow(tk.Toplevel):
         cb = ttk.Combobox(filtros, textvariable=self.filtro_var, values=['Todas', 'Livre', 'Ocupada', 'Reservada', 'Inativa', 'Bloqueada'], state='readonly', width=16)
         cb.pack(side=tk.LEFT, padx=6)
         cb.bind('<<ComboboxSelected>>', lambda e: self._render_cards())
-        ttk.Label(filtros, text="Buscar medicamento:").pack(side=tk.LEFT, padx=(12, 0))
+        ttk.Label(filtros, text="Buscar produto:").pack(side=tk.LEFT, padx=(12, 0))
         ttk.Entry(filtros, textvariable=self.busca_var, width=35).pack(side=tk.LEFT, padx=6)
         self.busca_var.trace_add('write', lambda *_: self._render_cards())
         self.resumo_frame = ttk.Frame(main)
@@ -45471,7 +46768,7 @@ class CadastroProdutosWindow(BaseCadastroWindow):
             
     def _print_label(self):
         if not self.selected_item_id:
-            messagebox.showwarning("Aviso", "Selecione um medicamento/produto para imprimir a etiqueta.", parent=self)
+            messagebox.showwarning("Aviso", "Selecione um produto para imprimir a etiqueta.", parent=self)
             return
         
         product_data = self.data_dict.get(self.selected_item_id)
@@ -45871,7 +47168,7 @@ class CadastroProdutosWindow(BaseCadastroWindow):
         """Clona o produto selecionado, copiando todos os dados exceto ID e código de barras."""
         try:
             if not self.selected_item_id:
-                messagebox.showwarning("Aviso", "Selecione um medicamento/produto para duplicar.", parent=self)
+                messagebox.showwarning("Aviso", "Selecione um produto para duplicar.", parent=self)
                 return
             
             # Obtém os dados do produto selecionado
@@ -47385,7 +48682,7 @@ except Exception:
 try:
     LABEL_LAYOUTS.update({
         'farmacia_validade': {
-            'nome': 'Farmácia - Lote/Validade',
+            'nome': 'Loja - Lote/Validade',
             'descricao': 'Nome + preço + barras + lote/validade',
             'elementos': [
                 {'tipo': 'nome', 'x': 50, 'y': 90, 'largura': 96, 'altura': 12, 'fonte': 8, 'alinhamento': 'centro', 'negrito': True},
@@ -47521,7 +48818,7 @@ def _quantum_label_create_advanced_tab(self):
         tools.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(12, 6))
         ttk.Button(tools, text="Usar quantidade do estoque", command=lambda: _quantum_label_set_quantity_from_stock(self), bootstyle="info-outline").pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(tools, text="Validar código de barras", command=lambda: _quantum_label_validate_barcode(self), bootstyle="warning-outline").pack(side=tk.LEFT, padx=8)
-        ttk.Button(tools, text="Aplicar layout farmácia", command=lambda: _quantum_label_apply_layout(self, 'farmacia_validade'), bootstyle="success-outline").pack(side=tk.LEFT, padx=8)
+        ttk.Button(tools, text="Aplicar layout loja", command=lambda: _quantum_label_apply_layout(self, 'farmacia_validade'), bootstyle="success-outline").pack(side=tk.LEFT, padx=8)
         ttk.Button(tools, text="Aplicar layout promoção", command=lambda: _quantum_label_apply_layout(self, 'promocao_de_por'), bootstyle="success-outline").pack(side=tk.LEFT, padx=8)
         ttk.Button(tools, text="Aplicar QR Code", command=lambda: _quantum_label_apply_layout(self, 'qrcode_produto'), bootstyle="success-outline").pack(side=tk.LEFT, padx=8)
 
@@ -47897,7 +49194,7 @@ def _qlabel_install_ultra_templates_and_layouts():
                 ]
             },
             'ultra_farmacia': {
-                'nome': 'Ultra Farmácia',
+                'nome': 'Ultra Loja',
                 'descricao': 'Produto + preço + código + controle',
                 'elementos': [
                     {'tipo': 'nome', 'x': 50, 'y': 91, 'largura': 96, 'altura': 11, 'fonte': 8, 'alinhamento': 'centro', 'negrito': True},
@@ -48155,7 +49452,7 @@ def _qlabel_create_ultra_tab(self):
         presets = tk.LabelFrame(tab, text="Presets rápidos de uso", padx=12, pady=10)
         presets.grid(row=3, column=0, columnspan=2, sticky="ew", pady=8)
         ttk.Button(presets, text="Varejo 60x40", command=lambda: (_quantum_label_apply_layout(self, 'ultra_varejo'), self.etiqueta_var.set('60x40mm - Clássica 60x40mm')), bootstyle="secondary-outline").pack(side=tk.LEFT, padx=4)
-        ttk.Button(presets, text="Farmácia", command=lambda: (_quantum_label_apply_layout(self, 'ultra_farmacia'), self.etiqueta_var.set('60x40mm - Clássica 60x40mm')), bootstyle="secondary-outline").pack(side=tk.LEFT, padx=4)
+        ttk.Button(presets, text="Loja", command=lambda: (_quantum_label_apply_layout(self, 'ultra_farmacia'), self.etiqueta_var.set('60x40mm - Clássica 60x40mm')), bootstyle="secondary-outline").pack(side=tk.LEFT, padx=4)
         ttk.Button(presets, text="Moda/TAG", command=lambda: (_quantum_label_apply_layout(self, 'ultra_moda_tag'), self.etiqueta_var.set('65x40mm - TAG GAP 65x40mm')), bootstyle="secondary-outline").pack(side=tk.LEFT, padx=4)
         ttk.Button(presets, text="Gôndola", command=lambda: (_quantum_label_apply_layout(self, 'gondola'), self.etiqueta_var.set('90x30mm - Gôndola Grande 90x30mm')), bootstyle="secondary-outline").pack(side=tk.LEFT, padx=4)
         ttk.Button(presets, text="Logística", command=lambda: (_quantum_label_apply_layout(self, 'ultra_logistica'), self.etiqueta_var.set('100x150mm - Envio 100x150mm')), bootstyle="secondary-outline").pack(side=tk.LEFT, padx=4)
@@ -50398,7 +51695,7 @@ except Exception as _e:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 💊 FARMÁCIA - CONTROLE OPCIONAL DE LOTE / VALIDADE E ALERTAS DE VENCIMENTO
+# 🏪 LOJA - CONTROLE OPCIONAL DE LOTE / VALIDADE E ALERTAS DE VENCIMENTO
 # ═══════════════════════════════════════════════════════════════════════════════
 _FARMACIA_VALIDADE_ALERTAS_EXIBIDOS_EM = None
 
@@ -50466,10 +51763,10 @@ def verificar_alertas_validade_farmacia(products=None, parent=None, forcar=False
             partes.append("🟡 PERTO DE VENCER - 15 DIAS OU MENOS:\n" + "\n".join(proximos[:30]))
         if partes:
             _FARMACIA_VALIDADE_ALERTAS_EXIBIDOS_EM = hoje
-            messagebox.showwarning("Alertas de Validade - Farmácia", "\n\n".join(partes), parent=parent)
+            messagebox.showwarning("Alertas de Validade - Loja", "\n\n".join(partes), parent=parent)
     except Exception as e:
         try:
-            print(f"[FARMÁCIA] Erro ao verificar validade/lote: {e}")
+            print(f"[LOJA] Erro ao verificar validade/lote: {e}")
         except Exception:
             pass
 
@@ -50496,7 +51793,7 @@ class EntradaNotasWindow(tk.Toplevel):
         self.nota_fiscal_var = tk.StringVar(value=str(get_next_nota_entrada_number()))
         # Data da Nota com Calendário
         self.condicao_pagamento_var = tk.StringVar(value="À Vista")
-        # Farmácia: controle opcional de lote e validade por item/produto.
+        # Loja: controle opcional de lote e validade por item/produto.
         # Se o checkbox não for marcado, lote/validade não entram no produto nem geram alertas.
         self.lote_validade_var = tk.BooleanVar(value=False)
         self.lote_var = tk.StringVar()
@@ -50573,7 +51870,7 @@ class EntradaNotasWindow(tk.Toplevel):
 
         self.chk_lote_validade = ttk.Checkbutton(
             detalhes_frame,
-            text="Controlar lote e validade deste medicamento/produto",
+            text="Controlar lote e validade deste produto",
             variable=self.lote_validade_var,
             command=self._toggle_lote_validade_campos,
             bootstyle="success-round-toggle"
@@ -50804,7 +52101,7 @@ class EntradaNotasWindow(tk.Toplevel):
             validade = self._obter_validade_item() if controlar_lote_validade else ''
             if controlar_lote_validade:
                 if not lote:
-                    messagebox.showerror("Lote obrigatório", "Informe o lote do medicamento/produto ou desmarque o controle de lote e validade.", parent=self)
+                    messagebox.showerror("Lote obrigatório", "Informe o lote do produto ou desmarque o controle de lote e validade.", parent=self)
                     return
                 validade_data = _farmacia_parse_data_validade(validade)
                 if not validade_data:
@@ -50933,7 +52230,7 @@ class EntradaNotasWindow(tk.Toplevel):
                 # Atualiza o preço de custo (preco_compra)
                 produto['preco_compra'] = format_br_float(item['custo'], 2)
 
-                # Farmácia: controle de lote e validade só é aplicado quando o checkbox foi marcado.
+                # Loja: controle de lote e validade só é aplicado quando o checkbox foi marcado.
                 if bool(item.get('controlar_lote_validade', False)):
                     produto['controlar_lote_validade'] = True
                     produto['lote'] = item.get('lote', '')
@@ -52303,7 +53600,7 @@ class CaixaWindow(tk.Toplevel):
     """Janela PROFISSIONAL para controle de abertura e fechamento de caixa com suporte a múltiplos caixas e turnos."""
     def __init__(self, master, parent_app):
         super().__init__(master)
-        self.title("💰 Controle de Caixa - Farma Quantum")
+        self.title("💰 Controle de Caixa - Loja Quantum")
         self.state('zoomed')
         self.parent_app = parent_app
         self.configure(bg='#f8f9fa')
@@ -55789,7 +57086,7 @@ class KeyboardShortcutManager:
                                    fg=ACCENT, bg=BG_DARK, padx=20, pady=20, relief='flat', highlightthickness=1, highlightbackground=CARD_BG)
         about_frame.pack(fill=tk.X, padx=30, pady=10)
         
-        desc_text = ("O Farma Quantum é uma solução de automação comercial de altíssima performance, "
+        desc_text = ("O Loja Quantum é uma solução de automação comercial de altíssima performance, "
                      "desenvolvida para oferecer segurança, velocidade e inteligência na gestão do seu negócio. "
                      "Esta edição especial Phoenix Eternal conta com tecnologia de ponta para garantir que sua "
                      "operação nunca pare.")
@@ -57427,7 +58724,7 @@ class PDVSuperApp:
         
         
         # ═══════════════════════════════════════════════════════════════════════════
-        self.root.title(f"💊 FARMA QUANTUM - FARMÁCIA & DROGARIA - Usuário: {logged_user}")
+        self.root.title(f"🏪 LOJA QUANTUM - Usuário: {logged_user}")
         # Armazena usuario logado globalmente para acesso pela StatusBar automatica
         try:
             import builtins
@@ -57878,7 +59175,7 @@ class PDVSuperApp:
         Compatível com Python 32-bit - usa Tkinter Canvas ao invés de matplotlib.
         """
         try:
-            AUDITORIA.processo("Abrindo Dashboard Farmácia")
+            AUDITORIA.processo("Abrindo Dashboard Loja")
         except Exception:
             pass
         dash_win = tk.Toplevel(self.root)
@@ -58710,10 +60007,10 @@ class PDVSuperApp:
         ]
         if check_permission_any(*cadastro_perms):
             cadastro_menu = tk.Menu(menubar, tearoff=0)
-            _add_cmd(cadastro_menu, "2.1   💊 Medicamentos / Produtos", self.open_cadastro_produtos, "produtos.acessar", accelerator="Ctrl+P")
-            _add_cmd(cadastro_menu, "2.2   🔍 Consultar Medicamentos / Produtos", self.open_consultar_produtos, "produtos.consultar", accelerator="Ctrl+Shift+Q")
+            _add_cmd(cadastro_menu, "2.1   🏪 Produtos", self.open_cadastro_produtos, "produtos.acessar", accelerator="Ctrl+P")
+            _add_cmd(cadastro_menu, "2.2   🔍 Consultar Produtos", self.open_consultar_produtos, "produtos.consultar", accelerator="Ctrl+Shift+Q")
             if bool((getattr(self, 'config_data', {}) or {}).get("submenu_importar_produtos_visivel", False)):
-                _add_cmd(cadastro_menu, "2.3   📥 Importar Medicamentos / Produtos", self.importar_produtos_planilha, "produtos.importar", accelerator="Ctrl+I")
+                _add_cmd(cadastro_menu, "2.3   📥 Importar Produtos", self.importar_produtos_planilha, "produtos.importar", accelerator="Ctrl+I")
             _add_cmd(cadastro_menu, "2.4   Classes / Categorias", self.open_cadastro_categorias, "categorias.acessar", accelerator="Ctrl+K")
             if bool((getattr(self, 'config_data', {}) or {}).get("submenu_trocar_categoria_visivel", False)):
                 _add_cmd(cadastro_menu, "2.5   🔄 Trocar Classe/Categoria em Lote", self.open_troca_categoria_lote, "produtos.trocar_categoria_lote", accelerator="Ctrl+T")
@@ -58769,7 +60066,7 @@ class PDVSuperApp:
         if check_permission_any(*relatorio_perms):
             report_menu = tk.Menu(menubar, tearoff=0)
             if bool((getattr(self, 'config_data', {}) or {}).get("submenu_relatorio_3_1_visivel", False)):
-                _add_cmd(report_menu, "3.1   🚀 Dashboard Farmácia", self.show_quantum_dashboard, "util.dashboard", accelerator="Ctrl+D")
+                _add_cmd(report_menu, "3.1   🚀 Dashboard Loja", self.show_quantum_dashboard, "util.dashboard", accelerator="Ctrl+D")
             # --- Reimpressões ---
             has_reprint = False
             if check_permission_any("vendas.reimprimir_cupom", "relatorios.reimprimir_recibo_financeiro"):
@@ -59169,7 +60466,7 @@ class PDVSuperApp:
         watermark_frame = tk.Frame(tab_frame, bg='#ffffff', bd=0, highlightthickness=0)
         watermark_icon = tk.Label(
             watermark_frame,
-            text='💊',
+            text='🏪',
             font=('Segoe UI Emoji', 82, 'bold'),
             fg='#86efac',
             bg='#ffffff'
@@ -59177,7 +60474,7 @@ class PDVSuperApp:
         watermark_icon.pack()
         watermark_text = tk.Label(
             watermark_frame,
-            text='FARMÁCIA',
+            text='LOJA',
             font=('Segoe UI', 17, 'bold'),
             fg='#d1fae5',
             bg='#ffffff'
@@ -59428,26 +60725,26 @@ class PDVSuperApp:
         except Exception:
             pass
 
-        # Cabeçalho visual fixo para farmácia/drogaria
+        # Cabeçalho visual fixo para loja/varejo
         try:
             farmacia_top = ttk.Frame(self.root, padding=(12, 10))
             farmacia_top.pack(fill=tk.X)
             farmacia_top.columnconfigure(1, weight=1)
             ttk.Label(
                 farmacia_top,
-                text="💊 FARMA QUANTUM",
+                text="🏪 LOJA QUANTUM",
                 font=("Segoe UI", scale_font_size(20, self.root), "bold"),
                 foreground="#064e3b"
             ).grid(row=0, column=0, sticky="w", padx=(0, 20))
             ttk.Label(
                 farmacia_top,
-                text="Layout para farmácia e drogaria • Venda rápida • Medicamentos • Perfumaria • Conveniência",
+                text="Layout para loja e varejo • Venda rápida • Produtos • Perfumaria • Conveniência",
                 font=("Segoe UI", scale_font_size(10, self.root)),
                 foreground="#0f766e"
             ).grid(row=0, column=1, sticky="w")
             ttk.Label(
                 farmacia_top,
-                text="⚕️",
+                text="🏪",
                 font=("Segoe UI", scale_font_size(24, self.root), "bold"),
                 foreground="#22c55e"
             ).grid(row=0, column=2, sticky="e", padx=(10, 0))
@@ -59460,13 +60757,13 @@ class PDVSuperApp:
             supermercado_top.columnconfigure(1, weight=1)
             ttk.Label(
                 supermercado_top,
-                text="💊 MODO FARMÁCIA",
+                text="🏪 MODO LOJA",
                 font=("Segoe UI", scale_font_size(18, self.root), "bold"),
                 foreground="#0d6efd"
             ).grid(row=0, column=0, sticky="w", padx=(0, 20))
             ttk.Label(
                 supermercado_top,
-                text="Venda rápida de farmácia • Código de barras ativo • F12 finaliza • F6 cliente • DEL remove item",
+                text="Venda rápida no balcão • Código de barras ativo • F12 finaliza • F6 cliente • DEL remove item",
                 font=("Segoe UI", scale_font_size(10, self.root)),
                 foreground="#555555"
             ).grid(row=0, column=1, sticky="w")
@@ -59488,7 +60785,7 @@ class PDVSuperApp:
         # Linha 1: campo principal de bipar/digitar/buscar.
         # Correção: antes tudo ficava na mesma linha (busca + categoria + 3 botões),
         # e em telas menores o campo de busca ficava espremido/oculto.
-        texto_busca = "CÓDIGO / MEDICAMENTO:" if modo_supermercado else ("Buscar medicamento:" if "Farma" in str(self.root.title()) or "FARM" in str(self.root.title()).upper() else "Buscar produto:")
+        texto_busca = "CÓDIGO / MEDICAMENTO:" if modo_supermercado else ("Buscar produto:" if "Farma" in str(self.root.title()) or "FARM" in str(self.root.title()).upper() else "Buscar produto:")
         ttk.Label(
             filter_frame,
             text=texto_busca,
@@ -59619,7 +60916,7 @@ class PDVSuperApp:
         btn_adicionar.grid(row=2, column=0, sticky="ew", pady=(10, 0), ipady=scale_value(6, self.root) if modo_supermercado else 0)
         
         # ========== PAINEL DE VISUALIZAÇÃO DE IMAGEM DO PRODUTO ==========
-        self.product_image_frame = ttk.Labelframe(left_frame, text="💊 Foto do Medicamento/Produto", padding=5)
+        self.product_image_frame = ttk.Labelframe(left_frame, text="🏪 Foto do Produto", padding=5)
         if modo_supermercado:
             # No modo supermercado, a área visual fica mais limpa e rápida para leitura por código de barras.
             self.product_image_frame.grid_remove()
@@ -59631,7 +60928,7 @@ class PDVSuperApp:
         img_container.pack(fill=tk.X, expand=True)
         
         # Label para exibir a imagem
-        self.product_image_label = ttk.Label(img_container, text="\n📷\nSelecione um medicamento/produto\n", anchor="center", font=("Segoe UI", 9))
+        self.product_image_label = ttk.Label(img_container, text="\n📷\nSelecione um produto\n", anchor="center", font=("Segoe UI", 9))
         self.product_image_label.pack(side=tk.LEFT, padx=10, pady=5)
         
         # Frame para informações do produto
@@ -59679,7 +60976,7 @@ class PDVSuperApp:
         cart_title_frame = ttk.Frame(right_frame)
         cart_title_frame.grid(row=1, column=0, sticky="ew", pady=(0, 5))
         cart_title_frame.columnconfigure(0, weight=1)
-        ttk.Label(cart_title_frame, text="CAIXA / FARMÁCIA" if modo_supermercado else "Itens da Venda", font=("Segoe UI", scale_font_size(18 if modo_supermercado else 14, self.root), "bold"), foreground="#0f766e" if modo_supermercado else "#0f766e").grid(row=0, column=0, sticky="w")
+        ttk.Label(cart_title_frame, text="CAIXA / LOJA" if modo_supermercado else "Itens da Venda", font=("Segoe UI", scale_font_size(18 if modo_supermercado else 14, self.root), "bold"), foreground="#0f766e" if modo_supermercado else "#0f766e").grid(row=0, column=0, sticky="w")
         ttk.Button(cart_title_frame, text="+", width=3, command=self.adicionar_aba_carrinho, bootstyle="success-outline").grid(row=0, column=1, padx=(0, 5))
         ttk.Button(cart_title_frame, text="-", width=3, command=self.remover_aba_carrinho_atual, bootstyle="danger-outline").grid(row=0, column=2)
         # Treeview Carrinho em múltiplas abas
@@ -59718,7 +61015,7 @@ class PDVSuperApp:
         self.lbl_total_valor = ttk.Label(total_frame, text="R$ 0,00", font=("Segoe UI", scale_font_size(34 if modo_supermercado else 16, self.root), "bold"), anchor=tk.E, foreground="#16a34a" if modo_supermercado else "#16a34a")
         self.lbl_total_valor.grid(row=0, column=1, sticky="ew")
         # Finalizar
-        btn_finalizar = ttk.Button(right_frame, text="💊 FINALIZAR / PAGAR (F12)" if modo_supermercado else "Finalizar Venda / Pagar (F12)", underline=1, command=self.iniciar_pagamento, bootstyle="success", style="Supermercado.TButton" if modo_supermercado else None)
+        btn_finalizar = ttk.Button(right_frame, text="🏪 FINALIZAR / PAGAR (F12)" if modo_supermercado else "Finalizar Venda / Pagar (F12)", underline=1, command=self.iniciar_pagamento, bootstyle="success", style="Supermercado.TButton" if modo_supermercado else None)
         btn_finalizar.grid(row=5, column=0, sticky="ew", pady=(5, 0), ipady=scale_value(16 if modo_supermercado else 8, self.root))
         self.root.bind("<F12>", lambda event: (self.iniciar_pagamento(), "break")[1])
         
@@ -62197,7 +63494,7 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
         submenu_relatorio_3_36_visivel_var = tk.BooleanVar(value=bool(self.config_data.get("submenu_relatorio_3_36_visivel", False)))
         submenu_relatorio_3_37_visivel_var = tk.BooleanVar(value=bool(self.config_data.get("submenu_relatorio_3_37_visivel", False)))
         submenu_relatorio_3_38_visivel_var = tk.BooleanVar(value=bool(self.config_data.get("submenu_relatorio_3_38_visivel", False)))
-        ttk.Checkbutton(menus_relatorios_frame, text="Tornar visível o submenu 3.1 Dashboard Farmácia", variable=submenu_relatorio_3_1_visivel_var).pack(anchor=tk.W, padx=8, pady=(6, 2))
+        ttk.Checkbutton(menus_relatorios_frame, text="Tornar visível o submenu 3.1 Dashboard Loja", variable=submenu_relatorio_3_1_visivel_var).pack(anchor=tk.W, padx=8, pady=(6, 2))
         ttk.Checkbutton(menus_relatorios_frame, text="Tornar visível o submenu 3.7 Gerenciar Vouchers", variable=submenu_relatorio_3_7_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
         ttk.Checkbutton(menus_relatorios_frame, text="Tornar visível o submenu 3.7.1 Aniversários WhatsApp/Voucher", variable=submenu_relatorio_3_7_1_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
         ttk.Checkbutton(menus_relatorios_frame, text="Tornar visível o submenu 3.8 Política de Troca", variable=submenu_relatorio_3_8_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
@@ -62276,8 +63573,8 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
             justify=tk.LEFT
         ).pack(anchor=tk.W, padx=8, pady=(0, 6))
 
-        # === 09 - Modulos Farmacia (visibilidade) ===
-        menus_farma_frame = ttk.LabelFrame(body, text="09 - Modulos Farmacia (visibilidade)")
+        # === 09 - Modulos Loja (visibilidade) ===
+        menus_farma_frame = ttk.LabelFrame(body, text="09 - Modulos Loja (visibilidade)")
         menus_farma_frame.pack(pady=8, padx=10, fill=tk.X)
         menu_relatorios_farma_visivel_var = tk.BooleanVar(value=bool(self.config_data.get("menu_relatorios_farma_visivel", False)))
         menu_farmacia_pro_visivel_var = tk.BooleanVar(value=bool(self.config_data.get("menu_farmacia_pro_visivel", False)))
@@ -62285,9 +63582,9 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
         menu_tratamento_visivel_var = tk.BooleanVar(value=bool(self.config_data.get("menu_tratamento_visivel", False)))
         menu_balanca_ultra_visivel_var = tk.BooleanVar(value=bool(self.config_data.get("menu_balanca_ultra_visivel", True)))
         menu_inventario_visivel_var = tk.BooleanVar(value=bool(self.config_data.get("menu_inventario_visivel", True)))
-        ttk.Checkbutton(menus_farma_frame, text="Tornar visivel o menu Relatorios Farma", variable=menu_relatorios_farma_visivel_var).pack(anchor=tk.W, padx=8, pady=(6, 2))
+        ttk.Checkbutton(menus_farma_frame, text="Tornar visivel o menu Relatorios Loja", variable=menu_relatorios_farma_visivel_var).pack(anchor=tk.W, padx=8, pady=(6, 2))
         ttk.Checkbutton(menus_farma_frame, text="Tornar visivel o menu Farmacia Pro", variable=menu_farmacia_pro_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
-        ttk.Checkbutton(menus_farma_frame, text="Tornar visivel o menu Ambulatorio", variable=menu_ambulatorio_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
+        ttk.Checkbutton(menus_farma_frame, text="Tornar visivel o menu Atendimento", variable=menu_ambulatorio_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
         ttk.Checkbutton(menus_farma_frame, text="Tornar visivel o menu Tratamento", variable=menu_tratamento_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
         ttk.Checkbutton(menus_farma_frame, text="Tornar visivel o menu Balanca Ultra", variable=menu_balanca_ultra_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
         ttk.Checkbutton(menus_farma_frame, text="Tornar visivel o menu Inventario", variable=menu_inventario_visivel_var).pack(anchor=tk.W, padx=8, pady=2)
@@ -63583,7 +64880,7 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
 
     def _clear_product_image_panel(self):
         """Limpa o painel de imagem do produto."""
-        self.product_image_label.config(text="\n📷\nSelecione um medicamento/produto\n", image='')
+        self.product_image_label.config(text="\n📷\nSelecione um produto\n", image='')
         self.product_name_label.config(text="")
         self.product_price_label.config(text="")
         self.product_stock_label.config(text="")
@@ -63604,7 +64901,7 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
         selected_iid = self.tree_produtos.focus()
         if not selected_iid:
             selected_items = self.tree_produtos.selection()
-            if not selected_items: messagebox.showwarning("Seleção", "Selecione um medicamento/produto."); return
+            if not selected_items: messagebox.showwarning("Seleção", "Selecione um produto."); return
             selected_iid = selected_items[0]
         self.adicionar_produto_por_id(selected_iid)
 
@@ -68833,7 +70130,7 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
             busca_frame = ttk.Frame(cliente_frame)
             busca_frame.pack(fill=tk.X, pady=(5, 0))
             
-            ttk.Label(busca_frame, text="Buscar medicamento:", font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 5))
+            ttk.Label(busca_frame, text="Buscar produto:", font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 5))
             busca_cliente_var = tk.StringVar()
             busca_cliente_entry = ttk.Entry(busca_frame, textvariable=busca_cliente_var, width=30)
             busca_cliente_entry.pack(side=tk.LEFT, padx=(0, 5))
@@ -70714,7 +72011,7 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
             search_frame = tk.Frame(select_win, bg='white')
             search_frame.pack(fill=tk.X, padx=20, pady=5)
             
-            tk.Label(search_frame, text="Buscar medicamento:", bg='white', font=("Arial", 10)).pack(side=tk.LEFT)
+            tk.Label(search_frame, text="Buscar produto:", bg='white', font=("Arial", 10)).pack(side=tk.LEFT)
             search_var = tk.StringVar()
             search_entry = tk.Entry(search_frame, textvariable=search_var, font=("Arial", 11), width=30)
             search_entry.pack(side=tk.LEFT, padx=10, fill=tk.X, expand=True)
@@ -71067,7 +72364,7 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
             # Busca
             search_frame_v = tk.Frame(sel_win, bg='white')
             search_frame_v.pack(fill=tk.X, padx=15, pady=5)
-            tk.Label(search_frame_v, text="\U0001f50d Buscar medicamento:", bg='white', font=("Arial", 10)).pack(side=tk.LEFT)
+            tk.Label(search_frame_v, text="\U0001f50d Buscar produto:", bg='white', font=("Arial", 10)).pack(side=tk.LEFT)
             search_var_v = tk.StringVar()
             search_entry_v = tk.Entry(search_frame_v, textvariable=search_var_v, font=("Arial", 11), width=30)
             search_entry_v.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
@@ -71251,7 +72548,7 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
             tk.Label(sel_win, text="🍽️ Selecione o Garçom", bg='white', font=("Arial", 13, "bold")).pack(pady=(10, 5))
             search_frame_g = tk.Frame(sel_win, bg='white')
             search_frame_g.pack(fill=tk.X, padx=15, pady=5)
-            tk.Label(search_frame_g, text="🔍 Buscar medicamento:", bg='white', font=("Arial", 10)).pack(side=tk.LEFT)
+            tk.Label(search_frame_g, text="🔍 Buscar produto:", bg='white', font=("Arial", 10)).pack(side=tk.LEFT)
             search_var_g = tk.StringVar()
             search_entry_g = tk.Entry(search_frame_g, textvariable=search_var_g, font=("Arial", 11), width=30)
             search_entry_g.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
@@ -72368,7 +73665,7 @@ Formatos suportados: Excel (.xlsx, .xls) e CSV (.csv)"""
             busca_frame = tk.Frame(sel_win, bg='#f0f0f0')
             busca_frame.pack(fill=tk.X, padx=10, pady=10)
             
-            tk.Label(busca_frame, text="Buscar medicamento:", bg='#f0f0f0', font=("Arial", 11, "bold")).pack(side=tk.LEFT, padx=5)
+            tk.Label(busca_frame, text="Buscar produto:", bg='#f0f0f0', font=("Arial", 11, "bold")).pack(side=tk.LEFT, padx=5)
             busca_var = tk.StringVar()
             busca_entry = tk.Entry(busca_frame, textvariable=busca_var, width=30, font=("Arial", 11))
             busca_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
@@ -76667,7 +77964,7 @@ STATUS: {status.upper()}
             if peso is not None:
                 messagebox.showinfo("Peso Lido", 
                                    f"Peso: {peso:,.3f}g\n\n"
-                                   f"Selecione um medicamento/produto para aplicar o peso.")
+                                   f"Selecione um produto para aplicar o peso.")
             return
         
         # Verifica se é produto do tipo peso
@@ -77597,7 +78894,7 @@ STATUS: {status.upper()}
             search_frame = ttk.Frame(sel_win, padding=10)
             search_frame.pack(fill=tk.X)
             
-            ttk.Label(search_frame, text="🔍 Buscar medicamento:").pack(side=tk.LEFT)
+            ttk.Label(search_frame, text="🔍 Buscar produto:").pack(side=tk.LEFT)
             search_var = tk.StringVar()
             search_entry = ttk.Entry(search_frame, textvariable=search_var, width=30)
             search_entry.pack(side=tk.LEFT, padx=5)
@@ -77740,7 +79037,7 @@ STATUS: {status.upper()}
             search_frame = ttk.Frame(sel_win, padding=10)
             search_frame.pack(fill=tk.X)
             
-            ttk.Label(search_frame, text="🔍 Buscar medicamento:").pack(side=tk.LEFT)
+            ttk.Label(search_frame, text="🔍 Buscar produto:").pack(side=tk.LEFT)
             search_var_prod = tk.StringVar()
             search_entry_prod = ttk.Entry(search_frame, textvariable=search_var_prod, width=40)
             search_entry_prod.pack(side=tk.LEFT, padx=5)
@@ -78024,7 +79321,7 @@ STATUS: {status.upper()}
             try:
                 sel = prod_search_var.get()
                 if not sel or ' - ' not in sel:
-                    messagebox.showwarning("Aviso", "Selecione um medicamento/produto!", parent=orc_win)
+                    messagebox.showwarning("Aviso", "Selecione um produto!", parent=orc_win)
                     return
                 
                 pid = sel.split(' - ')[0].strip()
@@ -78502,7 +79799,7 @@ STATUS: {status.upper()}
                                     values=["Todos", "Pendente", "Aprovado", "Convertido", "Cancelado"], width=15)
         status_combo.pack(side=tk.LEFT, padx=5)
         
-        ttk.Label(filtro_frame, text="Buscar medicamento:").pack(side=tk.LEFT, padx=(20, 5))
+        ttk.Label(filtro_frame, text="Buscar produto:").pack(side=tk.LEFT, padx=(20, 5))
         busca_var = tk.StringVar()
         busca_entry = ttk.Entry(filtro_frame, textvariable=busca_var, width=30)
         busca_entry.pack(side=tk.LEFT, padx=5)
@@ -79165,7 +80462,7 @@ STATUS: {status.upper()}
             search_frame = tk.LabelFrame(filter_bar, text="🔍 Pesquisa", padx=5, pady=5)
             search_frame.pack(side=tk.LEFT, padx=(0, 10))
             
-            ttk.Label(search_frame, text="Buscar medicamento:", font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 5))
+            ttk.Label(search_frame, text="Buscar produto:", font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 5))
             search_entry = ttk.Entry(search_frame, textvariable=pesquisa_var, width=25, font=("Segoe UI", 10))
             search_entry.pack(side=tk.LEFT, padx=(0, 5))
             search_entry.bind('<KeyRelease>', lambda e: aplicar_filtros())
@@ -81579,9 +82876,9 @@ class MonitorPesoWindowPDV(tk.Toplevel):
                                        parent=self)
                     self._on_close()
                 else:
-                    messagebox.showwarning("Aviso", "Selecione um medicamento/produto do tipo 'peso'.", parent=self)
+                    messagebox.showwarning("Aviso", "Selecione um produto do tipo 'peso'.", parent=self)
             else:
-                messagebox.showwarning("Aviso", "Selecione um medicamento/produto primeiro.", parent=self)
+                messagebox.showwarning("Aviso", "Selecione um produto primeiro.", parent=self)
         else:
             messagebox.showwarning("Aviso", "Nenhum peso válido disponível.", parent=self)
     
@@ -93895,7 +95192,7 @@ class QuantumSplashScreen:
         header_frame.pack(fill='x', padx=18, pady=(12, 2))
         
         # Ícone animado (texto Unicode como logo)
-        self.logo_label = _tk.Label(header_frame, text="💊", font=('Segoe UI', int(F['title'][1] * 1.35)),
+        self.logo_label = _tk.Label(header_frame, text="🏪", font=('Segoe UI', int(F['title'][1] * 1.35)),
                                      fg=C['accent'], bg=C['bg_dark'])
         self.logo_label.pack(side='left', padx=(0, 8))
         
@@ -93903,7 +95200,7 @@ class QuantumSplashScreen:
         title_container = _tk.Frame(header_frame, bg=C['bg_dark'])
         title_container.pack(side='left', fill='x', expand=True)
         
-        _tk.Label(title_container, text="FARMA QUANTUM", font=('Segoe UI', 18, 'bold'),
+        _tk.Label(title_container, text="LOJA QUANTUM", font=('Segoe UI', 18, 'bold'),
                   fg=C['text_primary'], bg=C['bg_dark'], anchor='w').pack(fill='x')
         _tk.Label(title_container, text="Supreme Ultra Professional - Phoenix Eternal Edition",
                   font=('Segoe UI', 8), fg=C['text_secondary'], bg=C['bg_dark'], anchor='w').pack(fill='x')
@@ -96412,7 +97709,7 @@ try:
         form = ttk.LabelFrame(win, text='Adicionar item na mesa')
         form.pack(fill=tk.X, padx=10, pady=6)
         busca_var = tk.StringVar(); produto_var = tk.StringVar(); qtd_var = tk.StringVar(value='1'); obs_var = tk.StringVar()
-        ttk.Label(form, text='Buscar medicamento:').grid(row=0, column=0, sticky='w', padx=4, pady=3)
+        ttk.Label(form, text='Buscar produto:').grid(row=0, column=0, sticky='w', padx=4, pady=3)
         busca_entry = ttk.Entry(form, textvariable=busca_var, width=34); busca_entry.grid(row=0, column=1, sticky='ew', padx=4, pady=3)
         ttk.Label(form, text='Produto:').grid(row=1, column=0, sticky='w', padx=4, pady=3)
         combo = ttk.Combobox(form, textvariable=produto_var, state='readonly', width=70); combo.grid(row=1, column=1, sticky='ew', padx=4, pady=3)
@@ -96462,7 +97759,7 @@ try:
         def adicionar():
             label = produto_var.get()
             if label not in produto_map:
-                messagebox.showwarning('Produto', 'Selecione um medicamento/produto.', parent=win); return
+                messagebox.showwarning('Produto', 'Selecione um produto.', parent=win); return
             pid, p = produto_map[label]
             qtd = _mesa_valor_float(qtd_var.get(), 1)
             if qtd <= 0:
@@ -97151,14 +98448,14 @@ except Exception as _cfg_json_only_err:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PATCH SÊNIOR - PERMISSÕES ATÔMICAS / GRANULARES / AUDITÁVEIS PARA FARMÁCIA
+# PATCH SÊNIOR - PERMISSÕES ATÔMICAS / GRANULARES / AUDITÁVEIS PARA LOJA
 # v2026.06.05 - adiciona matriz moderna por módulo, tela, botão, ação e campo
 # ═══════════════════════════════════════════════════════════════════════════════
 
 QUANTUM_ATOMIC_PERMISSION_PATCH_VERSION = "2026.06.05-PERMISSOES-ATOMICAS-FARMA"
 
 # Catálogo atômico complementar. Não remove permissões antigas: apenas acrescenta
-# chaves mais finas e compatíveis com módulos de farmácia, drogaria e ambulatório.
+# chaves mais finas e compatíveis com módulos de loja, loja e atendimento.
 ATOMIC_PERMISSION_GROUPS_FARMA = {
     "00 - Administração Mestre": {
         "admin.total": "Acesso total absoluto ao sistema",
@@ -97195,7 +98492,7 @@ ATOMIC_PERMISSION_GROUPS_FARMA = {
     },
     "02 - PDV / Venda Balcão": {
         "pdv.tela.abrir": "Abrir tela de venda balcão",
-        "pdv.produto.buscar": "Buscar medicamento/produto na venda",
+        "pdv.produto.buscar": "Buscar produto/produto na venda",
         "pdv.produto.adicionar": "Adicionar item à venda",
         "pdv.produto.remover": "Remover item da venda",
         "pdv.produto.alterar_quantidade": "Alterar quantidade do item",
@@ -97203,7 +98500,7 @@ ATOMIC_PERMISSION_GROUPS_FARMA = {
         "pdv.desconto.item": "Aplicar desconto em item",
         "pdv.desconto.total": "Aplicar desconto total",
         "pdv.acrescimo.total": "Aplicar acréscimo total",
-        "pdv.cliente.selecionar": "Selecionar cliente/paciente na venda",
+        "pdv.cliente.selecionar": "Selecionar cliente na venda",
         "pdv.pagamento.informar": "Informar forma de pagamento",
         "pdv.finalizar": "Finalizar venda",
         "pdv.cancelar": "Cancelar venda inteira",
@@ -97211,7 +98508,7 @@ ATOMIC_PERMISSION_GROUPS_FARMA = {
         "pdv.reimprimir": "Reimprimir cupom",
         "pdv.gaveta.abrir": "Abrir gaveta de dinheiro",
     },
-    "03 - Produtos / Medicamentos": {
+    "03 - Produtos": {
         "produto.tela.abrir": "Abrir cadastro de produtos/medicamentos",
         "produto.visualizar": "Visualizar produto",
         "produto.criar": "Cadastrar produto",
@@ -97225,7 +98522,7 @@ ATOMIC_PERMISSION_GROUPS_FARMA = {
         "produto.foto.editar": "Editar foto do produto",
         "produto.categoria.editar": "Editar categoria/grupo",
         "produto.controlado.marcar": "Marcar produto como controlado",
-        "produto.antibiotico.marcar": "Marcar produto como antibiótico",
+        "produto.antibiotico.marcar": "Marcar produto como especial",
         "produto.generico.marcar": "Marcar produto como genérico/referência/similar",
         "produto.lote_validade.habilitar": "Habilitar controle de lote e validade no produto",
         "produto.lote_validade.editar": "Editar lote e validade do produto",
@@ -97260,16 +98557,16 @@ ATOMIC_PERMISSION_GROUPS_FARMA = {
         "estoque.ajuste_saida": "Ajuste manual de saída",
         "estoque.perda_vencimento": "Registrar perda por vencimento",
     },
-    "06 - Receituário / Controlados / SNGPC": {
-        "controlado.tela.abrir": "Abrir receituário/controlados",
+    "06 - Encomendas / Pedidos / Reservas": {
+        "controlado.tela.abrir": "Abrir encomendas/pedidos",
         "controlado.dispensar": "Dispensar medicamento controlado",
         "controlado.receita.cadastrar": "Cadastrar dados da receita",
         "controlado.receita.editar": "Editar dados da receita",
         "controlado.receita.excluir": "Excluir receita cadastrada",
         "controlado.crm.editar": "Informar prescritor/CRM",
         "controlado.paciente.editar": "Informar paciente da receita",
-        "controlado.sngpc.marcar": "Marcar como item SNGPC",
-        "controlado.sngpc.exportar": "Exportar dados SNGPC",
+        "controlado.sngpc.marcar": "Marcar item com controle interno",
+        "controlado.sngpc.exportar": "Exportar dados de controle interno",
         "controlado.relatorio.imprimir": "Imprimir relatório de controlados",
     },
     "07 - Tratamento Contínuo / Recompra": {
@@ -97277,40 +98574,40 @@ ATOMIC_PERMISSION_GROUPS_FARMA = {
         "tratamento.criar": "Cadastrar tratamento contínuo",
         "tratamento.editar": "Editar tratamento contínuo",
         "tratamento.excluir": "Excluir tratamento contínuo",
-        "tratamento.posologia.editar": "Editar dose/posologia",
+        "tratamento.posologia.editar": "Editar descrição/observação",
         "tratamento.recompra.calcular": "Calcular próxima recompra",
         "tratamento.alertas.ver": "Ver alertas de recompra",
         "tratamento.compra.marcar": "Marcar recompra como realizada",
         "tratamento.whatsapp.enviar": "Enviar lembrete pelo WhatsApp",
         "tratamento.relatorio.imprimir": "Imprimir relatório de tratamentos",
     },
-    "08 - Ambulatório / Prontuário": {
-        "ambulatorio.tela.abrir": "Abrir prontuário ambulatorial",
-        "ambulatorio.prontuario.criar": "Criar prontuário",
-        "ambulatorio.prontuario.editar": "Editar prontuário",
-        "ambulatorio.prontuario.excluir": "Excluir prontuário",
-        "ambulatorio.prontuario.ver_historico": "Ver histórico do paciente",
+    "08 - Atendimento ao Cliente": {
+        "ambulatorio.tela.abrir": "Abrir ficha de atendimento",
+        "ambulatorio.prontuario.criar": "Criar ficha",
+        "ambulatorio.prontuario.editar": "Editar ficha",
+        "ambulatorio.prontuario.excluir": "Excluir ficha",
+        "ambulatorio.prontuario.ver_historico": "Ver histórico do cliente",
         "ambulatorio.sinais_vitais.editar": "Editar sinais vitais",
         "ambulatorio.anamnese.editar": "Editar anamnese",
         "ambulatorio.alergias.editar": "Editar alergias",
-        "ambulatorio.conduta.editar": "Editar conduta farmacêutica",
+        "ambulatorio.conduta.editar": "Editar conduta de atendimento",
         "ambulatorio.encaminhamento.editar": "Editar encaminhamento",
         "ambulatorio.termo.marcar": "Marcar termo/consentimento",
-        "ambulatorio.imprimir": "Imprimir prontuário/atendimento",
+        "ambulatorio.imprimir": "Imprimir ficha de atendimento",
         "ambulatorio.whatsapp.enviar": "Enviar orientação por WhatsApp",
     },
-    "09 - PBM / Convênios / Farmácia Popular": {
-        "pbm.tela.abrir": "Abrir PBM/convênios",
-        "pbm.autorizar": "Autorizar venda PBM/convênio",
-        "pbm.cancelar": "Cancelar autorização PBM/convênio",
-        "pbm.desconto.editar": "Editar desconto PBM/convênio",
+    "09 - Convênios / Crediário / Loja Popular": {
+        "pbm.tela.abrir": "Abrir convênios",
+        "pbm.autorizar": "Autorizar venda por convênio",
+        "pbm.cancelar": "Cancelar autorização de convênio",
+        "pbm.desconto.editar": "Editar desconto de convênio",
         "pbm.cliente.editar": "Editar dados do beneficiário",
-        "pbm.relatorio.imprimir": "Imprimir relatório PBM/convênios",
-        "farmacia_popular.autorizar": "Autorizar Farmácia Popular",
-        "farmacia_popular.cancelar": "Cancelar autorização Farmácia Popular",
+        "pbm.relatorio.imprimir": "Imprimir relatório de convênios",
+        "farmacia_popular.autorizar": "Autorizar Loja Popular",
+        "farmacia_popular.cancelar": "Cancelar autorização Loja Popular",
     },
-    "10 - Serviços Farmacêuticos": {
-        "servico_farma.tela.abrir": "Abrir serviços farmacêuticos",
+    "10 - Serviços da Loja": {
+        "servico_farma.tela.abrir": "Abrir serviços da loja",
         "servico_farma.agendar": "Agendar serviço",
         "servico_farma.editar": "Editar agendamento/serviço",
         "servico_farma.cancelar": "Cancelar serviço",
@@ -97323,12 +98620,12 @@ ATOMIC_PERMISSION_GROUPS_FARMA = {
         "servico_farma.imprimir": "Imprimir comprovante de serviço",
     },
     "11 - Clientes / CRM / Pós-venda": {
-        "cliente.tela.abrir": "Abrir cadastro de clientes/pacientes",
-        "cliente.visualizar": "Visualizar cliente/paciente",
-        "cliente.criar": "Criar cliente/paciente",
-        "cliente.editar": "Editar cliente/paciente",
-        "cliente.excluir": "Excluir cliente/paciente",
-        "cliente.dados_sensiveis.ver": "Ver dados sensíveis do paciente",
+        "cliente.tela.abrir": "Abrir cadastro de clientes",
+        "cliente.visualizar": "Visualizar cliente",
+        "cliente.criar": "Criar cliente",
+        "cliente.editar": "Editar cliente",
+        "cliente.excluir": "Excluir cliente",
+        "cliente.dados_sensiveis.ver": "Ver dados sensíveis do cliente",
         "cliente.historico_compras.ver": "Ver histórico de compras",
         "cliente.credito.ver": "Ver créditos/débitos",
         "crm.tela.abrir": "Abrir CRM/pós-venda",
@@ -97338,14 +98635,14 @@ ATOMIC_PERMISSION_GROUPS_FARMA = {
         "crm.campanha.enviar": "Enviar campanha comercial",
     },
     "12 - Relatórios / Impressões": {
-        "relatorio_farma.tela.abrir": "Abrir Central de Relatórios Farma",
+        "relatorio_farma.tela.abrir": "Abrir Central de Relatórios Loja",
         "relatorio_farma.produtos_vencidos": "Relatório de produtos vencidos/vencendo",
         "relatorio_farma.estoque_baixo": "Relatório de estoque baixo/reposição",
         "relatorio_farma.tratamentos": "Relatório de tratamentos/recompra",
-        "relatorio_farma.prontuarios": "Relatório de prontuários ambulatoriais",
-        "relatorio_farma.controlados": "Relatório de controlados/SNGPC",
-        "relatorio_farma.pbm": "Relatório PBM/convênios",
-        "relatorio_farma.servicos": "Relatório de serviços farmacêuticos",
+        "relatorio_farma.prontuarios": "Relatório de fichas de atendimento",
+        "relatorio_farma.controlados": "Relatório de itens com controle interno",
+        "relatorio_farma.pbm": "Relatório de convênios",
+        "relatorio_farma.servicos": "Relatório de serviços da loja",
         "relatorio_farma.crm": "Relatório CRM/pós-venda",
         "relatorio_farma.vendas": "Relatório de vendas comerciais",
         "relatorio_farma.a4": "Gerar/imprimir relatório A4",
@@ -97411,13 +98708,13 @@ ATOMIC_PERMISSION_ALIASES_FARMA = {
 
 ATOMIC_PROFILE_TEMPLATES_FARMA = {
     "Administrador Total": ["*"],
-    "Gerente Farmacêutico": [
+    "Gerente da Loja": [
         "pdv.*", "produto.*", "nota.*", "lote.*", "estoque.*", "controlado.*", "tratamento.*",
         "ambulatorio.*", "pbm.*", "farmacia_popular.*", "servico_farma.*", "cliente.*", "crm.*",
         "relatorio_farma.*", "ui.*", "config.sistema.backup", "config.sistema.auditoria",
         "admin.permissoes.abrir", "admin.permissoes.auditar", "admin.permissoes.exportar"
     ],
-    "Farmacêutico Responsável": [
+    "Supervisor da Loja": [
         "pdv.tela.abrir", "pdv.produto.buscar", "pdv.produto.adicionar", "pdv.finalizar",
         "produto.visualizar", "produto.controlado.marcar", "produto.antibiotico.marcar", "produto.lote_validade.editar",
         "controlado.*", "tratamento.*", "ambulatorio.*", "pbm.tela.abrir", "pbm.autorizar",
@@ -97441,7 +98738,7 @@ ATOMIC_PROFILE_TEMPLATES_FARMA = {
         "produto.lote_validade.editar", "nota.*", "lote.*", "estoque.*", "relatorio_farma.produtos_vencidos",
         "relatorio_farma.estoque_baixo", "relatorio_farma.a4", "relatorio_farma.bobina80", "relatorio_farma.exportar", "ui.*"
     ],
-    "Ambulatório": [
+    "Atendimento": [
         "ambulatorio.*", "tratamento.*", "cliente.visualizar", "cliente.criar", "cliente.editar",
         "produto.visualizar", "servico_farma.*", "relatorio_farma.prontuarios", "relatorio_farma.servicos",
         "relatorio_farma.a4", "ambulatorio.whatsapp.enviar", "ui.*"
@@ -97693,7 +98990,7 @@ class QuantumAtomicPermissionsWindow(tk.Toplevel):
     def __init__(self, app=None, master=None):
         super().__init__(master or getattr(app, 'root', None))
         self.app = app
-        self.title('🔐 Permissões Atômicas e Granulares - Farmácia/Drogaria')
+        self.title('🔐 Permissões Atômicas e Granulares - Loja/Loja')
         self.geometry('1280x780')
         try:
             self.state('zoomed')
@@ -98707,13 +100004,13 @@ except Exception as _schema_auto_e:
 #   automaticamente permissões que o administrador desmarcar depois.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-QUANTUM_PERMISSOES_REVISAO_ATUAL = "2026.06.16-full-senior"
+QUANTUM_PERMISSOES_REVISAO_ATUAL = "2026.07.25-niveis-revisados"
 
-_QPERM_USADAS_NO_CODIGO_20260616 = ['admin.perfis.criar', 'admin.perfis.editar', 'admin.perfis.excluir', 'admin.permissoes.abrir', 'admin.permissoes.aplicar_perfil', 'admin.permissoes.auditar', 'admin.permissoes.exportar', 'admin.permissoes.importar', 'admin.permissoes.salvar_usuario', 'admin.permissoes.sincronizar', 'admin.permissoes.testar', 'admin.total', 'admin.usuarios.ativar_desativar', 'admin.usuarios.criar', 'admin.usuarios.editar', 'admin.usuarios.excluir', 'admin.usuarios.resetar_senha', 'ambulatorio.acessar', 'ambulatorio.alergias.editar', 'ambulatorio.anamnese.editar', 'ambulatorio.conduta.editar', 'ambulatorio.encaminhamento.editar', 'ambulatorio.imprimir', 'ambulatorio.prontuario.criar', 'ambulatorio.prontuario.editar', 'ambulatorio.prontuario.excluir', 'ambulatorio.prontuario.ver_historico', 'ambulatorio.sinais_vitais.editar', 'ambulatorio.tela.abrir', 'ambulatorio.termo.marcar', 'ambulatorio.whatsapp.enviar', 'aniversarios.acessar', 'aniversarios.configurar', 'aniversarios.enviar', 'backup.automatico.acessar', 'backup.automatico.ativar', 'backup.automatico.configurar_ftp', 'backup.automatico.definir_intervalo', 'backup.automatico.enviar_ftp', 'backup.automatico.executar', 'backup.automatico.salvar_configuracao', 'backup.automatico.testar_agora', 'bairros.acessar', 'bairros.criar', 'bairros.editar', 'bairros.excluir', 'balanca.acessar', 'balanca.conectar', 'balanca.configurar', 'balanca.monitor', 'balanca.pesar', 'banco.configurar_conexao', 'banco.criar_colunas', 'banco.criar_indices', 'banco.criar_tabelas', 'banco.migrar_banco_antigo', 'banco.precheck_global', 'banco.verificar_estrutura', 'botao.ambulatorio.excluir', 'botao.ambulatorio.salvar', 'botao.ambulatorio.whatsapp', 'botao.nota.finalizar', 'botao.nota.salvar', 'botao.pdv.cancelar', 'botao.pdv.desconto', 'botao.pdv.finalizar', 'botao.produto.excluir', 'botao.produto.salvar', 'botao.relatorios.imprimir', 'botao.tratamento.salvar', 'botao.tratamento.whatsapp', 'caixa.abrir', 'caixa.acessar', 'caixa.fechar', 'caixa.gerenciar_pdvs', 'caixa.gerenciar_turnos', 'caixa.gerenciar_vinculos', 'caixa.imprimir_abertura', 'caixa.imprimir_fechamento', 'caixa.sangria', 'caixa.suprimento', 'caixa.ver_movimentacoes', 'caixa.visualizar_fechamento', 'campo.ambulatorio.anamnese', 'campo.ambulatorio.conduta', 'campo.nota.lote', 'campo.nota.validade', 'campo.produto.estoque', 'campo.produto.preco', 'cartoes.acessar', 'cartoes.criar', 'cartoes.editar', 'cartoes.editar_taxa', 'cartoes.excluir', 'categorias.acessar', 'categorias.criar', 'categorias.editar', 'categorias.excluir', 'cliente.credito.ver', 'cliente.criar', 'cliente.dados_sensiveis.ver', 'cliente.editar', 'cliente.excluir', 'cliente.historico_compras.ver', 'cliente.tela.abrir', 'cliente.visualizar', 'clientes.acessar', 'clientes.consultar', 'clientes.criar', 'clientes.editar', 'clientes.editar_cpf', 'clientes.editar_endereco', 'clientes.editar_limite_credito', 'clientes.editar_nome', 'clientes.editar_telefone', 'clientes.excluir', 'clientes.importar', 'clientes.ver_cashback', 'clientes.ver_dividas', 'clientes.ver_historico', 'comandas.acessar', 'comandas.adicionar_item', 'comandas.cancelar', 'comandas.criar', 'comandas.editar', 'comandas.fechar', 'comandas.imprimir_cozinha', 'comandas.remover_item', 'comandas.sinalizar', 'comandas.transferir', 'config.acessar', 'config.backup', 'config.banco.abrir', 'config.banco.bind_0000', 'config.banco.criar', 'config.banco.liberar_banco_todos_usuarios', 'config.banco.liberar_usuario_todos_bancos', 'config.banco.salvar', 'config.banco.schema_preinit', 'config.banco.testar', 'config.empresa', 'config.exportar_dados', 'config.permissoes', 'config.rede', 'config.restaurar', 'config.sistema.auditoria', 'config.sistema.backup', 'config.sistema.licenca', 'config.sistema.restore', 'config.sistema.tema', 'config.usuarios', 'config.vencimento', 'cupons.exportar_pdf', 'cupons.imprimir_comprovante_devolucao', 'cupons.imprimir_termica', 'cupons.reimprimir', 'cupons.visualizar', 'devolucoes.acessar', 'devolucoes.buscar_venda', 'devolucoes.cancelar', 'devolucoes.credito', 'devolucoes.editar_quantidade', 'devolucoes.imprimir_comprovante', 'devolucoes.processar', 'devolucoes.reabrir_carrinho', 'devolucoes.reembolso', 'devolucoes.selecionar_item', 'entregadores.acessar', 'entregadores.criar', 'entregadores.editar', 'entregadores.excluir', 'estoque.acessar', 'estoque.ajuste', 'estoque.ajuste_entrada', 'estoque.ajuste_saida', 'estoque.editar_nota', 'estoque.entrada_nota', 'estoque.excluir_nota', 'estoque.inventario', 'estoque.perda_vencimento', 'estoque.transferencia', 'estoque.ver_estoque', 'estoque.ver_movimentacoes', 'etiquetas.acessar', 'etiquetas.adicionar_componente', 'etiquetas.carregar_modelo', 'etiquetas.codigo_barras', 'etiquetas.configurar_impressora', 'etiquetas.editor_visual', 'etiquetas.excluir_componente', 'etiquetas.exportar_pdf', 'etiquetas.imprimir', 'etiquetas.mover_componente', 'etiquetas.numero_codigo_barras', 'etiquetas.qrcode', 'etiquetas.redimensionar_componente', 'etiquetas.salvar_modelo', 'etiquetas.selecionar_modelo', 'etiquetas.tamanho_personalizado', 'etiquetas.visualizar_pdf', 'financeiro.acessar', 'financeiro.centro_custos', 'financeiro.contas_pagar', 'financeiro.contas_receber', 'financeiro.criar_conta_pagar', 'financeiro.criar_conta_receber', 'financeiro.editar_conta_pagar', 'financeiro.editar_conta_receber', 'financeiro.excluir_conta_pagar', 'financeiro.excluir_conta_receber', 'financeiro.fluxo_caixa', 'financeiro.pagar_conta', 'financeiro.receber_conta', 'fornecedores.acessar', 'fornecedores.criar', 'fornecedores.editar', 'fornecedores.excluir', 'garcons.acessar', 'garcons.criar', 'garcons.editar', 'garcons.excluir', 'impressora.abrir_gaveta', 'impressora.acessar', 'impressora.configurar', 'impressora.multiplas', 'impressora.testar', 'mesas.acessar', 'mesas.bloquear', 'mesas.configurar_couvert', 'mesas.criar', 'mesas.editar', 'mesas.excluir', 'mesas.gerenciar', 'mesas.independentes_comandas', 'mesas.liberar', 'mesas.ocupar', 'mesas.reservar', 'nota.criar', 'nota.editar', 'nota.excluir', 'nota.finalizar', 'nota.fornecedor.editar', 'nota.importar_xml', 'nota.imprimir', 'nota.item.adicionar', 'nota.item.editar', 'nota.item.excluir', 'nota.lote.informar', 'nota.tela.abrir', 'nota.validade.informar', 'os.acessar', 'os.alterar_status', 'os.cancelar', 'os.criar', 'os.editar', 'os.excluir', 'os.imprimir', 'os.relatorios', 'os.visualizar', 'permissoes.acessar', 'permissoes.exportar_matriz', 'permissoes.revisar_niveis', 'permissoes.sincronizar_niveis', 'politica_troca.acessar', 'politica_troca.editar', 'politica_troca.imprimir', 'produtos.acessar', 'produtos.consultar', 'produtos.criar', 'produtos.editar', 'produtos.editar_categoria', 'produtos.editar_codigo', 'produtos.editar_custo', 'produtos.editar_estoque', 'produtos.editar_nome', 'produtos.editar_preco', 'produtos.etiquetas', 'produtos.excluir', 'produtos.exportar', 'produtos.imagem', 'produtos.importar', 'produtos.trocar_categoria_lote', 'relatorios.acessar', 'relatorios.auditoria', 'relatorios.cashback', 'relatorios.clientes', 'relatorios.contas_pagar', 'relatorios.contas_receber', 'relatorios.contas_receber_cliente', 'relatorios.creditos_clientes', 'relatorios.descontos', 'relatorios.devolucoes', 'relatorios.estoque_baixo', 'relatorios.estoque_datas', 'relatorios.estoque_produtos', 'relatorios.exclusoes', 'relatorios.exportar_csv', 'relatorios.exportar_pdf', 'relatorios.fechamento_caixa', 'relatorios.fechamento_filtros', 'relatorios.fechamentos_caixa', 'relatorios.imprimir', 'relatorios.lucro_despesas', 'relatorios.notas_entrada', 'relatorios.orcamentos', 'relatorios.produtos_vendidos', 'relatorios.reimprimir_fechamento', 'relatorios.reimprimir_recibo_financeiro', 'relatorios.resumo_dia', 'relatorios.resumo_vendas_vendedor', 'relatorios.taxa_entrega', 'relatorios.usuarios', 'relatorios.vendas_categoria', 'relatorios.vendas_cliente', 'relatorios.vendas_mensal', 'relatorios.vendas_pagamento', 'relatorios.vendas_periodo', 'relatorios.vendedores', 'relatorios.visualizar_impressao', 'relatorios.vouchers', 'servicos.acessar', 'servicos.criar', 'servicos.editar', 'servicos.excluir', 'servidor.acessar', 'servidor.chamador', 'servidor.cozinha', 'servidor.garcom', 'servidor.iniciar', 'servidor.parar', 'sistema.atualizacao_tempo_real', 'sistema.diagnostico', 'sistema.icone_barra_tarefas', 'sistema.instancia_unica', 'sistema.logs_auditoria', 'sistema.manter_cache', 'sistema.otimizacao_abertura', 'sistema.sincronizacao_quantica', 'sistema.tela_impressao_ampliada', 'tamanhos.acessar', 'tamanhos.criar', 'tamanhos.editar', 'tamanhos.excluir', 'tratamento.acessar', 'tratamento.alertas.ver', 'tratamento.compra.marcar', 'tratamento.criar', 'tratamento.editar', 'tratamento.excluir', 'tratamento.posologia.editar', 'tratamento.recompra.calcular', 'tratamento.relatorio.imprimir', 'tratamento.tela.abrir', 'tratamento.whatsapp.enviar', 'util.backup_automatico', 'util.calculadora', 'util.dashboard', 'util.entregas', 'util.quantum_ai', 'util.testador', 'vendas.abrir_gaveta', 'vendas.acessar', 'vendas.adicionar_item', 'vendas.alterar_preco', 'vendas.alterar_quantidade', 'vendas.aplicar_desconto', 'vendas.aplicar_desconto_item', 'vendas.aplicar_desconto_total', 'vendas.cancelar_item', 'vendas.cancelar_venda', 'vendas.devolucao', 'vendas.finalizar_venda', 'vendas.reimprimir_cupom', 'vendas.remover_item', 'vendas.selecionar_cliente', 'vendas.venda_fiado', 'vendedores.acessar', 'vendedores.criar', 'vendedores.editar', 'vendedores.excluir', 'vouchers.acessar', 'vouchers.cancelar', 'vouchers.criar', 'vouchers.editar', 'vouchers.usar']
+_QPERM_USADAS_NO_CODIGO_20260616 = ['admin.perfis.criar', 'admin.perfis.editar', 'admin.perfis.excluir', 'admin.permissoes.abrir', 'admin.permissoes.aplicar_perfil', 'admin.permissoes.auditar', 'admin.permissoes.exportar', 'admin.permissoes.importar', 'admin.permissoes.salvar_usuario', 'admin.permissoes.sincronizar', 'admin.permissoes.testar', 'admin.total', 'admin.usuarios.ativar_desativar', 'admin.usuarios.criar', 'admin.usuarios.editar', 'admin.usuarios.excluir', 'admin.usuarios.resetar_senha', 'ambulatorio.acessar', 'ambulatorio.alergias.editar', 'ambulatorio.anamnese.editar', 'ambulatorio.conduta.editar', 'ambulatorio.encaminhamento.editar', 'ambulatorio.imprimir', 'ambulatorio.prontuario.criar', 'ambulatorio.prontuario.editar', 'ambulatorio.prontuario.excluir', 'ambulatorio.prontuario.ver_historico', 'ambulatorio.sinais_vitais.editar', 'ambulatorio.tela.abrir', 'ambulatorio.termo.marcar', 'ambulatorio.whatsapp.enviar', 'aniversarios.acessar', 'aniversarios.configurar', 'aniversarios.enviar', 'backup.automatico.acessar', 'backup.automatico.ativar', 'backup.automatico.configurar_ftp', 'backup.automatico.definir_intervalo', 'backup.automatico.enviar_ftp', 'backup.automatico.executar', 'backup.automatico.salvar_configuracao', 'backup.automatico.testar_agora', 'bairros.acessar', 'bairros.criar', 'bairros.editar', 'bairros.excluir', 'balanca.acessar', 'balanca.conectar', 'balanca.configurar', 'balanca.monitor', 'balanca.pesar', 'banco.configurar_conexao', 'banco.criar_colunas', 'banco.criar_indices', 'banco.criar_tabelas', 'banco.migrar_banco_antigo', 'banco.precheck_global', 'banco.verificar_estrutura', 'botao.ambulatorio.excluir', 'botao.ambulatorio.salvar', 'botao.ambulatorio.whatsapp', 'botao.nota.finalizar', 'botao.nota.salvar', 'botao.pdv.cancelar', 'botao.pdv.desconto', 'botao.pdv.finalizar', 'botao.produto.excluir', 'botao.produto.salvar', 'botao.relatorios.imprimir', 'botao.tratamento.salvar', 'botao.tratamento.whatsapp', 'caixa.abrir', 'caixa.acessar', 'caixa.fechar', 'caixa.gerenciar_pdvs', 'caixa.gerenciar_turnos', 'caixa.gerenciar_vinculos', 'caixa.imprimir_abertura', 'caixa.imprimir_fechamento', 'caixa.sangria', 'caixa.suprimento', 'caixa.ver_movimentacoes', 'caixa.visualizar_fechamento', 'campo.ambulatorio.anamnese', 'campo.ambulatorio.conduta', 'campo.nota.lote', 'campo.nota.validade', 'campo.produto.estoque', 'campo.produto.preco', 'cartoes.acessar', 'cartoes.criar', 'cartoes.editar', 'cartoes.editar_taxa', 'cartoes.excluir', 'categorias.acessar', 'categorias.criar', 'categorias.editar', 'categorias.excluir', 'cliente.credito.ver', 'cliente.criar', 'cliente.dados_sensiveis.ver', 'cliente.editar', 'cliente.excluir', 'cliente.historico_compras.ver', 'cliente.tela.abrir', 'cliente.visualizar', 'clientes.acessar', 'clientes.consultar', 'clientes.criar', 'clientes.editar', 'clientes.editar_cpf', 'clientes.editar_endereco', 'clientes.editar_limite_credito', 'clientes.editar_nome', 'clientes.editar_telefone', 'clientes.excluir', 'clientes.importar', 'clientes.ver_cashback', 'clientes.ver_dividas', 'clientes.ver_historico', 'comandas.acessar', 'comandas.adicionar_item', 'comandas.cancelar', 'comandas.criar', 'comandas.editar', 'comandas.fechar', 'comandas.imprimir_cozinha', 'comandas.remover_item', 'comandas.sinalizar', 'comandas.transferir', 'config.acessar', 'config.backup', 'config.banco.abrir', 'config.banco.bind_0000', 'config.banco.criar', 'config.banco.liberar_banco_todos_usuarios', 'config.banco.liberar_usuario_todos_bancos', 'config.banco.salvar', 'config.banco.schema_preinit', 'config.banco.testar', 'config.empresa', 'config.exportar_dados', 'config.permissoes', 'config.rede', 'config.restaurar', 'config.sistema.auditoria', 'config.sistema.backup', 'config.sistema.licenca', 'config.sistema.restore', 'config.sistema.tema', 'config.usuarios', 'config.vencimento', 'cupons.exportar_pdf', 'cupons.imprimir_comprovante_devolucao', 'cupons.imprimir_termica', 'cupons.reimprimir', 'cupons.visualizar', 'devolucoes.acessar', 'devolucoes.buscar_venda', 'devolucoes.cancelar', 'devolucoes.credito', 'devolucoes.editar_quantidade', 'devolucoes.imprimir_comprovante', 'devolucoes.processar', 'devolucoes.reabrir_carrinho', 'devolucoes.reembolso', 'devolucoes.selecionar_item', 'entregadores.acessar', 'entregadores.criar', 'entregadores.editar', 'entregadores.excluir', 'estoque.acessar', 'estoque.ajuste', 'estoque.ajuste_entrada', 'estoque.ajuste_saida', 'estoque.editar_nota', 'estoque.entrada_nota', 'estoque.excluir_nota', 'estoque.inventario', 'estoque.perda_vencimento', 'estoque.transferencia', 'estoque.ver_estoque', 'estoque.ver_movimentacoes', 'etiquetas.acessar', 'etiquetas.adicionar_componente', 'etiquetas.carregar_modelo', 'etiquetas.codigo_barras', 'etiquetas.configurar_impressora', 'etiquetas.editor_visual', 'etiquetas.excluir_componente', 'etiquetas.exportar_pdf', 'etiquetas.imprimir', 'etiquetas.mover_componente', 'etiquetas.numero_codigo_barras', 'etiquetas.qrcode', 'etiquetas.redimensionar_componente', 'etiquetas.salvar_modelo', 'etiquetas.selecionar_modelo', 'etiquetas.tamanho_personalizado', 'etiquetas.visualizar_pdf', 'financeiro.acessar', 'financeiro.centro_custos', 'financeiro.contas_pagar', 'financeiro.contas_receber', 'financeiro.criar_conta_pagar', 'financeiro.criar_conta_receber', 'financeiro.editar_conta_pagar', 'financeiro.editar_conta_receber', 'financeiro.excluir_conta_pagar', 'financeiro.excluir_conta_receber', 'financeiro.fluxo_caixa', 'financeiro.pagar_conta', 'financeiro.receber_conta', 'fornecedores.acessar', 'fornecedores.criar', 'fornecedores.editar', 'fornecedores.excluir', 'garcons.acessar', 'garcons.criar', 'garcons.editar', 'garcons.excluir', 'impressora.abrir_gaveta', 'impressora.acessar', 'impressora.configurar', 'impressora.multiplas', 'impressora.testar', 'mesas.acessar', 'mesas.bloquear', 'mesas.configurar_couvert', 'mesas.criar', 'mesas.editar', 'mesas.excluir', 'mesas.gerenciar', 'mesas.independentes_comandas', 'mesas.liberar', 'mesas.ocupar', 'mesas.reservar', 'nota.criar', 'nota.editar', 'nota.excluir', 'nota.finalizar', 'nota.fornecedor.editar', 'nota.importar_xml', 'nota.imprimir', 'nota.item.adicionar', 'nota.item.editar', 'nota.item.excluir', 'nota.lote.informar', 'nota.tela.abrir', 'nota.validade.informar', 'orcamentos.acessar', 'orcamentos.converter_venda', 'orcamentos.criar', 'orcamentos.editar', 'orcamentos.enviar_whatsapp', 'orcamentos.excluir', 'orcamentos.imprimir', 'orcamentos.visualizar', 'os.acessar', 'os.alterar_status', 'os.cancelar', 'os.criar', 'os.editar', 'os.excluir', 'os.imprimir', 'os.relatorios', 'os.visualizar', 'permissoes.acessar', 'permissoes.exportar_matriz', 'permissoes.revisar_niveis', 'permissoes.sincronizar_niveis', 'politica_troca.acessar', 'politica_troca.editar', 'politica_troca.imprimir', 'produtos.acessar', 'produtos.consultar', 'produtos.criar', 'produtos.editar', 'produtos.editar_categoria', 'produtos.editar_codigo', 'produtos.editar_custo', 'produtos.editar_estoque', 'produtos.editar_nome', 'produtos.editar_preco', 'produtos.etiquetas', 'produtos.excluir', 'produtos.exportar', 'produtos.imagem', 'produtos.importar', 'produtos.trocar_categoria_lote', 'relatorios.acessar', 'relatorios.auditoria', 'relatorios.cashback', 'relatorios.clientes', 'relatorios.contas_pagar', 'relatorios.contas_receber', 'relatorios.contas_receber_cliente', 'relatorios.creditos_clientes', 'relatorios.descontos', 'relatorios.devolucoes', 'relatorios.estoque_baixo', 'relatorios.estoque_datas', 'relatorios.estoque_produtos', 'relatorios.exclusoes', 'relatorios.exportar_csv', 'relatorios.exportar_pdf', 'relatorios.fechamento_caixa', 'relatorios.fechamento_filtros', 'relatorios.fechamentos_caixa', 'relatorios.imprimir', 'relatorios.lucro_despesas', 'relatorios.notas_entrada', 'relatorios.orcamentos', 'relatorios.produtos_vendidos', 'relatorios.reimprimir_fechamento', 'relatorios.reimprimir_recibo_financeiro', 'relatorios.resumo_dia', 'relatorios.resumo_vendas_vendedor', 'relatorios.taxa_entrega', 'relatorios.usuarios', 'relatorios.vendas_categoria', 'relatorios.vendas_cliente', 'relatorios.vendas_mensal', 'relatorios.vendas_pagamento', 'relatorios.vendas_periodo', 'relatorios.vendedores', 'relatorios.visualizar_impressao', 'relatorios.vouchers', 'servicos.acessar', 'servicos.criar', 'servicos.editar', 'servicos.excluir', 'servidor.acessar', 'servidor.chamador', 'servidor.cozinha', 'servidor.garcom', 'servidor.iniciar', 'servidor.parar', 'sistema.atualizacao_tempo_real', 'sistema.diagnostico', 'sistema.icone_barra_tarefas', 'sistema.instancia_unica', 'sistema.logs_auditoria', 'sistema.manter_cache', 'sistema.otimizacao_abertura', 'sistema.sincronizacao_quantica', 'sistema.tela_impressao_ampliada', 'tamanhos.acessar', 'tamanhos.criar', 'tamanhos.editar', 'tamanhos.excluir', 'tratamento.acessar', 'tratamento.alertas.ver', 'tratamento.compra.marcar', 'tratamento.criar', 'tratamento.editar', 'tratamento.excluir', 'tratamento.posologia.editar', 'tratamento.recompra.calcular', 'tratamento.relatorio.imprimir', 'tratamento.tela.abrir', 'tratamento.whatsapp.enviar', 'util.backup_automatico', 'util.calculadora', 'util.dashboard', 'util.entregas', 'util.quantum_ai', 'util.testador', 'vendas.abrir_gaveta', 'vendas.acessar', 'vendas.adicionar_item', 'vendas.alterar_preco', 'vendas.alterar_quantidade', 'vendas.aplicar_desconto', 'vendas.aplicar_desconto_item', 'vendas.aplicar_desconto_total', 'vendas.cancelar_item', 'vendas.cancelar_venda', 'vendas.devolucao', 'vendas.finalizar_venda', 'vendas.reimprimir_cupom', 'vendas.remover_item', 'vendas.selecionar_cliente', 'vendas.venda_fiado', 'vendedores.acessar', 'vendedores.criar', 'vendedores.editar', 'vendedores.excluir', 'vouchers.acessar', 'vouchers.cancelar', 'vouchers.criar', 'vouchers.editar', 'vouchers.usar']
 
 _QPERM_MODULO_NOME = {
     "admin": "Administração, Usuários e Permissões Atômicas",
-    "ambulatorio": "Ambulatório e Prontuário",
+    "ambulatorio": "Atendimento e Ficha",
     "backup": "Backup Automático FTP",
     "bairros": "Bairros e Taxa de Entrega",
     "balanca": "Balança Comercial",
@@ -98744,7 +100041,7 @@ _QPERM_MODULO_NOME = {
     "politica_troca": "Política de Troca",
     "produtos": "Produtos",
     "relatorios": "Relatórios",
-    "relatorios_farma": "Relatórios Farma",
+    "relatorios_farma": "Relatórios Loja",
     "servidor": "Servidor Web",
     "servicos": "Serviços",
     "sistema": "Sistema, Integridade e Performance",
@@ -98755,6 +100052,7 @@ _QPERM_MODULO_NOME = {
     "vendedores": "Vendedores",
     "vouchers": "Vouchers",
     "aniversarios": "Aniversários e WhatsApp",
+    "orcamentos": "Orçamentos",
 }
 
 _QPERM_ACAO_NOME = {
@@ -98869,6 +100167,95 @@ _QPERM_ACAO_NOME = {
     "visualizar_fechamento": "Visualizar fechamento",
     "visualizar_impressao": "Visualizar impressão",
     "whatsapp": "Enviar por WhatsApp",
+    # --- Acoes adicionadas na revisao de niveis (nomes fieis) ---
+    "aplicar_perfil": "Aplicar perfil",
+    "marcar": "Marcar",
+    "executar": "Executar",
+    "sangria": "Sangria (retirada)",
+    "suprimento": "Suprimento (reforço)",
+    "anamnese": "Editar anamnese",
+    "conduta": "Editar conduta",
+    "editar_taxa": "Editar taxa",
+    "editar_cpf": "Editar CPF",
+    "editar_endereco": "Editar endereço",
+    "editar_limite_credito": "Editar limite de crédito",
+    "editar_nome": "Editar nome",
+    "editar_telefone": "Editar telefone",
+    "ver_cashback": "Ver cashback",
+    "ver_dividas": "Ver dívidas",
+    "imprimir_cozinha": "Imprimir na cozinha",
+    "sinalizar": "Sinalizar",
+    "backup": "Backup",
+    "empresa": "Dados da empresa",
+    "exportar_dados": "Exportar dados",
+    "permissoes": "Gerenciar permissões",
+    "rede": "Configurar rede",
+    "auditoria": "Auditoria",
+    "licenca": "Licença",
+    "restore": "Restaurar",
+    "tema": "Tema visual",
+    "usuarios": "Gerenciar usuários",
+    "vencimento": "Vencimento / Licença",
+    "liberar_banco_todos_usuarios": "Liberar banco para todos os usuários",
+    "liberar_usuario_todos_bancos": "Liberar usuário para todos os bancos",
+    "imprimir_comprovante_devolucao": "Imprimir comprovante de devolução",
+    "imprimir_comprovante": "Imprimir comprovante",
+    "ajuste": "Ajuste de estoque",
+    "ajuste_entrada": "Ajuste de entrada",
+    "ajuste_saida": "Ajuste de saída",
+    "editar_nota": "Editar nota",
+    "entrada_nota": "Entrada por nota",
+    "excluir_nota": "Excluir nota",
+    "inventario": "Inventário",
+    "perda_vencimento": "Baixa por perda/vencimento",
+    "transferencia": "Transferência",
+    "adicionar_componente": "Adicionar componente",
+    "configurar_impressora": "Configurar impressora",
+    "editor_visual": "Editor visual",
+    "excluir_componente": "Excluir componente",
+    "qrcode": "Gerar QR Code",
+    "tamanho_personalizado": "Tamanho personalizado",
+    "visualizar_pdf": "Visualizar PDF",
+    "centro_custos": "Centro de custos",
+    "contas_pagar": "Contas a pagar",
+    "contas_receber": "Contas a receber",
+    "criar_conta_pagar": "Criar conta a pagar",
+    "criar_conta_receber": "Criar conta a receber",
+    "editar_conta_pagar": "Editar conta a pagar",
+    "editar_conta_receber": "Editar conta a receber",
+    "excluir_conta_pagar": "Excluir conta a pagar",
+    "excluir_conta_receber": "Excluir conta a receber",
+    "fluxo_caixa": "Fluxo de caixa",
+    "abrir_gaveta": "Abrir gaveta",
+    "multiplas": "Múltiplas impressoras",
+    "configurar_couvert": "Configurar couvert",
+    "independentes_comandas": "Mesas independentes de comandas",
+    "importar_xml": "Importar XML",
+    "informar": "Informar",
+    "relatorios": "Relatórios",
+    "editar_categoria": "Editar categoria",
+    "editar_codigo": "Editar código",
+    "editar_custo": "Editar custo",
+    "editar_estoque": "Editar estoque",
+    "editar_preco": "Editar preço",
+    "trocar_categoria_lote": "Trocar categoria em lote",
+    "converter_venda": "Converter em venda",
+    "enviar_whatsapp": "Enviar por WhatsApp",
+    "calcular": "Calcular",
+    "compra": "Marcar compra",
+    "atualizacao_tempo_real": "Atualização em tempo real",
+    "icone_barra_tarefas": "Ícone na barra de tarefas",
+    "logs_auditoria": "Logs de auditoria",
+    "manter_cache": "Manter cache",
+    "otimizacao_abertura": "Otimização de abertura",
+    "sincronizacao_quantica": "Sincronização quântica",
+    "tela_impressao_ampliada": "Tela de impressão ampliada",
+    "backup_automatico": "Backup automático",
+    "entregas": "Entregas",
+    "imprimir_termica": "Imprimir em bobina térmica",
+    "reimprimir_cupom": "Reimprimir cupom",
+    "etiquetas": "Gerar etiquetas",
+    "calculadora": "Abrir calculadora",
 }
 
 _QPERM_DESCRICOES_FIEIS = {
@@ -98911,12 +100298,12 @@ _QPERM_DESCRICOES_FIEIS = {
     "tratamento.excluir": "Excluir tratamento contínuo",
     "tratamento.whatsapp.enviar": "Enviar lembrete de tratamento por WhatsApp",
     "tratamento.relatorio.imprimir": "Imprimir relatório de tratamentos contínuos",
-    "ambulatorio.tela.abrir": "Abrir módulo Ambulatorial/Prontuário",
-    "ambulatorio.acessar": "Acessar prontuário ambulatorial",
-    "ambulatorio.prontuario.criar": "Criar prontuário ambulatorial",
-    "ambulatorio.prontuario.editar": "Editar prontuário ambulatorial",
-    "ambulatorio.prontuario.excluir": "Excluir prontuário ambulatorial",
-    "ambulatorio.whatsapp.enviar": "Enviar dados/orientações do prontuário por WhatsApp",
+    "ambulatorio.tela.abrir": "Abrir módulo de Atendimento/Ficha",
+    "ambulatorio.acessar": "Acessar ficha de atendimento",
+    "ambulatorio.prontuario.criar": "Criar ficha de atendimento",
+    "ambulatorio.prontuario.editar": "Editar ficha de atendimento",
+    "ambulatorio.prontuario.excluir": "Excluir ficha de atendimento",
+    "ambulatorio.whatsapp.enviar": "Enviar dados/orientações da ficha por WhatsApp",
     "botao.pdv.finalizar": "Habilitar botão Finalizar Venda no PDV",
     "botao.pdv.cancelar": "Habilitar botão Cancelar no PDV",
     "botao.pdv.desconto": "Habilitar botão Desconto/Acréscimo no PDV",
@@ -98926,6 +100313,69 @@ _QPERM_DESCRICOES_FIEIS = {
     "campo.produto.estoque": "Permitir edição dos campos de estoque do produto",
     "campo.nota.lote": "Permitir informar lote na nota/entrada",
     "campo.nota.validade": "Permitir informar validade na nota/entrada",
+    # --- Descricoes fieis adicionadas na revisao de niveis ---
+    "relatorios.auditoria": "Relatório de auditoria do sistema",
+    "relatorios.cashback": "Relatório de cashback",
+    "relatorios.clientes": "Relatório de clientes",
+    "relatorios.contas_pagar": "Relatório de contas a pagar",
+    "relatorios.contas_receber": "Relatório de contas a receber",
+    "relatorios.contas_receber_cliente": "Relatório de contas a receber por cliente",
+    "relatorios.creditos_clientes": "Relatório de créditos de clientes",
+    "relatorios.descontos": "Relatório de descontos concedidos",
+    "relatorios.devolucoes": "Relatório de devoluções",
+    "relatorios.estoque_baixo": "Relatório de estoque baixo",
+    "relatorios.estoque_datas": "Relatório de estoque por validade",
+    "relatorios.estoque_produtos": "Relatório de estoque de produtos",
+    "relatorios.exclusoes": "Relatório de itens/registros excluídos",
+    "relatorios.fechamento_caixa": "Relatório de fechamento de caixa",
+    "relatorios.fechamentos_caixa": "Relatório de fechamentos de caixa",
+    "relatorios.lucro_despesas": "Relatório de lucro e despesas",
+    "relatorios.notas_entrada": "Relatório de notas de entrada",
+    "relatorios.orcamentos": "Relatório de orçamentos",
+    "relatorios.produtos_vendidos": "Relatório de produtos vendidos",
+    "relatorios.reimprimir_fechamento": "Reimprimir fechamento de caixa",
+    "relatorios.reimprimir_recibo_financeiro": "Reimprimir recibo financeiro",
+    "relatorios.resumo_dia": "Relatório de resumo do dia",
+    "relatorios.resumo_vendas_vendedor": "Relatório de vendas por vendedor",
+    "relatorios.taxa_entrega": "Relatório de taxa de entrega",
+    "relatorios.usuarios": "Relatório de usuários",
+    "relatorios.vendas_categoria": "Relatório de vendas por categoria",
+    "relatorios.vendas_cliente": "Relatório de vendas por cliente",
+    "relatorios.vendas_mensal": "Relatório de vendas mensais",
+    "relatorios.vendas_pagamento": "Relatório de vendas por forma de pagamento",
+    "relatorios.vendas_periodo": "Relatório de vendas por período",
+    "relatorios.vendedores": "Relatório de vendedores",
+    "relatorios.vouchers": "Relatório de vouchers",
+    "financeiro.centro_custos": "Gerenciar centros de custo",
+    "financeiro.contas_pagar": "Acessar contas a pagar",
+    "financeiro.contas_receber": "Acessar contas a receber",
+    "financeiro.fluxo_caixa": "Ver fluxo de caixa",
+    "config.vencimento": "Configurar vencimento/licença do sistema",
+    "config.empresa": "Editar dados da empresa",
+    "config.usuarios": "Gerenciar usuários do sistema",
+    "config.permissoes": "Abrir configuração de permissões",
+    "config.rede": "Configurar rede/conexão",
+    "config.exportar_dados": "Exportar dados do sistema",
+    "config.backup": "Executar backup pela configuração",
+    "config.restaurar": "Restaurar backup pela configuração",
+    "sistema.diagnostico": "Executar diagnóstico do sistema",
+    "sistema.logs_auditoria": "Acessar logs de auditoria",
+    "orcamentos.acessar": "Acessar módulo de Orçamentos",
+    "orcamentos.criar": "Criar orçamento",
+    "orcamentos.editar": "Editar orçamento",
+    "orcamentos.excluir": "Excluir orçamento",
+    "orcamentos.imprimir": "Imprimir orçamento",
+    "orcamentos.converter_venda": "Converter orçamento em venda",
+    "orcamentos.enviar_whatsapp": "Enviar orçamento por WhatsApp",
+    "orcamentos.visualizar": "Visualizar orçamento",
+    "estoque.entrada_nota": "Dar entrada de estoque por nota",
+    "estoque.perda_vencimento": "Registrar perda/baixa por vencimento",
+    "estoque.transferencia": "Transferir estoque entre locais",
+    "estoque.inventario": "Realizar inventário de estoque",
+    "caixa.sangria": "Registrar sangria (retirada de dinheiro)",
+    "caixa.suprimento": "Registrar suprimento (reforço de caixa)",
+    "caixa.gerenciar_pdvs": "Gerenciar caixas/PDVs",
+    "caixa.gerenciar_turnos": "Gerenciar turnos de caixa",
 }
 
 def _qperm_descricao_automatica(perm):
@@ -99015,15 +100465,15 @@ def _qperm_aplicar_catalogo_fiel():
                 "botao.nota.finalizar": "Habilitar botão Finalizar Nota/Entrada",
                 "botao.tratamento.salvar": "Habilitar botão Salvar Tratamento",
                 "botao.tratamento.whatsapp": "Habilitar botão WhatsApp do Tratamento",
-                "botao.ambulatorio.salvar": "Habilitar botão Salvar Prontuário",
-                "botao.ambulatorio.excluir": "Habilitar botão Excluir Prontuário",
-                "botao.ambulatorio.whatsapp": "Habilitar botão WhatsApp do Prontuário",
+                "botao.ambulatorio.salvar": "Habilitar botão Salvar Ficha",
+                "botao.ambulatorio.excluir": "Habilitar botão Excluir Ficha",
+                "botao.ambulatorio.whatsapp": "Habilitar botão WhatsApp da Ficha",
                 "botao.relatorios.imprimir": "Habilitar botão Imprimir Relatório",
                 "campo.produto.preco": "Permitir edição dos preços do produto",
                 "campo.produto.estoque": "Permitir edição de estoque do produto",
                 "campo.nota.lote": "Permitir edição do lote na nota",
                 "campo.nota.validade": "Permitir edição da validade na nota",
-                "campo.tratamento.posologia": "Permitir edição da posologia",
+                "campo.tratamento.posologia": "Permitir edição da descrição",
                 "campo.ambulatorio.anamnese": "Permitir edição da anamnese",
                 "campo.ambulatorio.conduta": "Permitir edição da conduta",
             },
@@ -99131,6 +100581,18 @@ _QPERM_ROLE_PATCH = {
         "tratamento.acessar", "tratamento.alertas.ver", "tratamento.whatsapp.enviar",
         "ambulatorio.acessar", "ambulatorio.imprimir",
         "botao.pdv.*", "botao.relatorios.imprimir",
+        # --- Modulos operacionais adicionados apos a criacao do nivel ---
+        "categorias.acessar", "tamanhos.acessar", "cartoes.acessar",
+        "fornecedores.acessar", "entregadores.acessar", "garcons.acessar",
+        "servicos.acessar", "vendedores.acessar", "bairros.acessar",
+        "clientes.importar", "produtos.importar", "produtos.trocar_categoria_lote",
+        "estoque.entrada_nota", "mesas.configurar_couvert", "os.relatorios",
+        "vouchers.criar", "vouchers.editar", "vouchers.cancelar",
+        "politica_troca.editar",
+        "impressora.configurar", "impressora.testar", "impressora.multiplas",
+        "balanca.acessar", "balanca.conectar", "balanca.configurar", "balanca.pesar", "balanca.monitor",
+        "caixa.gerenciar_pdvs", "caixa.gerenciar_turnos",
+        "util.dashboard", "util.quantum_ai",
     ],
     "caixa": [
         "vendas.acessar", "vendas.adicionar_item", "vendas.remover_item",
@@ -99153,6 +100615,8 @@ _QPERM_ROLE_PATCH = {
         "util.calculadora", "politica_troca.acessar", "vouchers.usar",
         "devolucoes.acessar", "devolucoes.buscar_venda", "devolucoes.selecionar_item",
         "botao.pdv.finalizar", "botao.pdv.cancelar",
+        # --- Funcoes de PDV/caixa adicionadas apos a criacao do nivel ---
+        "vendas.aplicar_desconto", "vouchers.acessar",
     ],
     "estoquista": [
         "produtos.*", "categorias.*", "tamanhos.*", "fornecedores.*",
@@ -99166,6 +100630,9 @@ _QPERM_ROLE_PATCH = {
         "campo.nota.lote", "campo.nota.validade",
         "botao.produto.salvar", "botao.produto.excluir",
         "botao.nota.salvar", "botao.nota.finalizar",
+        # --- Balanca e consulta de clientes adicionadas apos a criacao do nivel ---
+        "balanca.acessar", "balanca.conectar", "balanca.configurar", "balanca.pesar", "balanca.monitor",
+        "clientes.acessar", "clientes.consultar",
     ],
     "vendedor": [
         "vendas.acessar", "vendas.adicionar_item", "vendas.remover_item",
@@ -99175,6 +100642,9 @@ _QPERM_ROLE_PATCH = {
         "orcamentos.acessar", "orcamentos.criar", "orcamentos.imprimir",
         "cupons.visualizar", "cupons.imprimir_termica",
         "util.calculadora", "politica_troca.acessar", "vouchers.usar",
+        # --- Orcamentos e reimpressao adicionados apos a criacao do nivel ---
+        "orcamentos.editar", "orcamentos.converter_venda", "orcamentos.enviar_whatsapp",
+        "vendas.reimprimir_cupom", "vouchers.acessar",
     ],
 }
 
@@ -102623,7 +104093,7 @@ try:
         def _patched_create_menu_inventario(self, *args, **kwargs):
             resultado = _orig_create_menu_inventario(self, *args, **kwargs)
             try:
-                # Visibilidade controlada em Configurações > Modulos Farmacia (visibilidade).
+                # Visibilidade controlada em Configurações > Modulos Loja (visibilidade).
                 if not _quantum_inventario_visivel_cfg(self):
                     return resultado
                 menubar = self.root.nametowidget(self.root.cget('menu'))
@@ -103551,7 +105021,7 @@ try:
         def _patched_create_menu_balanca_ultra(self, *args, **kwargs):
             resultado = _orig_create_menu_balanca_ultra(self, *args, **kwargs)
             try:
-                # Visibilidade controlada em Configurações > Modulos Farmacia (visibilidade).
+                # Visibilidade controlada em Configurações > Modulos Loja (visibilidade).
                 if not bool(getattr(self, "config_data", {}).get("menu_balanca_ultra_visivel", True)):
                     return resultado
                 menubar = self.root.nametowidget(self.root.cget("menu"))
@@ -103685,9 +105155,9 @@ def quantum_aplicar_nome_empresa_sem_mudar_layout(app, default_nome="QUANTUM"):
             # Troca somente texto dos labels já existentes.
             # Não troca pack/grid/place, não recria widget e não muda fonte.
             alvos = (
-                "FARMA QUANTUM",
-                "💊 FARMA QUANTUM",
-                "⚕️ FARMA QUANTUM",
+                "LOJA QUANTUM",
+                "🏪 LOJA QUANTUM",
+                "🏪 LOJA QUANTUM",
                 "LOJA QUANTUM",
                 "🏪 LOJA QUANTUM",
                 "🛒 LOJA QUANTUM",
@@ -103718,12 +105188,12 @@ try:
         def _init_nome_empresa_sem_layout(self, *args, **kwargs):
             _orig_init_nome_empresa_sem_layout(self, *args, **kwargs)
             try:
-                quantum_aplicar_nome_empresa_sem_mudar_layout(self, "FARMA QUANTUM")
+                quantum_aplicar_nome_empresa_sem_mudar_layout(self, "LOJA QUANTUM")
             except Exception:
                 pass
             try:
-                self.root.after(300, lambda: quantum_aplicar_nome_empresa_sem_mudar_layout(self, "FARMA QUANTUM"))
-                self.root.after(1200, lambda: quantum_aplicar_nome_empresa_sem_mudar_layout(self, "FARMA QUANTUM"))
+                self.root.after(300, lambda: quantum_aplicar_nome_empresa_sem_mudar_layout(self, "LOJA QUANTUM"))
+                self.root.after(1200, lambda: quantum_aplicar_nome_empresa_sem_mudar_layout(self, "LOJA QUANTUM"))
             except Exception:
                 pass
 
@@ -103739,11 +105209,11 @@ try:
         def _save_empresa_sem_layout(self, *args, **kwargs):
             resultado = _orig_save_empresa_sem_layout(self, *args, **kwargs)
             try:
-                quantum_aplicar_nome_empresa_sem_mudar_layout(self.parent_app, "FARMA QUANTUM")
+                quantum_aplicar_nome_empresa_sem_mudar_layout(self.parent_app, "LOJA QUANTUM")
             except Exception:
                 pass
             try:
-                self.parent_app.root.after(300, lambda: quantum_aplicar_nome_empresa_sem_mudar_layout(self.parent_app, "FARMA QUANTUM"))
+                self.parent_app.root.after(300, lambda: quantum_aplicar_nome_empresa_sem_mudar_layout(self.parent_app, "LOJA QUANTUM"))
             except Exception:
                 pass
             return resultado
@@ -104130,14 +105600,14 @@ if __name__ == "__main__":
             except Exception:
                 root = None
         if root is None:
-            root = ttk.Window(themename="cosmo", title="💊 FARMA QUANTUM - FARMÁCIA & DROGARIA")
+            root = ttk.Window(themename="cosmo", title="🏪 LOJA QUANTUM")
         else:
             try:
                 ttk.Style(theme="cosmo")
             except Exception:
                 pass
             try:
-                root.title("💊 FARMA QUANTUM - FARMÁCIA & DROGARIA")
+                root.title("🏪 LOJA QUANTUM")
             except Exception:
                 pass
         _quantum_configurar_icone_windows(root)
@@ -104325,7 +105795,7 @@ if __name__ == "__main__":
         # ─── Finaliza splash com 100% ───
         splash.update_progress(100, "Inicialização completa")
         splash.log_success("Todos os módulos carregados com sucesso!")
-        splash.log_success("Sistema Farma Quantum pronto para operação.")
+        splash.log_success("Sistema Loja Quantum pronto para operação.")
         AUDITORIA.processo("Splash Screen concluída - 100% carregado")
         try:
             root.update()
@@ -104365,11 +105835,11 @@ if __name__ == "__main__":
             try:
                 _farmacia_amb_patch_app()
             except Exception as _e_amb_patch:
-                print(f"[PRONTUÁRIO AMBULATÓRIO] Patch tardio falhou: {_e_amb_patch}")
+                print(f"[FICHA DE ATENDIMENTO] Patch tardio falhou: {_e_amb_patch}")
             try:
                 _farma_pro_patch_app()
             except Exception as _e_farma_pro_patch:
-                print(f"[FARMÁCIA PRO] Patch tardio falhou: {_e_farma_pro_patch}")
+                print(f"[LOJA PRO] Patch tardio falhou: {_e_farma_pro_patch}")
             try:
                 _rf_patch_app()
             except Exception as _e_rf_patch:
