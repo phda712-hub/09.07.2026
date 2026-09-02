@@ -1,0 +1,42 @@
+====================================================================
+ MANUS API PRO - COMO GERAR O EXECUTAVEL (.EXE)
+====================================================================
+
+CONTEUDO DESTE ZIP
+------------------
+- manus_api_gui_tkinter_full_profissional_checkpoint_chave_credito.py  (o programa)
+- build_exe.bat        (gera o .exe automaticamente)
+- icone.ico            (icone do aplicativo)
+- icone.png            (previa do icone)
+- LEIA-ME_build.txt    (este arquivo)
+
+REQUISITOS
+----------
+- Windows
+- Python 3 instalado e no PATH
+  (baixe em https://www.python.org/downloads/ e marque "Add Python to PATH")
+
+COMO GERAR O .EXE (passo a passo)
+---------------------------------
+1) Extraia TODOS os arquivos deste ZIP em uma mesma pasta.
+2) De um duplo clique em "build_exe.bat".
+3) Aguarde. Na primeira vez ele instala as dependencias e o PyInstaller.
+4) Ao terminar, o executavel estara em:  dist\ManusAPIPro.exe
+
+O QUE O BUILD FAZ
+-----------------
+- --onefile   : gera um unico arquivo .exe
+- --noconsole : nao abre a janela preta de console
+- --icon      : usa o icone.ico
+- Inclui as dependencias: requests, pywebview, PyMySQL, Pillow, PySocks
+
+OBSERVACOES
+-----------
+- Como e --onefile, a primeira abertura do .exe pode demorar alguns segundos
+  (ele se descompacta em uma pasta temporaria).
+- A janela embutida (Conta/Planos) usa o pywebview (WebView2/Edge no Windows).
+- O Tor embutido e baixado pelo proprio app quando voce clicar em "Instalar Tor".
+- Recursos que usam MySQL/FTP ja vem configurados no proprio programa.
+
+Se o antivirus reclamar do .exe: e um falso-positivo comum de apps feitos com
+PyInstaller. Voce pode adicionar uma excecao ou assinar o executavel.

@@ -70,7 +70,10 @@ import mimetypes
 import os
 import queue
 import re
+import shutil
+import subprocess
 import sys
+import tarfile
 import threading
 import time
 import traceback
@@ -111,6 +114,16 @@ except Exception:
     Image = None  # type: ignore
     PIL_DISPONIVEL = False
 
+# pywebview é opcional: usado para abrir páginas do Manus (login, planos, trial,
+# gerar API key) dentro de uma JANELA EMBUTIDA no próprio app, sem abrir o
+# navegador externo. Se não estiver instalado, o app usa o navegador padrão.
+try:
+    import webview  # type: ignore
+    WEBVIEW_DISPONIVEL = True
+except Exception:
+    webview = None  # type: ignore
+    WEBVIEW_DISPONIVEL = False
+
 # Driver MySQL opcional (cache/persistência das conversas e respostas).
 # Tenta PyMySQL (puro Python, ideal para 32 bits/PyInstaller); se não houver,
 # tenta mysql.connector. Se nenhum existir, o app funciona normal só pela API.
@@ -144,6 +157,26 @@ INJECTIONS_FILE = Path(__file__).with_name("manus_injecoes.local.json")
 PROMPT_PRESETS_FILE = Path(__file__).with_name("manus_prompt_presets.json")
 # Pool de chaves fundidas (créditos somados / uso em cadeia automática).
 FUSION_FILE = Path(__file__).with_name("manus_chaves_fundidas.local.json")
+# Edições LOCAIS dos campos de créditos (refresh, quota, próximo refresh, etc.).
+# Esses valores são apenas locais/visuais: o servidor do Manus não permite gravar
+# saldo/quota, então persistimos as edições aqui para não se perderem ao reabrir.
+CREDITOS_EDITADOS_FILE = Path(__file__).with_name("manus_creditos_editados.local.json")
+
+# ===== Tor embutido (instalação silenciosa do Tor Expert Bundle oficial) =====
+# O Expert Bundle é apenas um tor.exe autônomo (open-source, gratuito). O app
+# baixa, extrai e executa em segundo plano, expondo o SOCKS em 127.0.0.1:9050.
+TOR_DIR = Path(__file__).with_name("tor_embutido")
+TOR_DATA_DIR = TOR_DIR / "dados_tor"
+TOR_VERSAO_PADRAO = "15.0.17"
+
+
+def tor_url_expert_bundle(versao: str = TOR_VERSAO_PADRAO) -> str:
+    """Monta a URL oficial do Tor Expert Bundle (Windows x86_64) para a versão."""
+    versao = str(versao or TOR_VERSAO_PADRAO).strip()
+    return (
+        "https://archive.torproject.org/tor-package-archive/torbrowser/"
+        f"{versao}/tor-expert-bundle-windows-x86_64-{versao}.tar.gz"
+    )
 # Estúdio de Outras IAs: histórico de tarefas/conversas e pasta de downloads própria.
 ESTUDIO_TAREFAS_FILE = Path(__file__).with_name("estudio_ia_tarefas.json")
 ESTUDIO_DOWNLOAD_DIR = DOWNLOAD_DIR / "estudio_ia"
@@ -405,6 +438,9 @@ class MySQLCache:
 
     TABELA_CACHE = "manus_cache"
     TABELA_CONVERSAS = "manus_conversas"
+    # Base de conhecimento local (dicionários, enciclopédias, arquivos) usada
+    # pelo MODO LOCAL (sem IA). Alimenta respostas sem chamar nenhuma IA externa.
+    TABELA_KB = "base_conhecimento"
 
     def __init__(self, host=MYSQL_HOST, db=MYSQL_DB, user=MYSQL_USER, password=MYSQL_PASS):
         self.host = host
@@ -500,6 +536,117 @@ class MySQLCache:
                 "content": "LONGTEXT",
                 "created_at": "DATETIME",
             })
+            # Tabela da BASE DE CONHECIMENTO local (modo sem IA).
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS " + self.TABELA_KB + " ("
+                "id INT AUTO_INCREMENT PRIMARY KEY,"
+                "tipo VARCHAR(40),"
+                "termo VARCHAR(255),"
+                "titulo VARCHAR(255),"
+                "conteudo LONGTEXT,"
+                "tags VARCHAR(255),"
+                "fonte VARCHAR(255),"
+                "arquivo_ref VARCHAR(500),"
+                "created_at DATETIME,"
+                "updated_at DATETIME,"
+                "KEY idx_kb_termo (termo),"
+                "KEY idx_kb_tipo (tipo)"
+                ") DEFAULT CHARSET=utf8mb4"
+            )
+            self._garantir_colunas(cur, self.TABELA_KB, {
+                "tipo": "VARCHAR(40)",
+                "termo": "VARCHAR(255)",
+                "titulo": "VARCHAR(255)",
+                "conteudo": "LONGTEXT",
+                "tags": "VARCHAR(255)",
+                "fonte": "VARCHAR(255)",
+                "arquivo_ref": "VARCHAR(500)",
+                "created_at": "DATETIME",
+                "updated_at": "DATETIME",
+            })
+            # Índice FULLTEXT para busca melhor (ignora se o engine não suportar).
+            try:
+                cur.execute("ALTER TABLE " + self.TABELA_KB + " ADD FULLTEXT ft_kb (termo, titulo, conteudo, tags)")
+            except Exception:
+                pass
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    # ===== Base de Conhecimento (modo local, sem IA) =====
+    def kb_inserir(self, tipo: str, termo: str, titulo: str, conteudo: str,
+                   tags: str = "", fonte: str = "", arquivo_ref: str = "") -> bool:
+        conn = self._conn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO " + self.TABELA_KB +
+                " (tipo, termo, titulo, conteudo, tags, fonte, arquivo_ref, created_at, updated_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())",
+                (str(tipo or "")[:40], str(termo or "")[:255], str(titulo or "")[:255],
+                 str(conteudo or ""), str(tags or "")[:255], str(fonte or "")[:255], str(arquivo_ref or "")[:500]),
+            )
+            return True
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def kb_inserir_muitos(self, registros: List[Tuple]) -> int:
+        """registros: lista de tuplas (tipo, termo, titulo, conteudo, tags, fonte, arquivo_ref)."""
+        if not registros:
+            return 0
+        conn = self._conn()
+        try:
+            cur = conn.cursor()
+            cur.executemany(
+                "INSERT INTO " + self.TABELA_KB +
+                " (tipo, termo, titulo, conteudo, tags, fonte, arquivo_ref, created_at, updated_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())",
+                registros,
+            )
+            return len(registros)
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def kb_buscar(self, consulta: str, limit: int = 50) -> List[Dict[str, Any]]:
+        conn = self._conn()
+        try:
+            cur = conn.cursor()
+            like = "%" + str(consulta or "").strip() + "%"
+            cur.execute(
+                "SELECT id, tipo, termo, titulo, conteudo, tags, fonte FROM " + self.TABELA_KB + " "
+                "WHERE termo LIKE %s OR titulo LIKE %s OR conteudo LIKE %s OR tags LIKE %s "
+                "ORDER BY updated_at DESC LIMIT %s",
+                (like, like, like, like, int(limit)),
+            )
+            rows = cur.fetchall() or []
+            out = []
+            for r in rows:
+                out.append({
+                    "id": r[0], "tipo": r[1], "termo": r[2], "titulo": r[3],
+                    "conteudo": r[4], "tags": r[5], "fonte": r[6],
+                })
+            return out
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def kb_contar(self) -> int:
+        conn = self._conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM " + self.TABELA_KB)
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
         finally:
             try:
                 conn.close()
@@ -1207,6 +1354,65 @@ class ManusAPI:
             params["cursor"] = cursor
         return self.request("GET", "/v2/task.list", params=params)
 
+    def most_recent_task(self) -> Dict[str, Any]:
+        """
+        Retorna a tarefa mais recente da conta (dict) consultando o servidor
+        via /v2/task.list, ou {} se a conta não tiver tarefas.
+        """
+        data = self.list_tasks(limit=1, order="desc", scope="all")
+        tasks = []
+        if isinstance(data, dict):
+            tasks = data.get("data") or data.get("tasks") or []
+        if isinstance(tasks, list) and tasks and isinstance(tasks[0], dict):
+            return tasks[0]
+        return {}
+
+    def current_model(self) -> str:
+        """
+        Descobre o MODELO em uso no momento consultando DIRETAMENTE o servidor
+        do Manus (endpoint /v2/task.list). Pega a tarefa mais recente da conta e
+        extrai o campo oficial 'agent_profile' dela (que reflete o último turno,
+        inclusive overrides feitos via task.sendMessage).
+
+        Retorna:
+        - o nome do modelo (ex.: "manus-1.6-lite") quando disponível;
+        - "sem tarefas" quando a conta não possui tarefas;
+        - "--" quando não é possível determinar o modelo (ex.: tarefas antigas).
+        """
+        t = self.most_recent_task()
+        if not t:
+            return "sem tarefas"
+
+        # Campo oficial é 'agent_profile'; mantém alternativas por segurança.
+        for campo in ("agent_profile", "agentProfile", "model", "profile"):
+            valor = t.get(campo)
+            if valor:
+                return str(valor)
+
+        return "--"
+
+    def task_detail(self, task_id: str) -> Dict[str, Any]:
+        """Detalhes de uma tarefa específica (inclui o campo agent_profile)."""
+        return self.request("GET", "/v2/task.detail", params={"task_id": task_id})
+
+    def model_of_task(self, task_id: str) -> str:
+        """
+        Lê o modelo (agent_profile) de UMA tarefa específica direto do servidor
+        via /v2/task.detail. Retorna '' quando não disponível.
+        """
+        try:
+            data = self.task_detail(task_id)
+        except Exception:
+            return ""
+        t = data.get("task") if isinstance(data, dict) else {}
+        if not isinstance(t, dict):
+            return ""
+        for campo in ("agent_profile", "agentProfile", "model", "profile"):
+            valor = t.get(campo)
+            if valor:
+                return str(valor)
+        return ""
+
     def list_completed_tasks(self, max_pages: int = 5, scope: str = "all") -> List[Dict[str, Any]]:
         concluidas: List[Dict[str, Any]] = []
         cursor = ""
@@ -1389,13 +1595,26 @@ class ManusAPI:
                 return self.request("POST", "/v2/task.create", body=body)
             raise
 
-    def send_message(self, task_id: str, text: str, uploaded_files: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+    def send_message(
+        self,
+        task_id: str,
+        text: str,
+        uploaded_files: Optional[List[Dict[str, str]]] = None,
+        agent_profile: str = "",
+    ) -> Dict[str, Any]:
         """
         Envia uma resposta/continuação para uma tarefa já existente.
 
         Permite anexar arquivos como resposta, do mesmo jeito que task.create:
         os arquivos precisam ter sido enviados antes (upload_local_file) e
         chegam aqui apenas como {"file_id": ..., "filename": ...}.
+
+        Se 'agent_profile' for informado, ele é enviado como override do MODELO
+        para este turno (campo oficial da API /v2/task.sendMessage). Isso faz o
+        servidor passar a usar o modelo escolhido na tarefa existente; o valor
+        aparece depois em task.list/task.detail como 'agent_profile'.
+        Observação da API: contas pessoais gratuitas são rebaixadas para
+        manus-1.6-lite independentemente do valor solicitado.
         """
         uploaded_files = uploaded_files or []
         content: List[Dict[str, Any]] = []
@@ -1408,10 +1627,12 @@ class ManusAPI:
         for item in uploaded_files:
             content.append({"type": "file", "file_id": item["file_id"], "filename": item["filename"]})
 
-        body = {
+        body: Dict[str, Any] = {
             "task_id": task_id,
             "message": {"content": content},
         }
+        if str(agent_profile or "").strip():
+            body["agent_profile"] = str(agent_profile).strip()
 
         try:
             return self.request("POST", "/v2/task.sendMessage", body=body)
@@ -1447,6 +1668,145 @@ class ManusAPI:
                 "slides_format": slides_format,
             },
         )
+
+    # ===================================================================
+    # ===== Cobertura COMPLETA da API v2 (todos os endpoints) ===========
+    # ===================================================================
+    # Métodos abaixo cobrem leitura e escrita de todos os recursos da API
+    # oficial do Manus: uso/créditos, tarefas, agentes, conectores, projetos,
+    # arquivos, navegadores, webhooks e sites.
+
+    # ---- Uso / créditos (somente leitura) ----
+    def usage_list(self, limit: int = 20, cursor: str = "") -> Dict[str, Any]:
+        params: Dict[str, Any] = {"limit": max(1, min(int(limit or 20), 100))}
+        if cursor:
+            params["cursor"] = cursor
+        return self.request("GET", "/v2/usage.list", params=params)
+
+    def usage_team_log(self, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self.request("GET", "/v2/usage.teamLog", params=params or {})
+
+    def usage_team_statistic(self, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self.request("GET", "/v2/usage.teamStatistic", params=params or {})
+
+    # ---- Agentes personalizados ----
+    def agent_list(self) -> Dict[str, Any]:
+        return self.request("GET", "/v2/agent.list")
+
+    def agent_detail(self, agent_id: str) -> Dict[str, Any]:
+        return self.request("GET", "/v2/agent.detail", params={"agent_id": agent_id})
+
+    def agent_update(self, agent_id: str, nickname: str = "", about: str = "") -> Dict[str, Any]:
+        body: Dict[str, Any] = {"agent_id": agent_id}
+        if nickname:
+            body["nickname"] = nickname
+        if about:
+            body["about"] = about
+        return self.request("POST", "/v2/agent.update", body=body)
+
+    # ---- Conectores / projetos / navegadores ----
+    def connector_list(self) -> Dict[str, Any]:
+        return self.request("GET", "/v2/connector.list")
+
+    def project_list(self) -> Dict[str, Any]:
+        return self.request("GET", "/v2/project.list")
+
+    def project_create(self, name: str, instruction: str = "") -> Dict[str, Any]:
+        body: Dict[str, Any] = {"name": name}
+        if instruction:
+            body["instruction"] = instruction
+        return self.request("POST", "/v2/project.create", body=body)
+
+    def browser_online_list(self) -> Dict[str, Any]:
+        return self.request("GET", "/v2/browser.onlineList")
+
+    # ---- Arquivos ----
+    def file_delete(self, file_id: str) -> Dict[str, Any]:
+        return self.request("POST", "/v2/file.delete", body={"file_id": file_id})
+
+    # ---- Tarefas (escrita) ----
+    def task_update(
+        self,
+        task_id: str,
+        title: Optional[str] = None,
+        share_visibility: Optional[str] = None,
+        enable_visible_in_task_list: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {"task_id": task_id}
+        if title is not None:
+            body["title"] = title
+        if share_visibility is not None:
+            body["share_visibility"] = share_visibility
+        if enable_visible_in_task_list is not None:
+            body["enable_visible_in_task_list"] = bool(enable_visible_in_task_list)
+        return self.request("POST", "/v2/task.update", body=body)
+
+    def task_stop(self, task_id: str) -> Dict[str, Any]:
+        return self.request("POST", "/v2/task.stop", body={"task_id": task_id})
+
+    def task_delete(self, task_id: str) -> Dict[str, Any]:
+        return self.request("POST", "/v2/task.delete", body={"task_id": task_id})
+
+    # ---- Webhooks ----
+    def webhook_list(self) -> Dict[str, Any]:
+        return self.request("GET", "/v2/webhook.list")
+
+    def webhook_public_key(self) -> Dict[str, Any]:
+        return self.request("GET", "/v2/webhook.publicKey")
+
+    def webhook_create(self, url: str, events: Optional[List[str]] = None) -> Dict[str, Any]:
+        body: Dict[str, Any] = {"url": url}
+        if events:
+            body["events"] = events
+        return self.request("POST", "/v2/webhook.create", body=body)
+
+    def webhook_delete(self, webhook_id: str) -> Dict[str, Any]:
+        return self.request("POST", "/v2/webhook.delete", body={"webhook_id": webhook_id})
+
+    # ---- Sites gerados pelo Manus ----
+    def website_status(self, task_id: str = "", website_id: str = "") -> Dict[str, Any]:
+        params: Dict[str, Any] = {}
+        if task_id:
+            params["task_id"] = task_id
+        if website_id:
+            params["website_id"] = website_id
+        return self.request("GET", "/v2/website.status", params=params)
+
+    def website_list_checkpoints(self, task_id: str = "", website_id: str = "") -> Dict[str, Any]:
+        params: Dict[str, Any] = {}
+        if task_id:
+            params["task_id"] = task_id
+        if website_id:
+            params["website_id"] = website_id
+        return self.request("GET", "/v2/website.listCheckpoints", params=params)
+
+    def website_publish(self, task_id: str = "", website_id: str = "", visibility: str = "public") -> Dict[str, Any]:
+        body: Dict[str, Any] = {}
+        if task_id:
+            body["task_id"] = task_id
+        if website_id:
+            body["website_id"] = website_id
+        if visibility:
+            body["visibility"] = visibility
+        return self.request("POST", "/v2/website.publish", body=body)
+
+    def website_update(
+        self,
+        task_id: str = "",
+        website_id: str = "",
+        title: Optional[str] = None,
+        visibility: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {}
+        if task_id:
+            body["task_id"] = task_id
+        if website_id:
+            body["website_id"] = website_id
+        if title is not None:
+            body["title"] = title
+        if visibility is not None:
+            body["visibility"] = visibility
+        return self.request("POST", "/v2/website.update", body=body)
 
 
 def get_msg_id(msg: Dict[str, Any]) -> str:
@@ -2120,6 +2480,169 @@ class ManusAPIFailover(ManusAPI):
         raise RuntimeError("Falha desconhecida no failover de APIKEY.")
 
 
+# ============================================================
+# CATÁLOGO COMPLETO DOS ENDPOINTS DA API v2 DO MANUS
+# Usado pela aba "Central da API Manus" para permitir executar
+# QUALQUER endpoint (leitura GET e escrita POST) direto no servidor.
+# Cada item traz um "template" de parâmetros/corpo em JSON para edição.
+# ============================================================
+MANUS_API_ENDPOINTS: List[Dict[str, Any]] = [
+    # ---------- LEITURA (GET) ----------
+    {"name": "usage.availableCredits", "method": "GET", "path": "/v2/usage.availableCredits", "kind": "params",
+     "template": {}, "desc": "Saldo de créditos e informações de refresh (somente leitura)."},
+    {"name": "usage.list", "method": "GET", "path": "/v2/usage.list", "kind": "params",
+     "template": {"limit": 20}, "desc": "Histórico de mudanças de crédito, mais recente primeiro (somente leitura)."},
+    {"name": "usage.teamLog", "method": "GET", "path": "/v2/usage.teamLog", "kind": "params",
+     "template": {}, "desc": "Contagem de tarefas e consumo de crédito por membro da equipe (somente leitura)."},
+    {"name": "usage.teamStatistic", "method": "GET", "path": "/v2/usage.teamStatistic", "kind": "params",
+     "template": {}, "desc": "Totais diários de consumo de crédito da equipe (somente leitura)."},
+    {"name": "skill.list", "method": "GET", "path": "/v2/skill.list", "kind": "params",
+     "template": {}, "desc": "Lista as skills disponíveis."},
+    {"name": "task.list", "method": "GET", "path": "/v2/task.list", "kind": "params",
+     "template": {"limit": 20, "order": "desc", "scope": "all"}, "desc": "Lista tarefas (filtros: order, scope, agent_id, project_id, cursor)."},
+    {"name": "task.detail", "method": "GET", "path": "/v2/task.detail", "kind": "params",
+     "template": {"task_id": ""}, "desc": "Detalhes de uma tarefa (inclui status e agent_profile/modelo)."},
+    {"name": "task.listMessages", "method": "GET", "path": "/v2/task.listMessages", "kind": "params",
+     "template": {"task_id": "", "order": "desc", "limit": 50}, "desc": "Mensagens/eventos de uma tarefa."},
+    {"name": "agent.list", "method": "GET", "path": "/v2/agent.list", "kind": "params",
+     "template": {}, "desc": "Lista os agentes personalizados da conta."},
+    {"name": "agent.detail", "method": "GET", "path": "/v2/agent.detail", "kind": "params",
+     "template": {"agent_id": ""}, "desc": "Detalhes de um agente."},
+    {"name": "connector.list", "method": "GET", "path": "/v2/connector.list", "kind": "params",
+     "template": {}, "desc": "Lista os connectors instalados na conta."},
+    {"name": "project.list", "method": "GET", "path": "/v2/project.list", "kind": "params",
+     "template": {}, "desc": "Lista os projetos."},
+    {"name": "browser.onlineList", "method": "GET", "path": "/v2/browser.onlineList", "kind": "params",
+     "template": {}, "desc": "Lista os navegadores online do usuário."},
+    {"name": "file.detail", "method": "GET", "path": "/v2/file.detail", "kind": "params",
+     "template": {"file_id": ""}, "desc": "Detalhes de um arquivo enviado (status, tamanho, expiração)."},
+    {"name": "webhook.list", "method": "GET", "path": "/v2/webhook.list", "kind": "params",
+     "template": {}, "desc": "Lista os webhooks cadastrados."},
+    {"name": "webhook.publicKey", "method": "GET", "path": "/v2/webhook.publicKey", "kind": "params",
+     "template": {}, "desc": "Chave pública para verificar assinaturas de webhook."},
+    {"name": "website.status", "method": "GET", "path": "/v2/website.status", "kind": "params",
+     "template": {"task_id": ""}, "desc": "Status de publicação, URL e visibilidade de um site (task_id OU website_id)."},
+    {"name": "website.listCheckpoints", "method": "GET", "path": "/v2/website.listCheckpoints", "kind": "params",
+     "template": {"task_id": ""}, "desc": "Lista os checkpoints/versões de um site (task_id OU website_id)."},
+
+    # ---------- ESCRITA (POST) ----------
+    {"name": "task.create", "method": "POST", "path": "/v2/task.create", "kind": "body",
+     "template": {"message": {"content": [{"type": "text", "text": "Escreva seu prompt aqui"}]},
+                  "agent_profile": "manus-1.6-lite", "title": "", "hide_in_task_list": False, "share_visibility": "private"},
+     "desc": "Cria uma nova tarefa (define modelo, prompt, título, visibilidade)."},
+    {"name": "task.sendMessage", "method": "POST", "path": "/v2/task.sendMessage", "kind": "body",
+     "template": {"task_id": "", "message": {"content": [{"type": "text", "text": "sua mensagem"}]}, "agent_profile": ""},
+     "desc": "Envia mensagem a uma tarefa. agent_profile faz override do MODELO; deixe vazio para manter."},
+    {"name": "task.update", "method": "POST", "path": "/v2/task.update", "kind": "body",
+     "template": {"task_id": "", "title": "", "share_visibility": "private", "enable_visible_in_task_list": True},
+     "desc": "Muda título, visibilidade (private/team/public) e mostrar/ocultar na lista."},
+    {"name": "task.stop", "method": "POST", "path": "/v2/task.stop", "kind": "body",
+     "template": {"task_id": ""}, "desc": "Para uma tarefa em execução."},
+    {"name": "task.delete", "method": "POST", "path": "/v2/task.delete", "kind": "body",
+     "template": {"task_id": ""}, "desc": "Apaga uma tarefa permanentemente."},
+    {"name": "task.confirmAction", "method": "POST", "path": "/v2/task.confirmAction", "kind": "body",
+     "template": {"task_id": "", "event_id": "", "input": {"accept": True}}, "desc": "Confirma uma ação pendente da tarefa."},
+    {"name": "agent.update", "method": "POST", "path": "/v2/agent.update", "kind": "body",
+     "template": {"agent_id": "", "nickname": "", "about": ""}, "desc": "Muda o nome (nickname) e a descrição (about) de um agente."},
+    {"name": "file.upload", "method": "POST", "path": "/v2/file.upload", "kind": "body",
+     "template": {"filename": "arquivo.txt"}, "desc": "Cria o registro do arquivo e retorna upload_url (o envio dos bytes é feito à parte)."},
+    {"name": "file.delete", "method": "POST", "path": "/v2/file.delete", "kind": "body",
+     "template": {"file_id": ""}, "desc": "Apaga um arquivo enviado."},
+    {"name": "project.create", "method": "POST", "path": "/v2/project.create", "kind": "body",
+     "template": {"name": "Meu projeto", "instruction": ""}, "desc": "Cria um projeto (agrupa tarefas + instrução compartilhada)."},
+    {"name": "webhook.create", "method": "POST", "path": "/v2/webhook.create", "kind": "body",
+     "template": {"url": "https://seu-endpoint.exemplo/webhook"}, "desc": "Cria um webhook para notificações de eventos de tarefa."},
+    {"name": "webhook.delete", "method": "POST", "path": "/v2/webhook.delete", "kind": "body",
+     "template": {"webhook_id": ""}, "desc": "Apaga um webhook."},
+    {"name": "website.publish", "method": "POST", "path": "/v2/website.publish", "kind": "body",
+     "template": {"task_id": "", "visibility": "public"}, "desc": "Publica/implanta o último checkpoint de um site."},
+    {"name": "website.update", "method": "POST", "path": "/v2/website.update", "kind": "body",
+     "template": {"task_id": "", "title": "", "visibility": "public"}, "desc": "Muda título/visibilidade do site (sem redeploy)."},
+]
+
+
+# Rótulos amigáveis (em português) para os campos dos endpoints, usados no
+# "Modo Fácil" da Central da API — para quem não entende de JSON/código.
+API_CAMPOS_AMIGAVEIS = {
+    "task_id": "ID da tarefa",
+    "agent_profile": "Modelo",
+    "title": "Título",
+    "limit": "Quantidade (limite)",
+    "order": "Ordem (desc = mais novo primeiro / asc)",
+    "scope": "Escopo (all/standard/project/agent_subtask)",
+    "cursor": "Cursor de paginação",
+    "file_id": "ID do arquivo",
+    "agent_id": "ID do agente",
+    "nickname": "Apelido / nome do agente",
+    "about": "Descrição do agente",
+    "filename": "Nome do arquivo",
+    "name": "Nome",
+    "instruction": "Instrução do projeto",
+    "url": "URL (endereço)",
+    "webhook_id": "ID do webhook",
+    "website_id": "ID do site",
+    "visibility": "Visibilidade (public/team)",
+    "share_visibility": "Visibilidade (private/team/public)",
+    "enable_visible_in_task_list": "Mostrar na lista de tarefas",
+    "hide_in_task_list": "Ocultar da lista de tarefas",
+    "event_id": "ID do evento",
+}
+
+# Texto de exemplos/documentação exibido na aba "Exemplos / IAs grátis".
+EXEMPLOS_DOCS_TEXTO = (
+    "===== COMO USAR ESTE APLICATIVO (RESUMO) =====\n\n"
+    "1) COM A MANUS (precisa de chave):\n"
+    "   - Aba 'Configuração / IDs': cole sua APIKEY da Manus e salve.\n"
+    "   - Aba 'Principal': escreva o prompt, anexe arquivos e clique em INICIAR TAREFA.\n"
+    "   - Aba 'Central da API Manus': escolha uma ação, preencha o formulário (Modo Fácil) e clique em EXECUTAR.\n\n"
+    "2) SEM IA E SEM CHAVE (modo local):\n"
+    "   - Aba 'Base de Conhecimento': salve dicionários, enciclopédias e arquivos no MySQL + FTP\n"
+    "     (inclui upload em massa de muitos arquivos/JSON/CSV de uma vez).\n"
+    "   - Aba 'Modo Local (sem IA)': pesquise e o app responde usando SÓ o que está no MySQL/FTP,\n"
+    "     sem chamar nenhuma inteligência artificial e sem precisar de chave.\n\n"
+    "3) OUTRAS IAs (opcional):\n"
+    "   - Aba 'Outras IAs / APIs': cadastre provedores compatíveis com OpenAI (muitos têm plano grátis).\n"
+    "   - Aba 'Estúdio Outras IAs': converse, anexe arquivos e baixe resultados.\n\n"
+    "===== EXEMPLOS DE PROMPT =====\n"
+    "- 'Resuma este PDF em 10 tópicos.' (anexe o arquivo)\n"
+    "- 'Crie um site simples de uma página e entregue o código em zip.'\n"
+    "- 'Analise esta planilha e gere um relatório.'\n\n"
+    "===== DICAS =====\n"
+    "- Conta gratuita da Manus só roda o modelo manus-1.6-lite.\n"
+    "- O Modo Local é ótimo para consultas offline (glossários, manuais, catálogos) sem gastar créditos.\n"
+    "- Use a aba 'Turbo / IA / Injeção' para presets de prompt e comparação entre IAs.\n"
+)
+
+# Provedores de IA com uso/chave gratuita (limites mudam — confirme no site de cada um).
+IAS_GRATUITAS = [
+    ("Groq", "Sim — camada gratuita rápida", "console.groq.com/keys"),
+    ("Google Gemini", "Sim — camada gratuita (AI Studio)", "aistudio.google.com/apikey"),
+    ("OpenRouter", "Sim — vários modelos marcados como :free", "openrouter.ai/keys"),
+    ("Mistral", "Sim — camada gratuita (La Plateforme)", "console.mistral.ai"),
+    ("Cerebras", "Sim — camada gratuita", "cloud.cerebras.ai"),
+    ("Cohere", "Sim — chave trial gratuita", "dashboard.cohere.com/api-keys"),
+    ("Together AI", "Créditos iniciais grátis", "api.together.xyz/settings/api-keys"),
+    ("Hugging Face", "Inferência gratuita (limitada)", "huggingface.co/settings/tokens"),
+    ("GitHub Models", "Gratuito com conta GitHub", "github.com/marketplace/models"),
+    ("Ollama (local)", "100% grátis, roda no PC, SEM chave", "ollama.com"),
+    ("LM Studio (local)", "100% grátis, roda no PC, SEM chave", "lmstudio.ai"),
+]
+
+IAS_GRATUITAS_URLS = {
+    "Groq": "https://console.groq.com/keys",
+    "Google Gemini": "https://aistudio.google.com/apikey",
+    "OpenRouter": "https://openrouter.ai/keys",
+    "Mistral": "https://console.mistral.ai",
+    "Cerebras": "https://cloud.cerebras.ai",
+    "Cohere": "https://dashboard.cohere.com/api-keys",
+    "Together AI": "https://api.together.xyz/settings/api-keys",
+    "Hugging Face": "https://huggingface.co/settings/tokens",
+    "GitHub Models": "https://github.com/marketplace/models",
+    "Ollama (local)": "https://ollama.com",
+    "LM Studio (local)": "https://lmstudio.ai",
+}
+
+
 class ManusGui(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -2400,6 +2923,33 @@ class ManusGui(tk.Tk):
         self.estudio_tab = ttk.Frame(self.notebook, padding=10)
         self.notebook.add(self.estudio_tab, text="Estúdio Outras IAs")
         self.construir_aba_estudio_ia()
+
+        # Central da API Manus: acesso a TODOS os endpoints (leitura e escrita).
+        self.api_tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(self.api_tab, text="Central da API Manus")
+        self.construir_aba_api_manus()
+
+        # Conta / Planos: abre login, planos, trial e geração de chave em uma
+        # janela EMBUTIDA no próprio app (pywebview), sem navegador externo.
+        self.conta_tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(self.conta_tab, text="Conta / Planos")
+        self.construir_aba_conta_planos()
+
+        # Base de Conhecimento: salva dicionários/enciclopédias/arquivos no
+        # MySQL + FTP (com upload em massa). NÃO usa IA.
+        self.kb_tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(self.kb_tab, text="Base de Conhecimento")
+        self.construir_aba_base_conhecimento()
+
+        # Modo Local: responde SÓ com MySQL + FTP, sem IA e sem chave de API.
+        self.local_tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(self.local_tab, text="Modo Local (sem IA)")
+        self.construir_aba_modo_local()
+
+        # Exemplos, documentação e lista de IAs com chave gratuita.
+        self.exemplos_tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(self.exemplos_tab, text="Exemplos / IAs grátis")
+        self.construir_aba_exemplos_ias()
 
         # ============================================================
         # ABA CONFIGURAÇÃO / IDS
@@ -4019,11 +4569,20 @@ class ManusGui(tk.Tk):
                     api = ManusAPI(key)
                     data = api.available_credits()
                     total = total_creditos_manus(data)
+
+                    # Busca o MODELO em uso DIRETAMENTE do servidor do Manus
+                    # (tarefa mais recente da conta via task.list). Nada local.
+                    try:
+                        modelo = api.current_model()
+                    except Exception as me:
+                        modelo = f"erro: {resumo_texto(str(me), 40)}"
+
                     linhas.append({
                         "idx": idx,
                         "key": key,
                         "ok": True,
                         "total": total,
+                        "model": modelo,
                         "detail": formatar_creditos_manus(data),
                         "raw": data,
                     })
@@ -4034,6 +4593,7 @@ class ManusGui(tk.Tk):
                         "key": key,
                         "ok": False,
                         "total": "--",
+                        "model": "--",
                         "detail": str(e),
                         "raw": str(e),
                     })
@@ -4041,64 +4601,1850 @@ class ManusGui(tk.Tk):
 
         self.executar_thread(worker)
 
+    def abrir_janela_manus_embutida(self, url: str = "https://manus.im", titulo: str = "Manus - Conta e Planos", proxy: str = "", anon: bool = False):
+        """
+        Abre uma página do Manus dentro de uma JANELA EMBUTIDA do app (pywebview),
+        em um processo separado (para não conflitar com o mainloop do Tkinter).
+
+        Se 'proxy' for informado, a janela embutida roteia o tráfego por ele.
+        Se 'anon' for True, abre em modo privacidade máxima (sem cookies/histórico,
+        WebRTC sem vazar IP, user-agent genérico).
+        Se o pywebview não estiver instalado, oferece abrir no navegador padrão.
+        """
+        url = (url or "").strip() or "https://manus.im"
+        if not url.lower().startswith(("http://", "https://")):
+            url = "https://" + url
+        proxy = str(proxy or "").strip()
+        anon = bool(anon)
+
+        if not WEBVIEW_DISPONIVEL:
+            if messagebox.askyesno(
+                "Janela embutida indisponível",
+                "A janela embutida precisa da biblioteca 'pywebview'.\n\n"
+                "Instale com:\n"
+                "python -m pip install pywebview\n\n"
+                "(no Windows ela usa o WebView2/Edge, já presente na maioria dos sistemas)\n\n"
+                "Deseja abrir no navegador padrão por enquanto?\n"
+                "(observação: o proxy NÃO é aplicado ao abrir no navegador externo)",
+            ):
+                try:
+                    webbrowser.open(url)
+                except Exception as e:
+                    messagebox.showerror("Erro", str(e))
+            return
+
+        try:
+            if getattr(sys, "frozen", False):
+                # App empacotado (.exe): o próprio executável entende --webview.
+                cmd = [sys.executable, "--webview", url, "--webview-title", titulo]
+            else:
+                cmd = [sys.executable, os.path.abspath(__file__), "--webview", url, "--webview-title", titulo]
+            if proxy:
+                cmd += ["--webview-proxy", proxy]
+            if anon:
+                cmd += ["--webview-anon"]
+            subprocess.Popen(cmd)
+            via = f" via proxy {proxy}" if proxy else ""
+            modo = " [modo privacidade]" if anon else ""
+            self.definir_status(f"Janela embutida aberta: {url}{via}{modo}")
+            self.log(f"[WEBVIEW] Janela embutida aberta para {url}{(' (proxy ' + proxy + ')') if proxy else ''}{' (anon)' if anon else ''}\n")
+        except Exception as e:
+            messagebox.showerror("Erro ao abrir janela embutida", str(e))
+            try:
+                webbrowser.open(url)
+            except Exception:
+                pass
+
+    def construir_aba_conta_planos(self):
+        """
+        Aba de Conta / Planos: abre login, planos, trial e geração de API key
+        do Manus dentro de uma janela EMBUTIDA no app (sem navegador externo).
+
+        Observação: cadastro, login e pagamento acontecem na página segura do
+        Manus (não há API pública para isso); aqui apenas embutimos essa página
+        numa janela do próprio aplicativo.
+        """
+        # A aba é ROLÁVEL: canvas + barra de rolagem vertical garantem que todos
+        # os painéis (planos, proxy, Tor, atalhos, etc.) fiquem acessíveis mesmo
+        # em telas menores, sem "fugir" para baixo da janela.
+        outer = self.conta_tab
+        outer.columnconfigure(0, weight=1)
+        outer.rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(outer, highlightthickness=0, borderwidth=0)
+        canvas.configure(background=getattr(self, "_tema_text_bg", "#FFFFFF"))
+        vsb = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+
+        tab = ttk.Frame(canvas, padding=(0, 0, 10, 0))
+        _jin_conta = canvas.create_window((0, 0), window=tab, anchor="nw")
+        tab.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(_jin_conta, width=e.width))
+
+        def _wheel_conta(e):
+            try:
+                canvas.yview_scroll(int(-1 * (e.delta / 120)) * 3, "units")
+            except Exception:
+                pass
+
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel_conta))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        tab.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel_conta))
+
+        tab.columnconfigure(0, weight=1)
+
+        # ----- Info de planos -----
+        info = ttk.LabelFrame(tab, text="Planos do Manus (para experimentar / assinar)", padding=12)
+        info.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        info.columnconfigure(0, weight=1)
+        ttk.Label(
+            info,
+            text=(
+                "• FREE ($0): 1.000 créditos iniciais no cadastro + 300 créditos/dia (precisa logar todo dia; "
+                "não acumulam). Só roda o modelo manus-1.6-lite.\n"
+                "• PRO: a partir de ~$20/mês (4.000 créditos), ~$40/mês (8.000, com TRIAL de 7 dias) e ~$200/mês (40.000). "
+                "Libera manus-1.6 e manus-1.6-max.\n"
+                "• Valores podem mudar — confirme sempre na página oficial (aberta aqui na janela embutida)."
+            ),
+            justify="left",
+            wraplength=1150,
+        ).grid(row=0, column=0, sticky="w")
+
+        status = "pywebview: INSTALADO (janela embutida disponível)" if WEBVIEW_DISPONIVEL else \
+            "pywebview: NÃO instalado — os botões vão perguntar se quer abrir no navegador. Instale com: python -m pip install pywebview"
+        ttk.Label(info, text=status, style=("Success.TLabel" if WEBVIEW_DISPONIVEL else "Warn.TLabel")).grid(row=1, column=0, sticky="w", pady=(8, 0))
+
+        # ----- Proxy (opcional) para a janela embutida -----
+        self.conta_proxy_enabled_var = tk.BooleanVar(value=False)
+        self.conta_proxy_var = tk.StringVar(value="")
+        self.conta_proxy_status_var = tk.StringVar(value="Proxy: desativado.")
+        self.conta_anon_var = tk.BooleanVar(value=False)
+        self.tor_status_var = tk.StringVar(value="Tor embutido: não instalado / parado.")
+        self.tor_url_var = tk.StringVar(value=tor_url_expert_bundle())
+
+        proxy_box = ttk.LabelFrame(tab, text="Proxy para a janela embutida (opcional)", padding=12)
+        proxy_box.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        proxy_box.columnconfigure(1, weight=1)
+
+        ttk.Checkbutton(
+            proxy_box, text="Usar proxy na janela embutida",
+            variable=self.conta_proxy_enabled_var, command=self._conta_proxy_toggle,
+        ).grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.conta_proxy_combo = ttk.Combobox(proxy_box, textvariable=self.conta_proxy_var, values=[], state="normal")
+        self.conta_proxy_combo.grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        ttk.Button(proxy_box, text="Buscar proxies grátis", command=self.buscar_proxies_gratuitos).grid(row=0, column=2, padx=4)
+        ttk.Button(proxy_box, text="Testar proxy", command=self.testar_proxy_conta).grid(row=0, column=3, padx=4)
+
+        ttk.Label(proxy_box, textvariable=self.conta_proxy_status_var, style="Status.TLabel").grid(
+            row=1, column=0, columnspan=4, sticky="w", pady=(6, 0)
+        )
+        ttk.Label(
+            proxy_box,
+            text=("Formato: host:porta (ex.: 200.10.20.30:8080) ou http://host:porta / socks5://host:porta. "
+                  "AVISO DE SEGURANÇA: proxies gratuitos são de terceiros desconhecidos e podem interceptar seu "
+                  "tráfego. NÃO use proxy grátis nas páginas de LOGIN e PAGAMENTO do Manus."),
+            style="Danger.TLabel", wraplength=1180, justify="left",
+        ).grid(row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
+
+        # ----- Modo privacidade máxima ("anônimo") + Tor -----
+        ttk.Checkbutton(
+            proxy_box,
+            text="Modo privacidade máxima (sem cookies/histórico, WebRTC sem vazar IP, user-agent genérico)",
+            variable=self.conta_anon_var, command=self._conta_anon_toggle,
+        ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Button(proxy_box, text="Usar Tor (socks5 local)", command=self._conta_usar_tor).grid(row=3, column=3, padx=4, pady=(8, 0))
+
+        ttk.Label(
+            proxy_box,
+            text=("REALIDADE: navegação 100% anônima NÃO existe. Este modo reduz muito o rastreamento, mas "
+                  "fingerprint do navegador, o site de destino e — principalmente — FAZER LOGIN na sua conta "
+                  "identificam você de qualquer forma. Para o máximo de anonimato, combine 'Modo privacidade' + Tor "
+                  "e NÃO faça login. O Tor exige o programa Tor rodando na máquina (porta 9050 ou 9150)."),
+            style="Danger.TLabel", wraplength=1180, justify="left",
+        ).grid(row=4, column=0, columnspan=4, sticky="w", pady=(6, 0))
+
+        # ----- Tor embutido (instalação silenciosa) -----
+        tor_box = ttk.LabelFrame(tab, text="Tor embutido (instalação silenciosa — não precisa instalar nada à mão)", padding=12)
+        tor_box.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        tor_box.columnconfigure(1, weight=1)
+
+        ttk.Label(tor_box, text="URL do pacote:").grid(row=0, column=0, sticky="w", padx=(0, 6))
+        ttk.Entry(tor_box, textvariable=self.tor_url_var).grid(row=0, column=1, sticky="ew", padx=(0, 6))
+        ttk.Button(tor_box, text="Buscar versão recente", command=self.buscar_tor_versao_recente).grid(row=0, column=2, padx=4)
+
+        botoes_tor = ttk.Frame(tor_box)
+        botoes_tor.grid(row=1, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Button(botoes_tor, text="Instalar / Atualizar Tor", command=lambda: self.instalar_tor(iniciar_apos=False)).pack(side="left", padx=(0, 6))
+        ttk.Button(botoes_tor, text="Iniciar Tor", command=self.iniciar_tor).pack(side="left", padx=6)
+        ttk.Button(botoes_tor, text="Parar Tor", command=self.parar_tor).pack(side="left", padx=6)
+        ttk.Button(botoes_tor, text="Instalar e Iniciar", command=lambda: self.instalar_tor(iniciar_apos=True)).pack(side="left", padx=6)
+
+        ttk.Label(tor_box, textvariable=self.tor_status_var, style="Success.TLabel").grid(row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(
+            tor_box,
+            text=("Baixa o Tor Expert Bundle oficial (open-source, gratuito) e roda o tor.exe em segundo plano, "
+                  "SILENCIOSAMENTE (sem janela de console), expondo o SOCKS em 127.0.0.1:9050. Ao conectar "
+                  "(bootstrap 100%), o proxy e o modo privacidade são ativados automaticamente. Windows x86_64."),
+            style="Status.TLabel", wraplength=1180, justify="left",
+        ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
+
+        # ----- Atalhos rápidos (janela embutida) -----
+        atalhos = ttk.LabelFrame(tab, text="Abrir no app (janela embutida)", padding=12)
+        atalhos.grid(row=3, column=0, sticky="ew", pady=(0, 8))
+
+        ttk.Button(
+            atalhos, text="Entrar / Criar conta",
+            command=lambda: self._conta_abrir("https://manus.im/login", "Manus - Login / Cadastro"),
+        ).pack(side="left", padx=(0, 6), pady=2)
+        ttk.Button(
+            atalhos, text="Planos / Assinar / Trial",
+            command=lambda: self._conta_abrir("https://manus.im/subscription", "Manus - Planos e Assinatura"),
+        ).pack(side="left", padx=6, pady=2)
+        ttk.Button(
+            atalhos, text="Configurações de API (gerar chave)",
+            command=lambda: self._conta_abrir("https://manus.im/settings/api", "Manus - API Keys"),
+        ).pack(side="left", padx=6, pady=2)
+        ttk.Button(
+            atalhos, text="Abrir Manus (início)",
+            command=lambda: self._conta_abrir("https://manus.im", "Manus"),
+        ).pack(side="left", padx=6, pady=2)
+
+        # ----- URL livre -----
+        livre = ttk.LabelFrame(tab, text="Abrir uma URL específica do Manus na janela embutida", padding=12)
+        livre.grid(row=4, column=0, sticky="ew", pady=(0, 8))
+        livre.columnconfigure(0, weight=1)
+        self.conta_url_var = tk.StringVar(value="https://manus.im")
+        ttk.Entry(livre, textvariable=self.conta_url_var).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        ttk.Button(
+            livre, text="Abrir na janela embutida",
+            command=lambda: self._conta_abrir(self.conta_url_var.get(), "Manus"),
+        ).grid(row=0, column=1)
+
+        # ----- Aviso -----
+        ttk.Label(
+            tab,
+            text=(
+                "Importante: login, cadastro e PAGAMENTO acontecem na página segura do Manus (via Stripe). "
+                "A janela embutida apenas mostra essa página dentro do app — não há API pública para pagar/ativar "
+                "trial por conta própria. Depois de ativar o plano, gere/atualize sua APIKEY e cole na aba "
+                "'Configuração / IDs'. Se alguma URL não abrir direto, use o botão 'Abrir Manus (início)' e navegue."
+            ),
+            style="Warn.TLabel",
+            wraplength=1180,
+            justify="left",
+        ).grid(row=5, column=0, sticky="w", pady=(6, 0))
+
+    def _conta_proxy_atual(self) -> str:
+        """Retorna o proxy a usar na janela embutida (ou '' se desativado)."""
+        try:
+            if self.conta_proxy_enabled_var.get():
+                return (self.conta_proxy_var.get() or "").strip()
+        except Exception:
+            pass
+        return ""
+
+    def _conta_proxy_toggle(self):
+        """Ao ativar o proxy, avisa sobre riscos de proxies gratuitos."""
+        try:
+            if self.conta_proxy_enabled_var.get():
+                self.conta_proxy_status_var.set("Proxy: ATIVADO para a janela embutida.")
+                messagebox.showwarning(
+                    "Aviso de segurança sobre proxy",
+                    "Você ativou o uso de proxy na janela embutida.\n\n"
+                    "Proxies GRATUITOS são operados por terceiros desconhecidos e podem LER, "
+                    "registrar ou alterar o tráfego que passa por eles.\n\n"
+                    "NÃO faça login nem pagamento no Manus enquanto estiver usando um proxy grátis. "
+                    "Use proxy apenas para navegação/consulta e, de preferência, um proxy confiável e próprio.",
+                )
+            else:
+                self.conta_proxy_status_var.set("Proxy: desativado.")
+        except Exception:
+            pass
+
+    def _conta_abrir(self, url: str, titulo: str = "Manus"):
+        """Abre a janela embutida aplicando o proxy e o modo privacidade quando ativados."""
+        try:
+            anon = bool(self.conta_anon_var.get())
+        except Exception:
+            anon = False
+        self.abrir_janela_manus_embutida(url, titulo, self._conta_proxy_atual(), anon)
+
+    def _conta_anon_toggle(self):
+        """Avisa, ao ativar, que anonimato 100% não existe (especialmente com login)."""
+        try:
+            if self.conta_anon_var.get():
+                messagebox.showwarning(
+                    "Sobre o modo privacidade máxima",
+                    "Este modo reduz bastante o rastreamento (sem cookies/histórico, WebRTC sem vazar IP, "
+                    "user-agent genérico, armazenamento temporário).\n\n"
+                    "MAS navegação 100% anônima NÃO existe: o site de destino, o fingerprint do navegador e, "
+                    "sobretudo, FAZER LOGIN na sua conta identificam você.\n\n"
+                    "Para o máximo de privacidade: ative também o Tor e evite logar.",
+                )
+        except Exception:
+            pass
+
+    def _conta_usar_tor(self):
+        """Configura o proxy para o Tor local e liga o modo privacidade."""
+        self.conta_proxy_var.set("socks5://127.0.0.1:9050")
+        self.conta_proxy_enabled_var.set(True)
+        self.conta_anon_var.set(True)
+        self.conta_proxy_status_var.set("Configurado para Tor (socks5://127.0.0.1:9050) + modo privacidade.")
+        messagebox.showinfo(
+            "Usar Tor",
+            "Para funcionar, o Tor precisa estar INSTALADO e RODANDO na sua máquina.\n\n"
+            "- Tor daemon (Expert Bundle): porta 9050\n"
+            "- Tor Browser aberto: porta 9150 (troque para socks5://127.0.0.1:9150 se usar o Tor Browser)\n\n"
+            "Sem o Tor rodando, a janela não vai carregar. Use 'Testar proxy' para verificar.",
+        )
+
+    def buscar_proxies_gratuitos(self):
+        """Busca uma lista de proxies gratuitos de fontes públicas (podem estar instáveis)."""
+        self.conta_proxy_status_var.set("Buscando proxies gratuitos...")
+
+        def worker():
+            fontes = [
+                "https://www.proxy-list.download/api/v1/get?type=https",
+                "https://www.proxy-list.download/api/v1/get?type=http",
+                "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
+            ]
+            encontrados: List[str] = []
+            for u in fontes:
+                try:
+                    r = HTTP_SESSION.get(u, timeout=20)
+                    if r.ok and r.text.strip():
+                        for linha in r.text.splitlines():
+                            linha = linha.strip()
+                            if re.match(r"^\d{1,3}(\.\d{1,3}){3}:\d{2,5}$", linha):
+                                encontrados.append(linha)
+                    if encontrados:
+                        break
+                except Exception:
+                    continue
+            vistos = set()
+            lista = []
+            for p in encontrados:
+                if p not in vistos:
+                    vistos.add(p)
+                    lista.append(p)
+            lista = lista[:100]
+            info = (f"{len(lista)} proxy(s) grátis encontrados (podem estar lentos/instáveis)."
+                    if lista else "Não foi possível obter proxies grátis agora. Tente novamente ou informe um manualmente.")
+            self.msg("conta_proxy_list", lista, info)
+
+        self.executar_thread(worker)
+
+    def testar_proxy_conta(self):
+        """Testa o proxy informado consultando o IP de saída."""
+        px = (self.conta_proxy_var.get() or "").strip()
+        if not px:
+            messagebox.showinfo("Proxy", "Informe ou selecione um proxy (host:porta).")
+            return
+        proxy_url = px if "://" in px else ("http://" + px)
+        self.conta_proxy_status_var.set(f"Testando proxy {px}...")
+
+        def worker():
+            try:
+                proxies = {"http": proxy_url, "https": proxy_url}
+                r = requests.get("https://api.ipify.org?format=json", proxies=proxies, timeout=15)
+                if r.ok:
+                    self.msg("conta_proxy_status", f"Proxy OK — resposta: {resumo_texto(r.text, 80)}")
+                else:
+                    self.msg("conta_proxy_status", f"Proxy respondeu HTTP {r.status_code}")
+            except Exception as e:
+                self.msg("conta_proxy_status", f"Falha no proxy: {resumo_texto(str(e), 120)}")
+
+        self.executar_thread(worker)
+
+    def _tor_exe_local(self):
+        """Procura o tor.exe: pasta do app (tor_embutido), PATH ou Tor Browser instalado."""
+        try:
+            if TOR_DIR.exists():
+                for p in TOR_DIR.rglob("tor.exe"):
+                    return p
+        except Exception:
+            pass
+        try:
+            w = shutil.which("tor")
+            if w:
+                return Path(w)
+        except Exception:
+            pass
+        try:
+            candidatos = [
+                Path(os.environ.get("USERPROFILE", "")) / "Desktop" / "Tor Browser" / "Browser" / "TorBrowser" / "Tor" / "tor.exe",
+                Path(os.environ.get("PROGRAMFILES", "")) / "Tor Browser" / "Browser" / "TorBrowser" / "Tor" / "tor.exe",
+            ]
+            for c in candidatos:
+                if str(c) and c.exists():
+                    return c
+        except Exception:
+            pass
+        return None
+
+    def buscar_tor_versao_recente(self):
+        """Tenta detectar a versão estável mais recente do Tor no dist oficial."""
+        self.tor_status_var.set("Buscando versão mais recente do Tor...")
+
+        def worker():
+            try:
+                r = HTTP_SESSION.get("https://dist.torproject.org/torbrowser/", timeout=30)
+                versoes = re.findall(r'href="(\d+\.\d+(?:\.\d+)?)/"', r.text)
+                estaveis = [v for v in versoes if "a" not in v.lower() and "b" not in v.lower()]
+
+                def kf(v):
+                    try:
+                        return tuple(int(x) for x in v.split("."))
+                    except Exception:
+                        return (0,)
+
+                if estaveis:
+                    melhor = sorted(set(estaveis), key=kf)[-1]
+                    self.msg("tor_set_url", tor_url_expert_bundle(melhor))
+                    self.msg("tor_status", f"Versão detectada: {melhor}. URL atualizada.")
+                else:
+                    self.msg("tor_status", "Não consegui detectar a versão; use a URL atual ou cole manualmente.")
+            except Exception as e:
+                self.msg("tor_status", f"Falha ao detectar versão: {resumo_texto(str(e), 90)}")
+
+        self.executar_thread(worker)
+
+    def instalar_tor(self, iniciar_apos: bool = False):
+        """Baixa e extrai o Tor Expert Bundle (instalação silenciosa, em thread)."""
+        url = (self.tor_url_var.get() or "").strip() or tor_url_expert_bundle()
+        self.tor_status_var.set("Baixando Tor (silencioso)...")
+        self.log(f"[TOR] Baixando {url}\n")
+
+        def worker():
+            try:
+                TOR_DIR.mkdir(parents=True, exist_ok=True)
+                destino = TOR_DIR / "tor-expert-bundle.tar.gz"
+                with HTTP_SESSION.get(url, stream=True, timeout=600) as r:
+                    r.raise_for_status()
+                    total = int(r.headers.get("Content-Length") or 0)
+                    baixado = 0
+                    ult = -1
+                    with destino.open("wb") as f:
+                        for chunk in r.iter_content(1024 * 256):
+                            if chunk:
+                                f.write(chunk)
+                                baixado += len(chunk)
+                                if total:
+                                    pct = baixado * 100 // total
+                                    if pct != ult:
+                                        ult = pct
+                                        self.msg("tor_status", f"Baixando Tor: {pct}%")
+                self.msg("tor_status", "Extraindo Tor...")
+                with tarfile.open(destino, "r:gz") as tf:
+                    try:
+                        tf.extractall(TOR_DIR, filter="data")
+                    except TypeError:
+                        tf.extractall(TOR_DIR)
+                try:
+                    destino.unlink()
+                except Exception:
+                    pass
+                exe = self._tor_exe_local()
+                if exe:
+                    self.msg("tor_status", f"Tor instalado em: {exe}")
+                    self.msg("log", f"[TOR] Instalado: {exe}\n")
+                    if iniciar_apos:
+                        self.msg("tor_iniciar")
+                else:
+                    self.msg("tor_status", "Baixado, mas tor.exe não foi encontrado no pacote (verifique a URL/versão).")
+            except Exception as e:
+                self.msg("tor_status", f"Falha ao instalar Tor: {resumo_texto(str(e), 140)}")
+                self.msg("log", f"[TOR/ERRO] {e}\n")
+
+        self.executar_thread(worker)
+
+    def iniciar_tor(self):
+        """Inicia o tor.exe em segundo plano (silencioso) e detecta o bootstrap."""
+        proc = getattr(self, "_tor_proc", None)
+        if proc is not None and proc.poll() is None:
+            self.tor_status_var.set("Tor já está rodando.")
+            return
+        exe = self._tor_exe_local()
+        if not exe:
+            if messagebox.askyesno(
+                "Tor não instalado",
+                "O Tor embutido ainda não está instalado.\n\n"
+                "Baixar e instalar agora (silencioso) e iniciar em seguida?",
+            ):
+                self.instalar_tor(iniciar_apos=True)
+            return
+        try:
+            TOR_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        cmd = [str(exe), "--SocksPort", "127.0.0.1:9050", "--DataDirectory", str(TOR_DATA_DIR)]
+        try:
+            data_dir = exe.parent.parent / "data"
+            g = data_dir / "geoip"
+            g6 = data_dir / "geoip6"
+            if g.exists():
+                cmd += ["--GeoIPFile", str(g)]
+            if g6.exists():
+                cmd += ["--GeoIPv6File", str(g6)]
+        except Exception:
+            pass
+        creation = 0
+        if os.name == "nt":
+            creation = 0x08000000  # CREATE_NO_WINDOW: sem janela de console (silencioso)
+        self.tor_status_var.set("Iniciando Tor... aguardando bootstrap (pode levar de 10 a 40s).")
+        self.log("[TOR] Iniciando tor.exe...\n")
+
+        def worker():
+            try:
+                p = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    creationflags=creation,
+                    cwd=str(exe.parent),
+                )
+                self._tor_proc = p
+                for linha in p.stdout:
+                    linha = (linha or "").strip()
+                    if not linha:
+                        continue
+                    if "Bootstrapped" in linha:
+                        self.msg("tor_status", "Tor: " + linha)
+                        if "100%" in linha:
+                            self.msg("tor_pronto")
+                    elif "[err]" in linha.lower():
+                        self.msg("log", f"[TOR] {linha}\n")
+                self.msg("tor_status", "Tor: processo finalizado.")
+            except Exception as e:
+                self.msg("tor_status", f"Falha ao iniciar Tor: {resumo_texto(str(e), 120)}")
+                self.msg("log", f"[TOR/ERRO] {e}\n")
+
+        self.executar_thread(worker)
+
+    def parar_tor(self):
+        """Para o processo do Tor embutido."""
+        proc = getattr(self, "_tor_proc", None)
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        self._tor_proc = None
+        try:
+            self.tor_status_var.set("Tor parado.")
+            self.log("[TOR] Tor parado.\n")
+        except Exception:
+            pass
+
+    def _criar_container_rolavel(self, parent):
+        """Cria um container com barra de rolagem vertical e devolve o frame interno."""
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(0, weight=1)
+        canvas = tk.Canvas(parent, highlightthickness=0, borderwidth=0)
+        canvas.configure(background=getattr(self, "_tema_text_bg", "#FFFFFF"))
+        vsb = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        inner = ttk.Frame(canvas, padding=(0, 0, 10, 0))
+        jid = canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(jid, width=e.width))
+
+        def _wheel(e):
+            try:
+                canvas.yview_scroll(int(-1 * (e.delta / 120)) * 3, "units")
+            except Exception:
+                pass
+
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        inner.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel))
+        inner.columnconfigure(0, weight=1)
+        return inner
+
+    # ===================================================================
+    # ============ BASE DE CONHECIMENTO (MySQL + FTP, sem IA) ===========
+    # ===================================================================
+    def construir_aba_base_conhecimento(self):
+        self.kb_status_var = tk.StringVar(value="Base de Conhecimento (MySQL + FTP). Não usa IA.")
+        self.kb_massa_status_var = tk.StringVar(value="Aguardando importação...")
+        self.kb_tipo_var = tk.StringVar(value="dicionario")
+        self.kb_termo_var = tk.StringVar(value="")
+        self.kb_titulo_var = tk.StringVar(value="")
+        self.kb_tags_var = tk.StringVar(value="")
+        self.kb_fonte_var = tk.StringVar(value="")
+
+        tab = self._criar_container_rolavel(self.kb_tab)
+
+        cab = ttk.LabelFrame(tab, text="Base de Conhecimento local (alimenta o Modo Local, SEM IA)", padding=10)
+        cab.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        cab.columnconfigure(0, weight=1)
+        ttk.Label(cab, text=("Salve dicionários, enciclopédias e arquivos direto no MySQL e no FTP. Depois o "
+                             "'Modo Local' responde usando SÓ esses dados, sem nenhuma IA e sem chave."),
+                  style="Status.TLabel", wraplength=1150, justify="left").grid(row=0, column=0, sticky="w")
+        ttk.Label(cab, textvariable=self.kb_status_var, style="Success.TLabel").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Button(cab, text="Atualizar contagem", command=self.kb_atualizar_contagem).grid(row=0, column=1, sticky="e")
+
+        form = ttk.LabelFrame(tab, text="Adicionar um registro", padding=10)
+        form.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        form.columnconfigure(1, weight=1)
+        ttk.Label(form, text="Tipo:").grid(row=0, column=0, sticky="w", padx=(0, 6))
+        ttk.Combobox(form, textvariable=self.kb_tipo_var, values=["dicionario", "enciclopedia", "arquivo", "nota"],
+                     state="readonly", width=18).grid(row=0, column=1, sticky="w")
+        ttk.Label(form, text="Termo / Palavra:").grid(row=1, column=0, sticky="w", padx=(0, 6))
+        ttk.Entry(form, textvariable=self.kb_termo_var).grid(row=1, column=1, sticky="ew")
+        ttk.Label(form, text="Título:").grid(row=2, column=0, sticky="w", padx=(0, 6))
+        ttk.Entry(form, textvariable=self.kb_titulo_var).grid(row=2, column=1, sticky="ew")
+        ttk.Label(form, text="Tags (vírgula):").grid(row=3, column=0, sticky="w", padx=(0, 6))
+        ttk.Entry(form, textvariable=self.kb_tags_var).grid(row=3, column=1, sticky="ew")
+        ttk.Label(form, text="Fonte:").grid(row=4, column=0, sticky="w", padx=(0, 6))
+        ttk.Entry(form, textvariable=self.kb_fonte_var).grid(row=4, column=1, sticky="ew")
+        ttk.Label(form, text="Conteúdo:").grid(row=5, column=0, sticky="nw", padx=(0, 6))
+        self.kb_conteudo_text = ScrolledText(form, height=6, wrap="word")
+        self.kb_conteudo_text.grid(row=5, column=1, sticky="ew")
+        ttk.Button(form, text="Salvar no MySQL", command=self.kb_salvar_um, style="Accent.TButton").grid(row=6, column=1, sticky="w", pady=(8, 0))
+
+        massa = ttk.LabelFrame(tab, text="Upload em massa (muitas informações de uma vez)", padding=10)
+        massa.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        massa.columnconfigure(0, weight=1)
+        linha = ttk.Frame(massa)
+        linha.grid(row=0, column=0, sticky="w")
+        ttk.Button(linha, text="Importar arquivos (texto) -> MySQL+FTP", command=self.kb_importar_arquivos).pack(side="left", padx=(0, 6))
+        ttk.Button(linha, text="Importar pasta inteira", command=self.kb_importar_pasta).pack(side="left", padx=6)
+        ttk.Button(linha, text="Importar JSON/CSV (lote)", command=self.kb_importar_json_csv).pack(side="left", padx=6)
+        ttk.Label(massa, text=("Arquivos de texto (.txt, .md, .csv, .json, .html, .py, etc.) têm o conteúdo salvo no MySQL "
+                               "e o arquivo enviado ao FTP (pasta base_conhecimento). JSON = lista de objetos com campos "
+                               "termo, titulo, conteudo, tags, tipo, fonte. CSV = cabeçalho com essas colunas."),
+                  style="Status.TLabel", wraplength=1150, justify="left").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Label(massa, textvariable=self.kb_massa_status_var, style="Status.TLabel").grid(row=2, column=0, sticky="w", pady=(6, 0))
+
+        self.kb_atualizar_contagem()
+
+    def kb_atualizar_contagem(self):
+        if not MYSQL_DISPONIVEL:
+            self.kb_status_var.set("MySQL indisponível (instale PyMySQL). A base de conhecimento precisa do MySQL.")
+            return
+
+        def worker():
+            try:
+                self._mysql.inicializar()
+                n = self._mysql.kb_contar()
+                self.msg("kb_status", f"MySQL OK ({MYSQL_HOST}/{MYSQL_DB}). Registros na base: {n}.")
+            except Exception as e:
+                self.msg("kb_status", f"Falha MySQL: {resumo_texto(str(e), 100)}")
+
+        self.executar_thread(worker)
+
+    def kb_salvar_um(self):
+        if not MYSQL_DISPONIVEL:
+            messagebox.showerror("MySQL", "MySQL indisponível. Instale PyMySQL: python -m pip install PyMySQL")
+            return
+        tipo = self.kb_tipo_var.get().strip()
+        termo = self.kb_termo_var.get().strip()
+        titulo = self.kb_titulo_var.get().strip()
+        tags = self.kb_tags_var.get().strip()
+        fonte = self.kb_fonte_var.get().strip()
+        conteudo = self.kb_conteudo_text.get("1.0", "end").strip()
+        if not (termo or titulo or conteudo):
+            messagebox.showinfo("Base de Conhecimento", "Preencha ao menos Termo, Título ou Conteúdo.")
+            return
+
+        def worker():
+            try:
+                self._mysql.inicializar()
+                self._mysql.kb_inserir(tipo, termo, titulo, conteudo, tags, fonte, "")
+                self.msg("kb_status", f"Registro salvo: {termo or titulo}")
+                try:
+                    n = self._mysql.kb_contar()
+                    self.msg("kb_status", f"MySQL OK. Registros na base: {n}. (último: {termo or titulo})")
+                except Exception:
+                    pass
+            except Exception as e:
+                self.msg("kb_status", f"Falha ao salvar: {resumo_texto(str(e), 100)}")
+
+        self.executar_thread(worker)
+        self.kb_termo_var.set("")
+        self.kb_titulo_var.set("")
+        try:
+            self.kb_conteudo_text.delete("1.0", "end")
+        except Exception:
+            pass
+
+    def kb_importar_arquivos(self):
+        if not MYSQL_DISPONIVEL:
+            messagebox.showerror("MySQL", "MySQL indisponível. Instale PyMySQL.")
+            return
+        paths = filedialog.askopenfilenames(title="Selecione arquivos para importar em massa", filetypes=[("Todos os arquivos", "*.*")])
+        if not paths:
+            return
+        self._kb_importar_lista([Path(p) for p in paths])
+
+    def kb_importar_pasta(self):
+        if not MYSQL_DISPONIVEL:
+            messagebox.showerror("MySQL", "MySQL indisponível. Instale PyMySQL.")
+            return
+        d = filedialog.askdirectory(title="Selecione a pasta para importar (recursivo)")
+        if not d:
+            return
+        arquivos = [f for f in Path(d).rglob("*") if f.is_file()]
+        if not arquivos:
+            messagebox.showinfo("Base de Conhecimento", "Nenhum arquivo encontrado na pasta.")
+            return
+        self._kb_importar_lista(arquivos)
+
+    def _kb_importar_lista(self, arquivos: List[Path]):
+        self.kb_massa_status_var.set(f"Importando {len(arquivos)} arquivo(s)...")
+        exts_texto = {".txt", ".md", ".csv", ".json", ".html", ".xml", ".py", ".js",
+                      ".css", ".log", ".sql", ".ini", ".yaml", ".yml", ".rtf"}
+
+        def worker():
+            try:
+                self._mysql.inicializar()
+            except Exception:
+                pass
+            ok = 0
+            falhas = 0
+            total = len(arquivos)
+            for i, f in enumerate(arquivos, 1):
+                try:
+                    conteudo = ""
+                    if f.suffix.lower() in exts_texto:
+                        try:
+                            conteudo = f.read_text(encoding="utf-8", errors="ignore")[:200000]
+                        except Exception:
+                            conteudo = ""
+                    self._mysql.kb_inserir("arquivo", f.stem, f.name, conteudo, "", "import_massa", f.name)
+                    try:
+                        self.enfileirar_backup(f, "base_conhecimento/" + nome_seguro(f.name, 160))
+                    except Exception:
+                        pass
+                    ok += 1
+                except Exception:
+                    falhas += 1
+                if i % 5 == 0 or i == total:
+                    self.msg("kb_massa_status", f"Importados {ok}/{total} (falhas: {falhas})...")
+            self.msg("kb_massa_status", f"Concluído: {ok} importado(s), {falhas} falha(s). Arquivos enviados ao FTP (base_conhecimento/).")
+            try:
+                n = self._mysql.kb_contar()
+                self.msg("kb_status", f"MySQL OK. Registros na base: {n}.")
+            except Exception:
+                pass
+
+        self.executar_thread(worker)
+
+    def kb_importar_json_csv(self):
+        if not MYSQL_DISPONIVEL:
+            messagebox.showerror("MySQL", "MySQL indisponível. Instale PyMySQL.")
+            return
+        p = filedialog.askopenfilename(title="Selecione JSON ou CSV", filetypes=[("JSON/CSV", "*.json *.csv"), ("Todos", "*.*")])
+        if not p:
+            return
+        path = Path(p)
+        self.kb_massa_status_var.set(f"Lendo {path.name}...")
+
+        def worker():
+            import csv
+            import io
+            try:
+                self._mysql.inicializar()
+            except Exception:
+                pass
+            registros = []
+            try:
+                if path.suffix.lower() == ".json":
+                    data = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+                    if isinstance(data, dict):
+                        data = data.get("itens") or data.get("dados") or data.get("registros") or []
+                    for it in (data or []):
+                        if isinstance(it, dict):
+                            registros.append((
+                                str(it.get("tipo") or "enciclopedia")[:40],
+                                str(it.get("termo") or it.get("palavra") or it.get("title") or "")[:255],
+                                str(it.get("titulo") or it.get("title") or "")[:255],
+                                str(it.get("conteudo") or it.get("content") or it.get("definicao") or ""),
+                                str(it.get("tags") or "")[:255],
+                                str(it.get("fonte") or path.name)[:255],
+                                "",
+                            ))
+                else:
+                    txt = path.read_text(encoding="utf-8", errors="ignore")
+                    reader = csv.DictReader(io.StringIO(txt))
+                    for row in reader:
+                        registros.append((
+                            str(row.get("tipo") or "enciclopedia")[:40],
+                            str(row.get("termo") or row.get("palavra") or "")[:255],
+                            str(row.get("titulo") or "")[:255],
+                            str(row.get("conteudo") or row.get("definicao") or ""),
+                            str(row.get("tags") or "")[:255],
+                            str(row.get("fonte") or path.name)[:255],
+                            "",
+                        ))
+                total = 0
+                lote = 500
+                for i in range(0, len(registros), lote):
+                    parte = registros[i:i + lote]
+                    total += self._mysql.kb_inserir_muitos(parte)
+                    self.msg("kb_massa_status", f"Inserindo... {total}/{len(registros)}")
+                self.msg("kb_massa_status", f"Concluído: {total} registro(s) inseridos de {path.name}.")
+                try:
+                    self.enfileirar_backup(path, "base_conhecimento/" + nome_seguro(path.name, 160))
+                except Exception:
+                    pass
+                try:
+                    n = self._mysql.kb_contar()
+                    self.msg("kb_status", f"MySQL OK. Registros na base: {n}.")
+                except Exception:
+                    pass
+            except Exception as e:
+                self.msg("kb_massa_status", f"Falha na importação: {resumo_texto(str(e), 120)}")
+
+        self.executar_thread(worker)
+
+    # ===================================================================
+    # ================= MODO LOCAL (sem IA, sem chave) ==================
+    # ===================================================================
+    def construir_aba_modo_local(self):
+        self.local_status_var = tk.StringVar(value="Modo Local: responde SÓ com MySQL + FTP, sem IA e sem chave.")
+        self.local_query_var = tk.StringVar(value="")
+        self._local_resultados: List[Dict[str, Any]] = []
+
+        tab = self._criar_container_rolavel(self.local_tab)
+
+        cab = ttk.LabelFrame(tab, text="Modo Local (sem IA, sem chave) — usa apenas MySQL e FTP", padding=10)
+        cab.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        cab.columnconfigure(0, weight=1)
+        ttk.Label(cab, text=("Este modo NÃO chama nenhuma inteligência artificial e NÃO precisa de chave de API. "
+                             "Ele busca as respostas na Base de Conhecimento salva no MySQL e lista os arquivos do FTP."),
+                  style="Status.TLabel", wraplength=1150, justify="left").grid(row=0, column=0, sticky="w")
+        ttk.Label(cab, textvariable=self.local_status_var, style="Success.TLabel").grid(row=1, column=0, sticky="w", pady=(6, 0))
+
+        busca = ttk.LabelFrame(tab, text="Buscar na base (MySQL)", padding=10)
+        busca.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        busca.columnconfigure(0, weight=1)
+        linha = ttk.Frame(busca)
+        linha.grid(row=0, column=0, sticky="ew")
+        linha.columnconfigure(0, weight=1)
+        ent = ttk.Entry(linha, textvariable=self.local_query_var)
+        ent.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ent.bind("<Return>", lambda e: self.local_buscar())
+        ttk.Button(linha, text="Buscar", command=self.local_buscar, style="Accent.TButton").grid(row=0, column=1)
+        self.local_lista = tk.Listbox(busca, height=8)
+        self.local_lista.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        self.local_lista.bind("<<ListboxSelect>>", self._local_mostrar_selecionado)
+        self.local_detalhe_text = ScrolledText(busca, height=8, wrap="word")
+        self.local_detalhe_text.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+
+        ftpf = ttk.LabelFrame(tab, text="Arquivos no FTP (pasta base_conhecimento)", padding=10)
+        ftpf.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        ftpf.columnconfigure(0, weight=1)
+        ttk.Button(ftpf, text="Listar arquivos do FTP", command=self.local_listar_ftp).grid(row=0, column=0, sticky="w")
+        self.local_ftp_lista = tk.Listbox(ftpf, height=6)
+        self.local_ftp_lista.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+
+    def local_buscar(self):
+        if not MYSQL_DISPONIVEL:
+            self.local_status_var.set("MySQL indisponível. Instale PyMySQL para usar o modo local.")
+            return
+        q = self.local_query_var.get().strip()
+        if not q:
+            messagebox.showinfo("Modo Local", "Digite algo para buscar.")
+            return
+        self.local_status_var.set(f"Buscando '{q}' na base local (MySQL)...")
+
+        def worker():
+            try:
+                res = self._mysql.kb_buscar(q, 100)
+                self.msg("local_result", res)
+            except Exception as e:
+                self.msg("local_status", f"Falha na busca: {resumo_texto(str(e), 100)}")
+
+        self.executar_thread(worker)
+
+    def _local_mostrar_selecionado(self, event=None):
+        try:
+            sel = self.local_lista.curselection()
+            if not sel:
+                return
+            r = self._local_resultados[sel[0]]
+            self.local_detalhe_text.delete("1.0", "end")
+            self.local_detalhe_text.insert(
+                "1.0",
+                f"[{r.get('tipo')}] {r.get('termo')} — {r.get('titulo')}\n"
+                f"Tags: {r.get('tags')}\nFonte: {r.get('fonte')}\n\n{r.get('conteudo')}",
+            )
+        except Exception:
+            pass
+
+    def local_listar_ftp(self):
+        self.local_status_var.set("Listando arquivos do FTP...")
+
+        def worker():
+            try:
+                fb = FTPBackup()
+                fb.conectar()
+                try:
+                    fb._garantir_dir(fb.base + "/base_conhecimento")
+                except Exception:
+                    pass
+                nomes = []
+                try:
+                    nomes = fb.ftp.nlst()
+                except Exception:
+                    pass
+                fb.fechar()
+                self.msg("local_ftp_result", nomes)
+            except Exception as e:
+                self.msg("local_status", f"Falha no FTP: {resumo_texto(str(e), 100)}")
+
+        self.executar_thread(worker)
+
+    # ===================================================================
+    # ============== EXEMPLOS / DOCS / IAs GRATUITAS ====================
+    # ===================================================================
+    def construir_aba_exemplos_ias(self):
+        tab = self._criar_container_rolavel(self.exemplos_tab)
+
+        ex = ttk.LabelFrame(tab, text="Exemplos e documentação rápida", padding=10)
+        ex.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ex.columnconfigure(0, weight=1)
+        txt = ScrolledText(ex, height=16, wrap="word")
+        txt.grid(row=0, column=0, sticky="ew")
+        txt.insert("1.0", EXEMPLOS_DOCS_TEXTO)
+        txt.configure(state="disabled")
+
+        ia = ttk.LabelFrame(tab, text="IAs com chave/uso GRATUITO (use na aba 'Outras IAs / APIs')", padding=10)
+        ia.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        ia.columnconfigure(0, weight=1)
+        cols = ("nome", "gratis", "obter")
+        tree = ttk.Treeview(ia, columns=cols, show="headings", height=11)
+        tree.grid(row=0, column=0, sticky="ew")
+        tree.heading("nome", text="Provedor")
+        tree.column("nome", width=170)
+        tree.heading("gratis", text="Gratuito?")
+        tree.column("gratis", width=280)
+        tree.heading("obter", text="Onde obter a chave")
+        tree.column("obter", width=340)
+        for nome, gratis, obter in IAS_GRATUITAS:
+            tree.insert("", "end", values=(nome, gratis, obter))
+        linha = ttk.Frame(ia)
+        linha.grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Button(linha, text="Abrir página do provedor selecionado (janela embutida)",
+                   command=lambda: self._exemplos_abrir_provedor(tree)).pack(side="left")
+        ttk.Label(ia, text="Observação: limites e disponibilidade dos planos gratuitos mudam com frequência — confirme no site de cada provedor.",
+                  style="Warn.TLabel", wraplength=1150, justify="left").grid(row=2, column=0, sticky="w", pady=(6, 0))
+
+    def _exemplos_abrir_provedor(self, tree):
+        try:
+            sel = tree.selection()
+            if not sel:
+                messagebox.showinfo("Provedor", "Selecione um provedor na lista.")
+                return
+            vals = tree.item(sel[0], "values")
+            url = IAS_GRATUITAS_URLS.get(vals[0], "")
+            if url:
+                self.abrir_janela_manus_embutida(url, str(vals[0]))
+        except Exception:
+            pass
+
+    def construir_aba_api_manus(self):
+        """
+        Central da API Manus: permite executar QUALQUER endpoint da API v2
+        (leitura GET e escrita POST) diretamente no servidor do Manus.
+
+        Fluxo:
+        1) Escolha o endpoint na lista.
+        2) Edite os parâmetros (GET) ou o corpo (POST) em JSON.
+        3) Clique em EXECUTAR. A resposta bruta do servidor aparece abaixo.
+
+        Endpoints POST alteram dados REAIS na conta (criar/alterar/apagar).
+        """
+        self.api_console_status_var = tk.StringVar(value="Pronto. Escolha um endpoint.")
+        self.api_form_widgets: Dict[str, Any] = {}
+        self.api_form_especial = ""
+
+        outer = self.api_tab
+        outer.columnconfigure(0, weight=1)
+        # A aba é rolável para caber tudo (formulário fácil + JSON + resposta).
+        outer.rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(outer, highlightthickness=0, borderwidth=0)
+        canvas.configure(background=getattr(self, "_tema_text_bg", "#FFFFFF"))
+        vsb = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        cont = ttk.Frame(canvas, padding=(0, 0, 10, 0))
+        _jin_api = canvas.create_window((0, 0), window=cont, anchor="nw")
+        cont.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(_jin_api, width=e.width))
+
+        def _wheel_api(e):
+            try:
+                canvas.yview_scroll(int(-1 * (e.delta / 120)) * 3, "units")
+            except Exception:
+                pass
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel_api))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        cont.columnconfigure(0, weight=1)
+
+        topo = ttk.LabelFrame(cont, text="1) Escolha o que fazer (GET = consultar/ler, POST = executar/alterar)", padding=10)
+        topo.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        topo.columnconfigure(1, weight=1)
+
+        ttk.Label(topo, text="Ação/Endpoint:").grid(row=0, column=0, sticky="w", padx=(0, 6))
+        self.api_endpoint_var = tk.StringVar()
+        valores = [f"{e['method']:4s} {e['path']}" for e in MANUS_API_ENDPOINTS]
+        self.api_endpoint_combo = ttk.Combobox(
+            topo, textvariable=self.api_endpoint_var, values=valores, state="readonly"
+        )
+        self.api_endpoint_combo.grid(row=0, column=1, sticky="ew", padx=(0, 6))
+        self.api_endpoint_combo.bind("<<ComboboxSelected>>", self._api_ao_selecionar_endpoint)
+
+        self.api_desc_var = tk.StringVar(
+            value="Selecione uma ação na lista acima. O formulário aparece automaticamente aqui embaixo."
+        )
+        ttk.Label(topo, textvariable=self.api_desc_var, style="Status.TLabel", wraplength=1150, justify="left").grid(
+            row=1, column=0, columnspan=2, sticky="w", pady=(6, 0)
+        )
+
+        # ===== MODO FÁCIL: formulário gerado automaticamente por ação =====
+        facil_box = ttk.LabelFrame(cont, text="2) Preencha os campos (Modo Fácil — sem código)", padding=10)
+        facil_box.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        facil_box.columnconfigure(0, weight=1)
+        self.api_form_frame = ttk.Frame(facil_box)
+        self.api_form_frame.grid(row=0, column=0, sticky="ew")
+        self.api_form_frame.columnconfigure(1, weight=1)
+        ttk.Button(facil_box, text="EXECUTAR (modo fácil)", command=self._api_executar_facil, style="Accent.TButton").grid(
+            row=1, column=0, sticky="w", pady=(8, 0)
+        )
+
+        # ===== MODO AVANÇADO: JSON (opcional, para quem quiser) =====
+        params_box = ttk.LabelFrame(
+            cont, text="3) Avançado (opcional): parâmetros em JSON — só se quiser editar manualmente", padding=10
+        )
+        params_box.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        params_box.columnconfigure(0, weight=1)
+        self.api_params_text = ScrolledText(params_box, height=8, wrap="word")
+        self.api_params_text.grid(row=0, column=0, sticky="ew")
+
+        acoes = ttk.Frame(cont)
+        acoes.grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(acoes, text="Carregar modelo (JSON)", command=self._api_carregar_template).pack(side="left", padx=(0, 6))
+        ttk.Button(acoes, text="Executar (JSON avançado)", command=self._api_executar).pack(side="left", padx=6)
+        ttk.Button(acoes, text="Copiar resposta", command=self._api_copiar_resposta).pack(side="left", padx=6)
+        ttk.Button(acoes, text="Limpar resposta", command=lambda: self.api_response_text.delete("1.0", "end")).pack(side="left", padx=6)
+        ttk.Label(acoes, textvariable=self.api_console_status_var, style="Status.TLabel").pack(side="left", padx=12)
+
+        resp_box = ttk.LabelFrame(cont, text="Resposta do servidor", padding=10)
+        resp_box.grid(row=4, column=0, sticky="nsew", pady=(0, 8))
+        resp_box.columnconfigure(0, weight=1)
+        self.api_response_text = ScrolledText(resp_box, height=14, wrap="word")
+        self.api_response_text.grid(row=0, column=0, sticky="ew")
+
+        ttk.Label(
+            cont,
+            text=("Atenção: ações POST executam operações REAIS na sua conta (criar/alterar/apagar). "
+                  "GET apenas lê. A chave usada é a ativa (com failover), definida na aba Configuração / IDs."),
+            style="Warn.TLabel",
+            wraplength=1200,
+            justify="left",
+        ).grid(row=5, column=0, sticky="w", pady=(6, 0))
+
+    def _api_endpoint_atual(self) -> Optional[Dict[str, Any]]:
+        try:
+            idx = self.api_endpoint_combo.current()
+        except Exception:
+            idx = -1
+        if idx is None or idx < 0 or idx >= len(MANUS_API_ENDPOINTS):
+            return None
+        return MANUS_API_ENDPOINTS[idx]
+
+    def _api_ao_selecionar_endpoint(self, event=None):
+        e = self._api_endpoint_atual()
+        if not e:
+            return
+        tipo = "LEITURA (GET)" if e["method"] == "GET" else "ESCRITA (POST) — altera dados reais no servidor"
+        self.api_desc_var.set(f"[{tipo}]  {e['path']}  —  {e.get('desc', '')}")
+        self._api_montar_form_facil(e)
+        self._api_carregar_template()
+
+    def _api_montar_form_facil(self, e: Dict[str, Any]):
+        """Gera automaticamente um formulário simples (sem JSON) para a ação escolhida."""
+        frame = self.api_form_frame
+        for w in list(frame.winfo_children()):
+            try:
+                w.destroy()
+            except Exception:
+                pass
+        self.api_form_widgets = {}
+        self.api_form_especial = ""
+        if not e:
+            return
+
+        acao = ("Consultar/listar — apenas LÊ, não altera nada."
+                if e["method"] == "GET"
+                else "Executa uma ação no servidor: CRIA/ALTERA/APAGA dados reais.")
+        ttk.Label(frame, text=f"O que faz: {e.get('desc', '')}", style="Status.TLabel",
+                  wraplength=1100, justify="left").grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Label(frame, text=f"Tipo: {acao}",
+                  style=("Success.TLabel" if e["method"] == "GET" else "Warn.TLabel")).grid(
+            row=1, column=0, columnspan=2, sticky="w", pady=(2, 6))
+
+        r = 2
+        nome = e["name"]
+        template = e.get("template", {}) or {}
+
+        # Casos especiais: criar tarefa e enviar mensagem (prompt + modelo).
+        if nome in ("task.create", "task.sendMessage"):
+            self.api_form_especial = "create" if nome == "task.create" else "send"
+            if nome == "task.sendMessage":
+                ttk.Label(frame, text="ID da tarefa:").grid(row=r, column=0, sticky="w", padx=(0, 6))
+                v = tk.StringVar()
+                ttk.Entry(frame, textvariable=v).grid(row=r, column=1, sticky="ew")
+                self.api_form_widgets["task_id"] = ("str", v)
+                r += 1
+            ttk.Label(frame, text="Prompt / mensagem:").grid(row=r, column=0, sticky="nw", padx=(0, 6))
+            txt = ScrolledText(frame, height=5, wrap="word")
+            txt.grid(row=r, column=1, sticky="ew")
+            self.api_form_widgets["__prompt__"] = ("prompt", txt)
+            r += 1
+            ttk.Label(frame, text="Modelo:").grid(row=r, column=0, sticky="w", padx=(0, 6))
+            mv = tk.StringVar(value=str(template.get("agent_profile") or ""))
+            ttk.Combobox(frame, textvariable=mv, values=["", "manus-1.6-lite", "manus-1.6", "manus-1.6-max"],
+                         state="readonly", width=22).grid(row=r, column=1, sticky="w")
+            self.api_form_widgets["agent_profile"] = ("combo", mv)
+            r += 1
+            if nome == "task.create":
+                ttk.Label(frame, text="Título (opcional):").grid(row=r, column=0, sticky="w", padx=(0, 6))
+                tv = tk.StringVar()
+                ttk.Entry(frame, textvariable=tv).grid(row=r, column=1, sticky="ew")
+                self.api_form_widgets["title"] = ("str", tv)
+                r += 1
+            return
+
+        # Genérico: gera um campo por chave simples do template.
+        if not template:
+            ttk.Label(frame, text="Esta ação não precisa de parâmetros. É só clicar em EXECUTAR (modo fácil).",
+                      style="Status.TLabel").grid(row=r, column=0, columnspan=2, sticky="w")
+            return
+
+        for k, val in template.items():
+            rotulo = API_CAMPOS_AMIGAVEIS.get(k, k)
+            if isinstance(val, bool):
+                bv = tk.BooleanVar(value=bool(val))
+                ttk.Checkbutton(frame, text=rotulo, variable=bv).grid(row=r, column=0, columnspan=2, sticky="w")
+                self.api_form_widgets[k] = ("bool", bv)
+            elif isinstance(val, (int, float)):
+                ttk.Label(frame, text=rotulo + ":").grid(row=r, column=0, sticky="w", padx=(0, 6))
+                sv = tk.StringVar(value=str(val))
+                ttk.Entry(frame, textvariable=sv, width=20).grid(row=r, column=1, sticky="w")
+                self.api_form_widgets[k] = ("int", sv)
+            elif isinstance(val, str):
+                ttk.Label(frame, text=rotulo + ":").grid(row=r, column=0, sticky="w", padx=(0, 6))
+                sv = tk.StringVar(value=val)
+                ttk.Entry(frame, textvariable=sv).grid(row=r, column=1, sticky="ew")
+                self.api_form_widgets[k] = ("str", sv)
+            else:
+                ttk.Label(frame, text=f"{rotulo}: (campo avançado — ajuste no JSON abaixo)",
+                          style="Status.TLabel").grid(row=r, column=0, columnspan=2, sticky="w")
+                self.api_form_widgets[k] = ("adv", None)
+            r += 1
+
+    def _api_montar_dados_facil(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        """Monta os dados (params/body) a partir do formulário do Modo Fácil."""
+        template = e.get("template", {}) or {}
+        try:
+            dados = json.loads(json.dumps(template))  # cópia profunda segura
+        except Exception:
+            dados = dict(template)
+        esp = getattr(self, "api_form_especial", "")
+        widgets = getattr(self, "api_form_widgets", {})
+
+        if esp in ("create", "send"):
+            prompt = ""
+            pw = widgets.get("__prompt__")
+            if pw and pw[0] == "prompt":
+                try:
+                    prompt = pw[1].get("1.0", "end").strip()
+                except Exception:
+                    prompt = ""
+            dados["message"] = {"content": [{"type": "text", "text": prompt}]}
+            mv = widgets.get("agent_profile")
+            modelo = (mv[1].get().strip() if mv else "")
+            if modelo:
+                dados["agent_profile"] = modelo
+            else:
+                dados.pop("agent_profile", None)
+            if esp == "send":
+                tv = widgets.get("task_id")
+                dados["task_id"] = (tv[1].get().strip() if tv else "")
+            else:
+                tv = widgets.get("title")
+                t = (tv[1].get().strip() if tv else "")
+                if t:
+                    dados["title"] = t
+                else:
+                    dados.pop("title", None)
+            return dados
+
+        for k, (kind, var) in widgets.items():
+            if kind == "bool":
+                dados[k] = bool(var.get())
+            elif kind == "int":
+                s = str(var.get()).strip()
+                try:
+                    dados[k] = int(float(s)) if s else 0
+                except Exception:
+                    dados[k] = s
+            elif kind == "str":
+                dados[k] = str(var.get()).strip()
+            # 'adv' mantém o valor do template
+        return dados
+
+    def _api_executar_facil(self):
+        e = self._api_endpoint_atual()
+        if not e:
+            messagebox.showinfo("API Manus", "Selecione uma ação primeiro.")
+            return
+        dados = self._api_montar_dados_facil(e)
+        # Espelha no JSON avançado para transparência.
+        try:
+            self.api_params_text.delete("1.0", "end")
+            self.api_params_text.insert("1.0", json.dumps(dados, ensure_ascii=False, indent=2))
+        except Exception:
+            pass
+        self._api_disparar(e, dados)
+
+    def _api_carregar_template(self):
+        e = self._api_endpoint_atual()
+        if not e:
+            messagebox.showinfo("API Manus", "Selecione um endpoint primeiro.")
+            return
+        try:
+            txt = json.dumps(e.get("template", {}), ensure_ascii=False, indent=2)
+        except Exception:
+            txt = "{}"
+        self.api_params_text.delete("1.0", "end")
+        self.api_params_text.insert("1.0", txt)
+
+    def _api_copiar_resposta(self):
+        try:
+            texto = self.api_response_text.get("1.0", "end").strip()
+            if texto:
+                self.clipboard_clear()
+                self.clipboard_append(texto)
+                self.api_console_status_var.set("Resposta copiada.")
+        except Exception:
+            pass
+
+    def _api_executar(self):
+        e = self._api_endpoint_atual()
+        if not e:
+            messagebox.showinfo("API Manus", "Selecione um endpoint primeiro.")
+            return
+        raw = self.api_params_text.get("1.0", "end").strip() or "{}"
+        try:
+            dados = json.loads(raw)
+            if not isinstance(dados, dict):
+                raise ValueError("O JSON precisa ser um objeto no formato { ... }.")
+        except Exception as ex:
+            messagebox.showerror("JSON inválido", f"Não foi possível ler os parâmetros JSON:\n\n{ex}")
+            return
+        self._api_disparar(e, dados)
+
+    def _api_disparar(self, e: Dict[str, Any], dados: Dict[str, Any]):
+        """Confirma (se POST), envia a requisição em thread e mostra a resposta."""
+        metodo = e["method"]
+        caminho = e["path"]
+
+        if metodo == "POST":
+            if not messagebox.askyesno(
+                "Confirmar ação de ESCRITA no servidor",
+                "Você vai EXECUTAR uma ação de ESCRITA diretamente no servidor do Manus:\n\n"
+                f"{metodo} {caminho}\n\n"
+                "Isso altera dados reais da conta (criar/alterar/apagar). Continuar?",
+            ):
+                return
+
+        self.api_console_status_var.set(f"Executando {metodo} {caminho}...")
+        self.log(f"[API] Executando {metodo} {caminho}\n")
+
+        def worker():
+            try:
+                api = self.pegar_api()
+                if metodo == "GET":
+                    params = {k: v for k, v in dados.items() if v not in (None, "")}
+                    resp = api.request("GET", caminho, params=params)
+                else:
+                    resp = api.request("POST", caminho, body=dados)
+                try:
+                    texto = json.dumps(resp, ensure_ascii=False, indent=2)
+                except Exception:
+                    texto = str(resp)
+                self.definir_servidor_online(f"Última resposta do servidor: {agora_iso()} | {caminho} OK")
+                self.msg("api_console_result", True, f"{metodo} {caminho}", texto)
+            except Exception as ex:
+                self.msg("api_console_result", False, f"{metodo} {caminho}", str(ex))
+
+        self.executar_thread(worker)
+
+    def _carregar_creditos_editados(self) -> Dict[str, Any]:
+        """
+        Lê o arquivo local com as edições dos campos de créditos
+        (refresh, créditos, quota mensal, próximo refresh, intervalo, etc.).
+
+        Estrutura:
+        {
+          "por_chave": { "<apikey_mascarada>": {ok,total,detail} },
+          "extras":    [ {idx,key,ok,total,detail}, ... ]  # linhas adicionadas à mão
+        }
+        """
+        data = ler_json_seguro(CREDITOS_EDITADOS_FILE, {})
+        if not isinstance(data, dict):
+            data = {}
+        if not isinstance(data.get("por_chave"), dict):
+            data["por_chave"] = {}
+        if not isinstance(data.get("extras"), list):
+            data["extras"] = []
+        return data
+
+    def _salvar_creditos_editados(self, data: Dict[str, Any]) -> bool:
+        """Grava (de forma atômica) as edições locais dos campos de créditos."""
+        try:
+            payload = {
+                "updated_at": agora_iso(),
+                "nota": "Edições LOCAIS dos campos de créditos. Não refletem o saldo real da conta no servidor do Manus.",
+                "por_chave": data.get("por_chave", {}) if isinstance(data, dict) else {},
+                "extras": data.get("extras", []) if isinstance(data, dict) else [],
+            }
+            ok = escrever_json_atomico(CREDITOS_EDITADOS_FILE, payload)
+            if ok:
+                try:
+                    self.enfileirar_backup(CREDITOS_EDITADOS_FILE)
+                except Exception:
+                    pass
+            return ok
+        except Exception:
+            return False
+
     def abrir_janela_creditos_todas_chaves(self, linhas: List[Dict[str, Any]]):
-        """Mostra uma janela com o saldo de crédito de todas as chaves consultadas."""
+        """
+        Mostra uma janela com o saldo de crédito de todas as chaves consultadas.
+
+        Os campos da tabela são EDITÁVEIS: dê um duplo clique (ou tecle F2/Enter)
+        sobre qualquer célula da linha para alterar o valor.
+        - Enter confirma a edição.
+        - Esc cancela.
+        - Ao sair do campo (clicar fora), a alteração também é confirmada.
+
+        PERSISTÊNCIA LOCAL: cada alteração é gravada automaticamente em
+        manus_creditos_editados.local.json e recarregada ao reabrir a janela
+        (ou reiniciar o app). Assim as edições NÃO se perdem. Importante: esses
+        valores são apenas locais/visuais e não alteram o saldo real no servidor
+        do Manus, que é somente leitura.
+        """
         janela = tk.Toplevel(self)
         janela.title("Créditos de todas as APIKEYs")
-        janela.geometry("1180x520")
-        janela.minsize(900, 380)
+        janela.geometry("1340x560")
+        janela.minsize(980, 400)
         janela.columnconfigure(0, weight=1)
-        janela.rowconfigure(0, weight=1)
+        janela.rowconfigure(1, weight=1)
 
-        cols = ("idx", "key", "ok", "total", "detail")
+        ttk.Label(
+            janela,
+            text=("Dica: dê um duplo clique (ou tecle F2 / Enter) em um campo para editá-lo. "
+                  "Enter confirma, Esc cancela. As edições são salvas automaticamente e "
+                  "recarregadas ao reabrir (valores locais, não alteram o saldo real do servidor). "
+                  "A coluna 'Modelo em uso' é lida direto do servidor do Manus e não é editável."),
+            style="Status.TLabel",
+            wraplength=1280,
+            justify="left",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=10, pady=(10, 0))
+
+        cols = ("idx", "key", "ok", "total", "model", "detail")
         tree = ttk.Treeview(janela, columns=cols, show="headings", height=16)
-        tree.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        tree.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
 
         cfg = {
             "idx": ("#", 50),
-            "key": ("APIKEY", 180),
-            "ok": ("OK", 80),
-            "total": ("Créditos disponíveis", 150),
-            "detail": ("Detalhes", 680),
+            "key": ("APIKEY", 170),
+            "ok": ("OK", 70),
+            "total": ("Créditos disponíveis", 140),
+            "model": ("Modelo em uso (servidor)", 190),
+            "detail": ("Detalhes", 560),
         }
         for col, (name, width) in cfg.items():
             tree.heading(col, text=name)
             tree.column(col, width=width, anchor="w")
 
+        # Coluna do modelo: destaque visual para deixar claro que vem do servidor.
+        try:
+            tree.tag_configure("temmodelo", foreground="#1D4ED8")
+        except Exception:
+            pass
+
         scroll_y = ttk.Scrollbar(janela, orient="vertical", command=tree.yview)
-        scroll_y.grid(row=0, column=1, sticky="ns", pady=10)
+        scroll_y.grid(row=1, column=1, sticky="ns", pady=10)
         tree.configure(yscrollcommand=scroll_y.set)
 
+        # Carrega as edições locais persistidas e prepara para reaplicá-las.
+        persistidos = self._carregar_creditos_editados()
+        edicoes_por_chave = persistidos.get("por_chave", {}) or {}
+        edicoes_extras = persistidos.get("extras", []) or []
+        chaves_api_mascaradas = set()
+        # Mapa: APIKEY mascarada (exibida) -> APIKEY real. Necessário para poder
+        # aplicar a troca de modelo no servidor usando a chave correta.
+        mapa_chave_real: Dict[str, str] = {}
+
         for row in linhas:
+            mk = mascarar_chave_api(row.get("key"))
+            chaves_api_mascaradas.add(mk)
+            try:
+                if row.get("key"):
+                    mapa_chave_real[mk] = str(row.get("key"))
+            except Exception:
+                pass
+
+            ok_val = "SIM" if row.get("ok") else "NÃO"
+            total_val = row.get("total")
+            detail_val = row.get("detail")
+            # O modelo vem SEMPRE do servidor (nunca de edição local).
+            model_val = row.get("model") or "--"
+
+            # Se houver edição local salva para esta chave, aplica por cima da API.
+            # (a coluna 'modelo' é intencionalmente ignorada aqui, pois é do servidor)
+            editado = edicoes_por_chave.get(mk)
+            if isinstance(editado, dict):
+                if "ok" in editado:
+                    ok_val = editado.get("ok")
+                if "total" in editado:
+                    total_val = editado.get("total")
+                if "detail" in editado:
+                    detail_val = editado.get("detail")
+
+            tree.insert(
+                "",
+                "end",
+                values=(row.get("idx"), mk, ok_val, total_val, model_val, detail_val),
+                tags=("temmodelo",),
+            )
+
+        # Reinsere as linhas adicionadas manualmente (não vinculadas a uma chave da API).
+        for reg in edicoes_extras:
+            if not isinstance(reg, dict):
+                continue
             tree.insert(
                 "",
                 "end",
                 values=(
-                    row.get("idx"),
-                    mascarar_chave_api(row.get("key")),
-                    "SIM" if row.get("ok") else "NÃO",
-                    row.get("total"),
-                    row.get("detail"),
+                    reg.get("idx", ""),
+                    reg.get("key", ""),
+                    reg.get("ok", ""),
+                    reg.get("total", ""),
+                    "--",  # modelo não se aplica a linhas locais adicionadas à mão
+                    reg.get("detail", ""),
                 ),
             )
 
         rodape = ttk.Frame(janela, padding=(10, 0, 10, 10))
-        rodape.grid(row=1, column=0, columnspan=2, sticky="ew")
+        rodape.grid(row=3, column=0, columnspan=2, sticky="ew")
 
-        total_ok = sum(1 for r in linhas if r.get("ok"))
-        soma = 0
-        for r in linhas:
+        resumo_var = tk.StringVar()
+
+        def recalcular_resumo():
+            filhos = tree.get_children()
+            total_ok = 0
+            soma = 0
+            for iid in filhos:
+                vals = tree.item(iid, "values")
+                try:
+                    if str(vals[2]).strip().upper() in ("SIM", "YES", "OK", "TRUE", "1"):
+                        total_ok += 1
+                except Exception:
+                    pass
+                try:
+                    soma += int(float(str(vals[3]).strip()))
+                except Exception:
+                    pass
+            resumo_var.set(
+                f"Consulta finalizada: {total_ok}/{len(filhos)} chave(s) OK. "
+                f"Soma dos saldos consultados: {soma} crédito(s)."
+            )
+
+        def persistir_estado_tabela(silencioso: bool = True) -> bool:
+            """
+            Grava o estado atual da tabela no arquivo local, separando linhas
+            vinculadas a uma chave da API (por_chave) das linhas adicionadas
+            manualmente (extras). Chamado automaticamente após cada alteração.
+            """
+            por_chave: Dict[str, Any] = {}
+            extras: List[Dict[str, Any]] = []
+            for iid in tree.get_children():
+                vals = list(tree.item(iid, "values"))
+                # Colunas: idx(0), key(1), ok(2), total(3), model(4), detail(5).
+                # A coluna 'model' NÃO é persistida: ela é lida do servidor a cada consulta.
+                idx_v = vals[0] if len(vals) > 0 else ""
+                key_v = str(vals[1]).strip() if len(vals) > 1 else ""
+                ok_v = vals[2] if len(vals) > 2 else ""
+                total_v = vals[3] if len(vals) > 3 else ""
+                detail_v = vals[5] if len(vals) > 5 else ""
+                registro = {"idx": idx_v, "key": key_v, "ok": ok_v, "total": total_v, "detail": detail_v}
+                if key_v and key_v in chaves_api_mascaradas:
+                    por_chave[key_v] = {"ok": ok_v, "total": total_v, "detail": detail_v}
+                else:
+                    extras.append(registro)
+            ok = self._salvar_creditos_editados({"por_chave": por_chave, "extras": extras})
+            if ok and not silencioso:
+                self.log(f"[CRÉDITOS] Edições salvas em: {CREDITOS_EDITADOS_FILE}\n")
+            return ok
+
+        recalcular_resumo()
+
+        # ===== Editor inline: um Entry sobreposto à célula selecionada =====
+        editor: Dict[str, Any] = {"entry": None, "iid": None, "col": None}
+
+        def cancelar_editor(event=None):
+            e = editor.get("entry")
+            if e is not None:
+                try:
+                    e.destroy()
+                except Exception:
+                    pass
+            editor["entry"] = None
+            editor["iid"] = None
+            editor["col"] = None
+
+        def confirmar_editor(event=None):
+            e = editor.get("entry")
+            iid = editor.get("iid")
+            col = editor.get("col")
+            if e is None or not iid or not col:
+                cancelar_editor()
+                return
             try:
-                soma += int(r.get("total") or 0)
+                novo_valor = e.get()
+            except Exception:
+                cancelar_editor()
+                return
+            try:
+                idx_col = int(str(col).replace("#", "")) - 1
+                vals = list(tree.item(iid, "values"))
+                if 0 <= idx_col < len(vals):
+                    vals[idx_col] = novo_valor
+                    tree.item(iid, values=vals)
+            except Exception:
+                pass
+            cancelar_editor()
+            recalcular_resumo()
+            # Persiste automaticamente a edição para não se perder ao reabrir/reiniciar.
+            persistir_estado_tabela(silencioso=True)
+
+        def iniciar_edicao(iid, col):
+            cancelar_editor()
+            if not iid or not col:
+                return
+            # A coluna "Modelo em uso" (#5) é somente leitura: vem do servidor.
+            if str(col) == "#5":
+                self.definir_status("A coluna 'Modelo em uso' vem do servidor e não pode ser editada.")
+                return
+            try:
+                bbox = tree.bbox(iid, col)
+            except Exception:
+                bbox = None
+            if not bbox:
+                return
+            x, y, w, h = bbox
+            if not w:
+                return
+            try:
+                idx_col = int(str(col).replace("#", "")) - 1
+                vals = tree.item(iid, "values")
+                valor_atual = vals[idx_col] if 0 <= idx_col < len(vals) else ""
+            except Exception:
+                valor_atual = ""
+            e = ttk.Entry(tree)
+            e.place(x=x, y=y, width=w, height=h)
+            e.insert(0, str(valor_atual))
+            e.select_range(0, "end")
+            e.focus_set()
+            e.bind("<Return>", confirmar_editor)
+            e.bind("<KP_Enter>", confirmar_editor)
+            e.bind("<Escape>", cancelar_editor)
+            e.bind("<FocusOut>", confirmar_editor)
+            editor["entry"] = e
+            editor["iid"] = iid
+            editor["col"] = col
+
+        def ao_duplo_clique(event):
+            try:
+                if tree.identify_region(event.x, event.y) != "cell":
+                    return
+                iid = tree.identify_row(event.y)
+                col = tree.identify_column(event.x)
+            except Exception:
+                return
+            iniciar_edicao(iid, col)
+
+        def editar_selecionada(event=None):
+            iid = tree.focus()
+            if not iid:
+                sel = tree.selection()
+                iid = sel[0] if sel else ""
+            if iid:
+                # Por padrão edita a coluna "Detalhes" (a mais usada).
+                iniciar_edicao(iid, "#6")
+            return "break"
+
+        tree.bind("<Double-1>", ao_duplo_clique)
+        tree.bind("<F2>", editar_selecionada)
+        tree.bind("<Return>", editar_selecionada)
+
+        # ===== Ações auxiliares de edição da tabela =====
+        def adicionar_linha():
+            cancelar_editor()
+            novo = tree.insert("", "end", values=(len(tree.get_children()) + 1, "", "NÃO", 0, "--", ""))
+            tree.selection_set(novo)
+            tree.focus(novo)
+            tree.see(novo)
+            recalcular_resumo()
+            persistir_estado_tabela(silencioso=True)
+
+        def remover_selecionada():
+            cancelar_editor()
+            selecionados = tree.selection()
+            if not selecionados:
+                messagebox.showinfo("Informação", "Selecione uma linha para remover.", parent=janela)
+                return
+            for iid in selecionados:
+                tree.delete(iid)
+            recalcular_resumo()
+            persistir_estado_tabela(silencioso=True)
+
+        def salvar_alteracoes():
+            confirmar_editor()
+            # 1) Persistência principal: grava no arquivo local que é recarregado
+            #    ao reabrir a janela / reiniciar o app.
+            ok = persistir_estado_tabela(silencioso=False)
+
+            # 2) Cópia extra com carimbo de data/hora para histórico/backup.
+            try:
+                dados = []
+                for iid in tree.get_children():
+                    vals = tree.item(iid, "values")
+                    dados.append({
+                        "idx": vals[0] if len(vals) > 0 else "",
+                        "key_mascarada": vals[1] if len(vals) > 1 else "",
+                        "ok": vals[2] if len(vals) > 2 else "",
+                        "total": vals[3] if len(vals) > 3 else "",
+                        "model_servidor": vals[4] if len(vals) > 4 else "",
+                        "detail": vals[5] if len(vals) > 5 else "",
+                    })
+                SESSION_EXPORT_DIR.mkdir(exist_ok=True)
+                destino = SESSION_EXPORT_DIR / ("creditos_editados_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".json")
+                escrever_json_atomico(destino, {"salvo_em": agora_iso(), "linhas": dados})
+                try:
+                    self.enfileirar_backup(destino)
+                except Exception:
+                    pass
             except Exception:
                 pass
 
+            if ok:
+                messagebox.showinfo(
+                    "Salvo",
+                    "Alterações salvas localmente.\n\n"
+                    f"Arquivo: {CREDITOS_EDITADOS_FILE.name}\n\n"
+                    "Elas serão recarregadas automaticamente ao reabrir esta janela "
+                    "ou reiniciar o aplicativo.",
+                    parent=janela,
+                )
+            else:
+                messagebox.showerror("Erro", "Não foi possível salvar as alterações localmente.", parent=janela)
+
+        def descartar_edicoes():
+            if not messagebox.askyesno(
+                "Descartar edições",
+                "Isto apaga TODAS as edições locais salvas e volta a mostrar apenas os "
+                "valores reais consultados da API na próxima consulta.\n\nConfirmar?",
+                parent=janela,
+            ):
+                return
+            try:
+                if CREDITOS_EDITADOS_FILE.exists():
+                    CREDITOS_EDITADOS_FILE.unlink()
+            except Exception:
+                pass
+            # Zera o arquivo em memória também.
+            self._salvar_creditos_editados({"por_chave": {}, "extras": []})
+            try:
+                if CREDITOS_EDITADOS_FILE.exists():
+                    CREDITOS_EDITADOS_FILE.unlink()
+            except Exception:
+                pass
+            self.log("[CRÉDITOS] Edições locais descartadas.\n")
+            messagebox.showinfo(
+                "Edições descartadas",
+                "Edições locais apagadas. Consulte os créditos novamente para ver os valores reais.",
+                parent=janela,
+            )
+            janela.destroy()
+
+        # ===== Alterar o MODELO diretamente NO SERVIDOR do Manus =====
+        # Na API oficial, o modelo (agent_profile) é definido por TAREFA em
+        # task.create. Não há endpoint para trocar o modelo de uma tarefa
+        # existente nem um "modelo padrão da conta". Portanto, a forma real de
+        # mudar o modelo no servidor é criar uma nova tarefa com o modelo
+        # escolhido — o que faz a coluna "Modelo em uso" passar a refleti-lo.
+        modelo_frame = ttk.LabelFrame(
+            janela,
+            text="Alterar modelo diretamente no servidor do Manus (aplica na conta da chave selecionada)",
+            padding=(10, 6),
+        )
+        modelo_frame.grid(row=2, column=0, columnspan=2, sticky="ew", padx=10, pady=(0, 6))
+
+        ttk.Label(modelo_frame, text="Modelo:").pack(side="left", padx=(0, 6))
+        modelo_var = tk.StringVar(value="manus-1.6-lite")
+        ttk.Combobox(
+            modelo_frame,
+            textvariable=modelo_var,
+            values=["manus-1.6-lite", "manus-1.6", "manus-1.6-max"],
+            state="readonly",
+            width=18,
+        ).pack(side="left", padx=(0, 10))
+
+        def alterar_modelo_no_servidor():
+            confirmar_editor()
+            sel = tree.selection()
+            if not sel:
+                messagebox.showinfo(
+                    "Informação",
+                    "Selecione a linha da APIKEY cujo modelo você quer alterar no servidor.",
+                    parent=janela,
+                )
+                return
+            iid = sel[0]
+            vals = tree.item(iid, "values")
+            mk = str(vals[1]).strip() if len(vals) > 1 else ""
+            real_key = mapa_chave_real.get(mk, "")
+            if not real_key:
+                messagebox.showerror(
+                    "APIKEY não identificada",
+                    "Não foi possível obter a APIKEY real desta linha.\n\n"
+                    "Só é possível alterar o modelo no servidor de linhas vindas de uma "
+                    "chave consultada (não de linhas adicionadas manualmente).",
+                    parent=janela,
+                )
+                return
+            novo_modelo = (modelo_var.get() or "").strip()
+            if not novo_modelo:
+                messagebox.showinfo("Informação", "Escolha um modelo.", parent=janela)
+                return
+
+            if not messagebox.askyesno(
+                "Alterar modelo no servidor do Manus",
+                "Isto aplica o modelo escolhido DIRETAMENTE no servidor do Manus, "
+                "criando uma nova tarefa na conta dessa APIKEY com o modelo:\n\n"
+                f"    {novo_modelo}\n\n"
+                "Depois disso, a coluna 'Modelo em uso' passará a refletir esse modelo "
+                "(pois ela lê a tarefa mais recente da conta no servidor).\n\n"
+                "OBS.: a API do Manus só permite definir o modelo ao criar uma tarefa; "
+                "criar essa tarefa pode consumir créditos da conta.\n\nContinuar?",
+                parent=janela,
+            ):
+                return
+
+            self.definir_status(f"Alterando modelo no servidor para {novo_modelo}...")
+            self.log(f"[MODELO] Solicitando troca de modelo no servidor para {novo_modelo} (chave {mk}).\n")
+
+            def worker():
+                try:
+                    api = ManusAPI(real_key)
+
+                    # 1) Tenta aplicar o modelo na TAREFA EXISTENTE mais recente,
+                    #    usando o override oficial de agent_profile em sendMessage.
+                    recente = {}
+                    try:
+                        recente = api.most_recent_task()
+                    except Exception:
+                        recente = {}
+
+                    task_id_alvo = str(recente.get("id") or "").strip()
+
+                    if task_id_alvo:
+                        api.send_message(
+                            task_id_alvo,
+                            "Ajuste de modelo do aplicativo. Responda apenas com 'OK'.",
+                            agent_profile=novo_modelo,
+                        )
+                        novo_id = task_id_alvo
+                    else:
+                        # 2) Sem tarefas na conta: cria uma nova já no modelo pedido.
+                        titulo = titulo_nova_tarefa()
+                        prompt = (
+                            "Definição do modelo da conta pelo aplicativo. "
+                            "Responda apenas com 'OK' e não execute nenhuma outra ação."
+                        )
+                        data = api.create_task(prompt, novo_modelo, titulo)
+                        novo_id = data.get("task_id") or ""
+
+                    # 3) POLLING: o servidor aplica o modelo no próximo turno, então
+                    #    o valor não muda instantaneamente. Consultamos a tarefa
+                    #    específica (task.detail) repetidamente até o servidor
+                    #    confirmar o modelo pedido (ou esgotar ~30s).
+                    modelo_conf = ""
+                    alvo = str(novo_modelo).strip()
+                    tentativas = 15  # 15 x 2s = ~30s
+                    for i in range(tentativas):
+                        try:
+                            if novo_id:
+                                m = api.model_of_task(novo_id)
+                            else:
+                                m = api.current_model()
+                        except Exception:
+                            m = ""
+                        if m:
+                            modelo_conf = m
+                            if str(m).strip() == alvo:
+                                break
+                        self.msg("log", f"[MODELO] Aguardando o servidor aplicar '{alvo}'... (leitura atual: '{m or '--'}', tentativa {i + 1}/{tentativas})\n")
+                        time.sleep(2)
+
+                    if not modelo_conf:
+                        modelo_conf = novo_modelo
+
+                    self.msg(
+                        "modelo_alterado_servidor",
+                        janela, tree, iid,
+                        modelo_conf,
+                        novo_id,
+                        novo_modelo,
+                    )
+                except Exception as e:
+                    self.msg("modelo_alterado_erro", str(e))
+
+            self.executar_thread(worker)
+
+        ttk.Button(modelo_frame, text="Aplicar modelo no servidor", command=alterar_modelo_no_servidor).pack(side="left")
         ttk.Label(
-            rodape,
-            text=f"Consulta finalizada: {total_ok}/{len(linhas)} chave(s) OK. Soma dos saldos consultados: {soma} crédito(s).",
-        ).pack(side="left")
+            modelo_frame,
+            text="(cria uma nova tarefa na conta com o modelo escolhido - pode consumir créditos)",
+            style="Status.TLabel",
+        ).pack(side="left", padx=10)
+
+        ttk.Label(rodape, textvariable=resumo_var).pack(side="left")
 
         ttk.Button(rodape, text="Fechar", command=janela.destroy).pack(side="right")
+        ttk.Button(rodape, text="Salvar alterações", command=salvar_alteracoes).pack(side="right", padx=6)
+        ttk.Button(rodape, text="Descartar edições", command=descartar_edicoes).pack(side="right", padx=6)
+        ttk.Button(rodape, text="Remover linha", command=remover_selecionada).pack(side="right", padx=6)
+        ttk.Button(rodape, text="Adicionar linha", command=adicionar_linha).pack(side="right", padx=6)
 
     def estado_atual_para_checkpoint(self, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -4874,6 +7220,175 @@ class ManusGui(tk.Tk):
                 elif kind == "credit_all_result":
                     _, linhas = item
                     self.abrir_janela_creditos_todas_chaves(linhas)
+
+                elif kind == "modelo_alterado_servidor":
+                    _, janela_ref, tree_ref, iid, modelo_conf, novo_id, modelo_pedido = item
+                    try:
+                        if tree_ref.winfo_exists() and tree_ref.exists(iid):
+                            vals = list(tree_ref.item(iid, "values"))
+                            if len(vals) >= 5:
+                                vals[4] = modelo_conf
+                                tree_ref.item(iid, values=vals)
+                    except Exception:
+                        pass
+                    self.log(f"[MODELO] Pedido: '{modelo_pedido}' | confirmado no servidor: '{modelo_conf}' (tarefa: {novo_id}).\n")
+                    self.definir_status(f"Modelo no servidor agora: {modelo_conf}")
+                    try:
+                        rebaixou = (
+                            str(modelo_conf).strip()
+                            and str(modelo_pedido).strip()
+                            and str(modelo_conf).strip() != str(modelo_pedido).strip()
+                        )
+                        if rebaixou:
+                            messagebox.showwarning(
+                                "Modelo ainda não confirmado como o pedido",
+                                f"Você pediu: {modelo_pedido}\n"
+                                f"O servidor ainda reporta: {modelo_conf}\n\n"
+                                "Possíveis causas:\n"
+                                "1) PROPAGAÇÃO: o override entra em vigor no próximo turno da tarefa. "
+                                "Pode levar alguns segundos até o servidor refletir. Feche e reabra "
+                                "'Créditos de todas as chaves' (ou clique de novo em 'Aplicar modelo') "
+                                "para reconsultar.\n\n"
+                                "2) PLANO/CHAVE: confirme que ESTA APIKEY pertence à conta com plano pago. "
+                                "Contas gratuitas são rebaixadas para manus-1.6-lite pelo servidor.\n\n"
+                                "3) A tarefa usada como base pode estar finalizada; nesse caso o override "
+                                "só aparece após um novo turno processar.\n\n"
+                                "Se você tem plano pago nesta chave e o valor não muda mesmo após reabrir, "
+                                "me avise que eu ajusto a estratégia (ex.: criar uma tarefa nova já no modelo).",
+                            )
+                        else:
+                            messagebox.showinfo(
+                                "Modelo alterado no servidor",
+                                f"Modelo aplicado no servidor do Manus: {modelo_conf}\n"
+                                f"Tarefa: {novo_id}\n\n"
+                                "A coluna 'Modelo em uso' foi atualizada com o valor real do servidor.",
+                            )
+                    except Exception:
+                        pass
+
+                elif kind == "modelo_alterado_erro":
+                    _, erro = item
+                    self.log(f"[MODELO/ERRO] {erro}\n")
+                    self.definir_status("Falha ao alterar modelo no servidor.")
+                    if erro_credito_esgotado(erro):
+                        messagebox.showerror(
+                            "Sem crédito",
+                            "Não foi possível alterar o modelo: a conta está sem crédito/limite "
+                            "para criar a tarefa que aplica o modelo no servidor.\n\n" + resumo_texto(erro, 300),
+                        )
+                    else:
+                        messagebox.showerror("Erro ao alterar modelo", str(erro))
+
+                elif kind == "conta_proxy_list":
+                    _, lista, info = item
+                    try:
+                        self.conta_proxy_combo.configure(values=lista)
+                        if lista:
+                            self.conta_proxy_var.set(lista[0])
+                        self.conta_proxy_status_var.set(info)
+                    except Exception:
+                        pass
+
+                elif kind == "conta_proxy_status":
+                    _, texto = item
+                    try:
+                        self.conta_proxy_status_var.set(str(texto))
+                    except Exception:
+                        pass
+
+                elif kind == "tor_status":
+                    _, texto = item
+                    try:
+                        self.tor_status_var.set(str(texto))
+                    except Exception:
+                        pass
+
+                elif kind == "tor_set_url":
+                    _, u = item
+                    try:
+                        self.tor_url_var.set(str(u))
+                    except Exception:
+                        pass
+
+                elif kind == "tor_iniciar":
+                    try:
+                        self.iniciar_tor()
+                    except Exception:
+                        pass
+
+                elif kind == "tor_pronto":
+                    try:
+                        self.conta_proxy_var.set("socks5://127.0.0.1:9050")
+                        self.conta_proxy_enabled_var.set(True)
+                        self.conta_anon_var.set(True)
+                        self.tor_status_var.set(
+                            "Tor conectado (bootstrap 100%)! Proxy socks5://127.0.0.1:9050 + modo privacidade ativados."
+                        )
+                    except Exception:
+                        pass
+                    self.log("[TOR] Conectado (bootstrap 100%). Proxy e modo privacidade ativados.\n")
+
+                elif kind == "kb_status":
+                    _, t = item
+                    try:
+                        self.kb_status_var.set(str(t))
+                    except Exception:
+                        pass
+
+                elif kind == "kb_massa_status":
+                    _, t = item
+                    try:
+                        self.kb_massa_status_var.set(str(t))
+                    except Exception:
+                        pass
+
+                elif kind == "local_status":
+                    _, t = item
+                    try:
+                        self.local_status_var.set(str(t))
+                    except Exception:
+                        pass
+
+                elif kind == "local_result":
+                    _, res = item
+                    self._local_resultados = res or []
+                    try:
+                        self.local_lista.delete(0, "end")
+                        for r in self._local_resultados:
+                            self.local_lista.insert(
+                                "end",
+                                f"[{r.get('tipo')}] {r.get('termo')} — {resumo_texto(r.get('titulo') or '', 60)}",
+                            )
+                        self.local_status_var.set(f"{len(self._local_resultados)} resultado(s) na base local (sem IA).")
+                        if not self._local_resultados:
+                            self.local_detalhe_text.delete("1.0", "end")
+                            self.local_detalhe_text.insert("1.0", "Nada encontrado. Cadastre conteúdo na aba 'Base de Conhecimento'.")
+                    except Exception:
+                        pass
+
+                elif kind == "local_ftp_result":
+                    _, nomes = item
+                    try:
+                        self.local_ftp_lista.delete(0, "end")
+                        for n in (nomes or []):
+                            self.local_ftp_lista.insert("end", str(n))
+                        self.local_status_var.set(f"{len(nomes or [])} item(ns) no FTP (base_conhecimento).")
+                    except Exception:
+                        pass
+
+                elif kind == "api_console_result":
+                    _, ok, titulo, texto = item
+                    try:
+                        cabecalho = ("OK" if ok else "ERRO") + f" | {titulo} | {agora_iso()}"
+                        self.api_response_text.insert("end", f"\n===== {cabecalho} =====\n{texto}\n")
+                        self.api_response_text.see("end")
+                    except Exception:
+                        pass
+                    try:
+                        self.api_console_status_var.set(("OK: " if ok else "ERRO: ") + titulo)
+                    except Exception:
+                        pass
+                    self.log(f"[API] {'OK' if ok else 'ERRO'} {titulo}\n")
 
                 elif kind == "other_ai_result":
                     _, ok, provider_name, text_or_error, raw = item
@@ -8639,6 +11154,10 @@ class ManusGui(tk.Tk):
           checkpoint da tarefa e rascunho) antes de fechar, para nada se perder.
         """
         try:
+            self.parar_tor()
+        except Exception:
+            pass
+        try:
             if self.privacy_var.get():
                 self.limpar_dados_locais()
             else:
@@ -8669,6 +11188,76 @@ class ManusGui(tk.Tk):
             self.destroy()
 
 
+def run_webview(url: str, titulo: str = "Manus", proxy: str = "", anon: bool = False) -> int:
+    """
+    Abre uma JANELA EMBUTIDA (pywebview) com a URL informada.
+
+    Roda em um PROCESSO separado (chamado com --webview), pois o pywebview
+    precisa da thread principal e não pode coexistir com o mainloop do Tkinter.
+
+    proxy: se informado (host:port ou scheme://host:port), roteia o tráfego por ele
+    (WebView2 via --proxy-server + fallback HTTP(S)_PROXY).
+
+    anon (Modo Privacidade Máxima): NÃO é "100% anônimo" (isso não existe), mas
+    reduz bastante o rastreamento:
+    - modo privado (private_mode): não guarda cookies/histórico/localStorage;
+    - armazenamento temporário isolado (apagado depois);
+    - WebRTC configurado para não vazar o IP local/real;
+    - user-agent genérico.
+    Importante: fazer LOGIN na conta identifica você de qualquer forma.
+    """
+    if not WEBVIEW_DISPONIVEL:
+        print(
+            "A janela embutida precisa da biblioteca 'pywebview'.\n"
+            "Instale com: python -m pip install pywebview",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        proxy = str(proxy or "").strip()
+        extra_args = []
+
+        if proxy:
+            proxy_url = proxy if "://" in proxy else ("http://" + proxy)
+            extra_args.append(f"--proxy-server={proxy_url}")
+            # Fallback genérico (alguns backends respeitam variáveis de ambiente).
+            os.environ["HTTP_PROXY"] = proxy_url
+            os.environ["HTTPS_PROXY"] = proxy_url
+            os.environ["http_proxy"] = proxy_url
+            os.environ["https_proxy"] = proxy_url
+
+        ua_generico = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                       "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+
+        if anon:
+            # Evita vazamento de IP real por WebRTC e reduz identificação por mDNS.
+            extra_args.append("--force-webrtc-ip-handling-policy=disable_non_proxied_udp")
+            extra_args.append("--disable-features=WebRtcHideLocalIpsWithMdns")
+
+        if extra_args:
+            os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = " ".join(extra_args)
+
+        webview.create_window(titulo or "Manus", url, width=1180, height=820, resizable=True)
+
+        # Alguns kwargs (user_agent/storage_path/private_mode) só existem em
+        # versões novas do pywebview; por isso o fallback protegido.
+        start_kwargs = {}
+        if anon:
+            import tempfile
+            start_kwargs["private_mode"] = True
+            start_kwargs["storage_path"] = tempfile.mkdtemp(prefix="manus_anon_")
+            start_kwargs["user_agent"] = ua_generico
+        try:
+            webview.start(**start_kwargs)
+        except TypeError:
+            # Versão antiga do pywebview sem esses parâmetros.
+            webview.start()
+        return 0
+    except Exception as e:
+        print(f"[WEBVIEW/ERRO] {e}", file=sys.stderr)
+        return 1
+
+
 def run_gui():
     app = ManusGui()
     app.mainloop()
@@ -8688,11 +11277,19 @@ def parse_args():
     p.add_argument("--no-download", action="store_true", help="Desativa download automático de anexos/links.")
     p.add_argument("--list-completed", action="store_true", help="Lista tarefas concluídas no terminal e sai.")
     p.add_argument("--completed-pages", type=int, default=5, help="Quantidade de páginas da API para varrer ao listar concluídas.")
+    p.add_argument("--webview", default="", help="Abre uma janela embutida (pywebview) com a URL informada e sai.")
+    p.add_argument("--webview-title", default="Manus", help="Título da janela embutida aberta com --webview.")
+    p.add_argument("--webview-proxy", default="", help="Proxy (host:port ou scheme://host:port) para a janela embutida.")
+    p.add_argument("--webview-anon", action="store_true", help="Abre a janela embutida em modo privacidade máxima.")
     return p.parse_args()
 
 
 def main():
     args = parse_args()
+
+    # Modo janela embutida: abre a página do Manus em uma janela pywebview e sai.
+    if args.webview:
+        return run_webview(args.webview, args.webview_title, args.webview_proxy, args.webview_anon)
 
     if args.list_completed:
         try:
